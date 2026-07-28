@@ -15,7 +15,28 @@ export const UpdateTaskSchema = z.object({ type: z.literal("update_task"), id: z
 export const DeleteTaskSchema = z.object({ type: z.literal("delete_task"), id: z.string().min(1) });
 
 // SKILL
-export const CreateSkillSchema = z.object({ type: z.literal("create_skill"), title: TitleField, category: z.string().optional(), level: z.number().int().min(1).max(100).optional(), description: DescField });
+// Was {title (required), category, level} — none are real fields: the
+// create_skill/create_subskill handler reads name/description/category/
+// energy_type/tier/cost/proficiency/prerequisites/parent_skill_id/
+// parent_skill_name (supabase/functions/mavis-actions/index.ts), and the
+// real skills table has no "level" column (it's tier + proficiency). Same
+// bug class as the update_skill fix — found via the same investigation,
+// same silent-legacy-fallback masking, fixed the same way. "unlocked" is
+// deliberately NOT included: the handler hardcodes it to true on create,
+// never reads it from params.
+export const CreateSkillSchema = z.object({
+  type: z.literal("create_skill"),
+  name: z.string().min(1, "name is required"),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  energy_type: z.string().optional(),
+  tier: z.number().int().optional(),
+  cost: z.number().int().nonnegative().optional(),
+  proficiency: z.number().int().min(0).max(100).optional(),
+  prerequisites: z.array(z.string()).optional(),
+  parent_skill_id: z.string().optional(),
+  parent_skill_name: z.string().optional(),
+});
 export const UpdateSkillSchema = z.object({
   type: z.literal("update_skill"),
   skill_id: z.string().min(1).optional(),
@@ -54,7 +75,12 @@ export const UpdateJournalSchema = z.object({
 export const DeleteJournalSchema = z.object({ type: z.literal("delete_journal"), id: z.string().min(1) });
 
 // VAULT
-export const CreateVaultSchema = z.object({ type: z.literal("create_vault"), title: TitleField, content: z.string().min(1), category: z.string().optional(), confidential: z.boolean().optional() });
+// confidential intentionally removed — not a real column, not read by the
+// create_vault handler, not in what promptBuilder.ts documents. Same field
+// as the one already removed from UpdateVaultSchema this session. Also
+// added importance/attachments, which the handler does read but the old
+// schema didn't declare.
+export const CreateVaultSchema = z.object({ type: z.literal("create_vault"), title: TitleField, content: z.string().min(1), category: z.string().optional(), importance: z.string().optional(), attachments: z.array(z.string()).optional() });
 export const UpdateVaultSchema = z.object({
   type: z.literal("update_vault"),
   entry_id: z.string().min(1).optional(),
@@ -66,9 +92,8 @@ export const UpdateVaultSchema = z.object({
   importance: z.string().optional(),
   // confidential intentionally removed — not a real column, not accepted by
   // mavis-actions' update_vault handler, not in what promptBuilder.ts tells
-  // the LLM to send. See docs/EXECUTION-PROGRESS.md for the repo-wide grep
-  // confirming CreateVaultSchema has the same unused field (out of scope
-  // for this fix — flagged, not touched).
+  // the LLM to send. CreateVaultSchema had the same unused field — also
+  // removed, see that schema's own comment.
 }).refine(
   (v) => v.entry_id || v.id || v.entry_title || v.title,
   { message: "entry_id or entry_title (or id/title) is required to identify the vault entry" },

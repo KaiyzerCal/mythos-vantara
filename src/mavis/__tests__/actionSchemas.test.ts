@@ -72,12 +72,19 @@ describe("ActionSchema discriminated union", () => {
     expect(contaminated.success).toBe(false);
   });
 
-  it("validates create_skill with level bounds", () => {
-    const valid = ActionSchema.safeParse({ type: "create_skill", title: "Focus", level: 50 });
+  it("validates create_skill with real fields (name/tier/proficiency, not title/level)", () => {
+    // title/level were never real create_skill fields — see CreateSkillSchema's
+    // own comment in actionSchemas.ts. This replaces a test that was
+    // asserting the old, wrong shape validated successfully.
+    const valid = ActionSchema.safeParse({ type: "create_skill", name: "Focus", tier: 2, proficiency: 50 });
     expect(valid.success).toBe(true);
 
-    const overMax = ActionSchema.safeParse({ type: "create_skill", title: "Focus", level: 101 });
-    expect(overMax.success).toBe(false);
+    const overMaxProficiency = ActionSchema.safeParse({ type: "create_skill", name: "Focus", proficiency: 101 });
+    expect(overMaxProficiency.success).toBe(false);
+  });
+
+  it("rejects create_skill without a name", () => {
+    expect(ActionSchema.safeParse({ type: "create_skill", description: "no name given" }).success).toBe(false);
   });
 
   it("validates create_ally with trust_level bounds", () => {
@@ -102,6 +109,67 @@ describe("ActionSchema discriminated union", () => {
 // :::ACTION{...}::: examples in promptBuilder.ts, not paraphrased — the bug
 // this closes was specifically "the documented example doesn't pass its own
 // validator."
+describe("create_skill — matches promptBuilder.ts example + real skills columns", () => {
+  it("accepts the exact promptBuilder.ts example shape", () => {
+    const result = ActionSchema.safeParse({
+      type: "create_skill",
+      name: "Fireball",
+      description: "...",
+      category: "Combat",
+      energy_type: "Emerald Flames",
+      tier: 1,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a sub-skill with parent_skill_name linking", () => {
+    const result = ActionSchema.safeParse({
+      type: "create_skill",
+      name: "Fireball II",
+      parent_skill_name: "Fireball",
+      tier: 2,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects create_skill without a name", () => {
+    expect(ActionSchema.safeParse({ type: "create_skill", description: "no name" }).success).toBe(false);
+  });
+
+  it("title and level are not real fields — regression guard", () => {
+    // {title, level} used to be the ENTIRE schema (both required-ish and
+    // both unused by the real handler). name is required now, so a
+    // title/level-only payload correctly fails outright.
+    const result = ActionSchema.safeParse({ type: "create_skill", title: "Old Shape", level: 50 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("create_vault — matches promptBuilder.ts example, confidential removed", () => {
+  it("accepts the exact promptBuilder.ts example shape", () => {
+    const result = ActionSchema.safeParse({
+      type: "create_vault",
+      title: "Contract",
+      content: "...",
+      category: "legal",
+      importance: "critical",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("confidential is accepted-but-ignored, not rejected (same treatment as update_vault)", () => {
+    const result = ActionSchema.safeParse({ type: "create_vault", title: "x", content: "y", confidential: true });
+    expect(result.success).toBe(true);
+    if (result.success && result.data.type === "create_vault") {
+      expect("confidential" in result.data).toBe(false);
+    }
+  });
+
+  it("rejects create_vault without content", () => {
+    expect(ActionSchema.safeParse({ type: "create_vault", title: "x" }).success).toBe(false);
+  });
+});
+
 describe("update_skill — matches promptBuilder.ts example + real skills columns", () => {
   it("accepts the exact promptBuilder.ts example shape", () => {
     const result = ActionSchema.safeParse({
