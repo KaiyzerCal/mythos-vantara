@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader } from "@/components/SharedUI";
 import { LoadingState } from "@/components/LoadingState";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, ShieldAlert } from "lucide-react";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, ShieldAlert, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 
@@ -16,6 +16,14 @@ interface MediaItem {
   provider?: string;
   created_at: string;
   extra?: Record<string, unknown>;
+  // Delete is only offered for vault_media-sourced items (raw_id = that
+  // row's real id). Items sourced from mavis_social_posts are a different
+  // feature's post-history record (draft/scheduled/posted, may reference a
+  // real published external_id) — editing their media_urls array from here
+  // would reach into that data model's semantics, so they're shown
+  // read-only (view/download only, no delete affordance).
+  source?: "vault" | "social";
+  raw_id?: string;
 }
 
 function timeAgo(iso: string): string {
@@ -38,7 +46,7 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   poster: <Globe size={12} />,
 };
 
-function MediaCard({ item, onSendToVideo }: { item: MediaItem; onSendToVideo?: (url: string) => void }) {
+function MediaCard({ item, onSendToVideo, onDelete }: { item: MediaItem; onSendToVideo?: (url: string) => void; onDelete?: (item: MediaItem) => void }) {
   const [imgError, setImgError] = useState(false);
 
   return (
@@ -114,6 +122,16 @@ function MediaCard({ item, onSendToVideo }: { item: MediaItem; onSendToVideo?: (
               title="Animate → Video"
             >
               <Play size={13} />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(item); }}
+              className="w-8 h-8 rounded-full bg-destructive/20 border border-destructive/40 flex items-center justify-center text-white hover:bg-destructive/50 transition-colors"
+              title="Delete"
+            >
+              <Trash2 size={13} />
             </button>
           )}
         </div>
@@ -196,25 +214,33 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
       if (!data?.url) throw new Error(data?.error ?? "No image URL returned");
       setLastUrl(data.url);
 
-      // Persist to vault_media so it shows up in the gallery on next load
+      // Persist to vault_media so it shows up in the gallery on next load —
+      // capture the row id back so the card can be deleted immediately
+      // without needing a refresh first.
+      let savedId: string | null = null;
+      let savedCreatedAt: string | null = null;
       if (session?.user) {
-        await (supabase as any).from("vault_media").insert({
+        const { data: row } = await (supabase as any).from("vault_media").insert({
           user_id: session.user.id,
           file_name: prompt.trim().slice(0, 80),
           file_type: "image/png",
           file_url: data.url,
           description: prompt.trim(),
           tags: ["generated", data.provider ?? "ai", `${s.w}x${s.h}`],
-        });
+        }).select("id, created_at").single();
+        savedId = row?.id ?? null;
+        savedCreatedAt = row?.created_at ?? null;
       }
 
       onGenerated({
-        id: `gen-${Date.now()}`,
+        id: savedId ? `vault-${savedId}` : `gen-${Date.now()}`,
+        source: savedId ? "vault" : undefined,
+        raw_id: savedId ?? undefined,
         type: "image",
         url: data.url,
         title: prompt.trim().slice(0, 80),
         provider: data.provider ?? "ai",
-        created_at: new Date().toISOString(),
+        created_at: savedCreatedAt ?? new Date().toISOString(),
         extra: { prompt, width: s.w, height: s.h },
       });
     } catch (e: any) {
@@ -438,23 +464,29 @@ function VideoGenPanel({ onGenerated, seedImageUrl }: { onGenerated: (item: Medi
 
       if (url) {
         setLastUrl(url);
+        let savedId: string | null = null;
+        let savedCreatedAt: string | null = null;
         if (session?.user) {
-          await (supabase as any).from("vault_media").insert({
+          const { data: row } = await (supabase as any).from("vault_media").insert({
             user_id: session.user.id,
             file_name: prompt.trim().slice(0, 80),
             file_type: "video/mp4",
             file_url: url,
             description: prompt.trim(),
             tags: ["generated", videoProvider, cameraMotion, aspect, `${duration}s`],
-          });
+          }).select("id, created_at").single();
+          savedId = row?.id ?? null;
+          savedCreatedAt = row?.created_at ?? null;
         }
         onGenerated({
-          id: `vid-${Date.now()}`,
+          id: savedId ? `vault-${savedId}` : `vid-${Date.now()}`,
+          source: savedId ? "vault" : undefined,
+          raw_id: savedId ?? undefined,
           type: "video",
           url,
           title: prompt.trim().slice(0, 80),
           provider: videoProvider,
-          created_at: new Date().toISOString(),
+          created_at: savedCreatedAt ?? new Date().toISOString(),
           extra: { cameraMotion, aspect, duration },
         });
       } else {
@@ -612,11 +644,77 @@ export function GalleryPage() {
   const [filter, setFilter] = useState<FilterType>("all");
   const [genMode, setGenMode] = useState<"image" | "video">("image");
   const [seedImageUrl, setSeedImageUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const handleSendToVideo = useCallback((url: string) => {
     setSeedImageUrl(url);
     setGenMode("video");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const handleDelete = useCallback(async (item: MediaItem) => {
+    if (!item.raw_id) return;
+    if (!window.confirm(`Delete this ${item.type}? This can't be undone.`)) return;
+    try {
+      const { error } = await (supabase as any).from("vault_media").delete().eq("id", item.raw_id);
+      if (error) throw error;
+      // Best-effort storage cleanup — only applies to files actually
+      // uploaded to Supabase Storage (the "avatars" bucket, via the
+      // Upload button or the /gallery generators below); externally-hosted
+      // provider URLs (fal.ai, pollinations, etc.) and base64 data URIs
+      // don't match this pattern and are silently skipped.
+      const marker = "/storage/v1/object/public/avatars/";
+      const idx = item.url.indexOf(marker);
+      if (idx !== -1) {
+        const path = item.url.slice(idx + marker.length);
+        await supabase.storage.from("avatars").remove([path]).catch(() => {});
+      }
+      setItems(prev => prev.filter(i => i.id !== item.id));
+    } catch (e: any) {
+      alert(`Delete failed: ${e?.message ?? "unknown error"}`);
+    }
+  }, []);
+
+  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file afterward
+    if (!file) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) { alert("Not signed in."); return; }
+    setUploading(true);
+    try {
+      const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+      const path = `gallery/${session.user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+
+      const { data: row, error: insErr } = await (supabase as any).from("vault_media").insert({
+        user_id: session.user.id,
+        file_name: file.name,
+        file_type: file.type,
+        file_url: pub.publicUrl,
+        description: "",
+        tags: ["uploaded"],
+      }).select("id, created_at").single();
+      if (insErr) throw insErr;
+
+      const type: MediaItem["type"] = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image";
+      setItems(prev => [{
+        id: `vault-${row.id}`,
+        source: "vault",
+        raw_id: row.id,
+        type,
+        url: pub.publicUrl,
+        title: file.name,
+        provider: "uploaded",
+        created_at: row.created_at,
+      }, ...prev]);
+    } catch (err: any) {
+      alert(`Upload failed: ${err?.message ?? "unknown error"}`);
+    } finally {
+      setUploading(false);
+    }
   }, []);
 
 
@@ -667,6 +765,8 @@ export function GalleryPage() {
 
         collected.push({
           id: `vault-${item.id}`,
+          source: "vault",
+          raw_id: item.id,
           type,
           url: publicUrl,
           title: item.file_name ?? "untitled",
@@ -681,6 +781,7 @@ export function GalleryPage() {
           if (!url) continue;
           collected.push({
             id: `social-${post.id}-${url}`,
+            source: "social",
             type: /\.(mp4|webm|mov)$/i.test(url) ? "video" : "image",
             url,
             title: post.content?.slice(0, 60) ?? `${post.platform} post`,
@@ -721,9 +822,16 @@ export function GalleryPage() {
         subtitle="Generate cinematic images and video — inspired by Higgsfield"
         icon={<Wand2 size={18} />}
         actions={
-          <button onClick={load} className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
-            <RefreshCw size={12} /> Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1 cursor-pointer">
+              {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+              {uploading ? "Uploading…" : "Upload"}
+              <input type="file" accept="image/*,video/*" onChange={handleUpload} disabled={uploading} className="hidden" />
+            </label>
+            <button onClick={load} className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
+              <RefreshCw size={12} /> Refresh
+            </button>
+          </div>
         }
       />
 
@@ -789,7 +897,7 @@ export function GalleryPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           <AnimatePresence>
             {visible.map((item) => (
-              <MediaCard key={item.id} item={item} onSendToVideo={handleSendToVideo} />
+              <MediaCard key={item.id} item={item} onSendToVideo={handleSendToVideo} onDelete={item.source === "vault" ? handleDelete : undefined} />
             ))}
           </AnimatePresence>
         </div>
