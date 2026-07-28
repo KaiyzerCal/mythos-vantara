@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,6 +15,17 @@ const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 // Set: STABLE_DIFFUSION_URL=http://your-server:7860
 const SD_URL = Deno.env.get("STABLE_DIFFUSION_URL") ?? "";
 const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
+// PromptChan — explicit/NSFW-capable image generation. ONLY ever invoked
+// when the caller explicitly requests nsfw:true AND the calling account's
+// profiles.nsfw_generation_enabled flag is true (checked server-side below,
+// fail-closed — see the gate in serve()). Never part of the default SFW
+// cascade.
+const PROMPTCHAN_KEY = Deno.env.get("PROMPTCHAN_API_KEY") ?? "";
+// Deliberately NOT hardcoded to a guessed domain — see CONFIDENCE NOTE below.
+const PROMPTCHAN_BASE = Deno.env.get("PROMPTCHAN_API_BASE") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 // Lovable AI Gateway — free via workspace credits, high-quality Gemini image gen.
 async function generateWithLovableAI(prompt: string): Promise<string | null> {
@@ -205,15 +217,113 @@ async function generateWithOpenAiImage(prompt: string, size?: string, quality?: 
   throw new Error("gpt-image-1 returned no image");
 }
 
+// ⚠ CONFIDENCE NOTE — read before relying on this (same caveat class as
+// mavis-composio-agent's, for the same reason: full API reference sits
+// behind a logged-in developer dashboard, not publicly indexed).
+// Independently confirmed via public sources: endpoint path is
+// POST /api/external/create, auth is an `x-api-key` header, and a
+// successful response is {image: <base64>, gems: <remaining balance>}.
+// NOT independently confirmed: the base domain (PROMPTCHAN_API_BASE must
+// be set from your own dashboard — nothing is hardcoded here on purpose,
+// so a wrong guess can't send your API key/prompts to an unintended host)
+// and the exact request-body field names beyond "prompt" (style/negative-
+// prompt naming below is inferred from product UI copy, not a schema).
+// Smoke-test with a throwaway prompt and a real API key before trusting
+// this for anything.
+async function generateWithPromptchan(prompt: string): Promise<string | null> {
+  if (!PROMPTCHAN_KEY || !PROMPTCHAN_BASE) return null;
+  const res = await fetch(`${PROMPTCHAN_BASE}/api/external/create`, {
+    method: "POST",
+    headers: { "x-api-key": PROMPTCHAN_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: prompt.trim().slice(0, 2000),
+      style: "hyper-anime",
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`PromptChan ${res.status}: ${err.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const b64 = data?.image;
+  if (!b64) throw new Error("PromptChan returned no image data");
+  return `data:image/png;base64,${b64}`;
+}
+
+// Resolves the calling user's id for the NSFW gate check only — the SFW
+// cascade below stays exactly as unauthenticated-compatible as it always
+// was (zero behavior change for existing callers). Mirrors the dual-path
+// auth pattern already established in mavis-actions/index.ts: server-to-
+// server callers (mavis-chat, telegram-webhook, etc.) present the service
+// role key + an explicit userId in the body; frontend callers present the
+// user's own JWT.
+async function resolveCallingUserId(req: Request, body: Record<string, unknown>): Promise<string | null> {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.replace("Bearer ", "");
+  if (token === SUPABASE_SERVICE_ROLE_KEY && body.userId) return String(body.userId);
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const { data, error } = await userClient.auth.getUser(token);
+  if (error || !data?.user?.id) return null;
+  return data.user.id;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { prompt, size, quality, aspect_ratio, width, height, provider: requestedProvider } = await req.json();
+    const body = await req.json();
+    const { prompt, size, quality, aspect_ratio, width, height, provider: requestedProvider, nsfw } = body;
     if (!prompt?.trim()) {
       return new Response(JSON.stringify({ error: "prompt is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // NSFW explicit-mode generation — fail-closed. This is the ONLY path
+    // that ever touches PromptChan; everything below is the pre-existing
+    // SFW cascade, unchanged. No userId → no enabled flag → no image, full
+    // stop. This never silently falls back to an SFW provider on failure
+    // (that would misleadingly hand back an unrelated image for what was
+    // asked as an explicit request) — it fails loudly instead, matching
+    // the no-silent-fallback rule used throughout this app's action layer.
+    if (nsfw === true) {
+      const callingUserId = await resolveCallingUserId(req, body);
+      if (!callingUserId) {
+        return new Response(JSON.stringify({ error: "NSFW generation requires authentication." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const { data: profile } = await adminClient.from("profiles")
+        .select("nsfw_generation_enabled").eq("id", callingUserId).maybeSingle();
+      if (!profile?.nsfw_generation_enabled) {
+        return new Response(JSON.stringify({ error: "NSFW generation is disabled for this account. Enable profiles.nsfw_generation_enabled to use it." }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (!PROMPTCHAN_KEY || !PROMPTCHAN_BASE) {
+        return new Response(JSON.stringify({ error: "PromptChan is not configured (PROMPTCHAN_API_KEY / PROMPTCHAN_API_BASE missing)." }), {
+          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const imageData = await generateWithPromptchan(prompt);
+      if (!imageData) {
+        return new Response(JSON.stringify({ error: "PromptChan returned no image." }), {
+          status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(
+        JSON.stringify({ url: imageData, revised_prompt: prompt, provider: "promptchan", notes: [] }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     // Support width/height as an alternative to size string. Default to HD.

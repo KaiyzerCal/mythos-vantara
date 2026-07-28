@@ -841,7 +841,11 @@ export const ProposeProductSchema = z.object({
 });
 
 // IMAGE GENERATION
-export const GenerateImageSchema = z.object({ type: z.literal("generate_image"), prompt: z.string().min(1), aspect_ratio: z.enum(["1:1","16:9","9:16","4:3","3:4"]).optional(), save_to_vault: z.boolean().optional() });
+// nsfw is fail-closed server-side (mavis-image-gen checks
+// profiles.nsfw_generation_enabled before ever calling PromptChan) —
+// accepting it here just lets the request through; it does NOT grant
+// anything by itself.
+export const GenerateImageSchema = z.object({ type: z.literal("generate_image"), prompt: z.string().min(1), aspect_ratio: z.enum(["1:1","16:9","9:16","4:3","3:4"]).optional(), save_to_vault: z.boolean().optional(), nsfw: z.boolean().optional() });
 
 // VIDEO GENERATION
 export const GenerateVideoSchema = z.object({

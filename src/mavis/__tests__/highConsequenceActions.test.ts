@@ -343,6 +343,36 @@ describe("create_ritual / update_plan / upsert_signal_config — AUTO path, prev
   });
 });
 
+// PromptChan integration — generate_image gained an optional nsfw flag.
+// The real safety gate lives server-side in mavis-image-gen (fail-closed on
+// profiles.nsfw_generation_enabled), but this is the client-side layer:
+// nsfw:true must always require confirmation, exactly like every other
+// sensitive action in this file, regardless of what the backend gate does.
+describe("generate_image — nsfw flag CONFIRM gate", () => {
+  it("nsfw:true requires confirmation — never auto-executes", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("generate_image", handler);
+
+    const result = await executeAction(makeAction({ type: "generate_image", prompt: "a portrait", nsfw: true }));
+    expect(result.status).toBe("pending_confirmation");
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("without nsfw (or nsfw:false) generate_image stays AUTO", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("generate_image", handler);
+
+    const result = await executeAction(makeAction({ type: "generate_image", prompt: "a landscape" }));
+    expect(result.status).toBe("success");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("Zod accepts the nsfw field", () => {
+    expect(ActionSchema.safeParse({ type: "generate_image", prompt: "x", nsfw: true }).success).toBe(true);
+    expect(ActionSchema.safeParse({ type: "generate_image", prompt: "x" }).success).toBe(true);
+  });
+});
+
 describe("delete_vault", () => {
   it("is CONFIRM-gated — never auto-executes", async () => {
     const handler = vi.fn().mockResolvedValue(undefined);

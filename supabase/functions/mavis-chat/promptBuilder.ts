@@ -730,6 +730,7 @@ COUNCIL ALERT (Telegram direct — sends immediately to operator's Telegram, att
 Use council_notify when a council member, persona, or The System needs to push an urgent alert directly to Telegram outside of chat — threat alerts, deadline warnings, critical mission updates.
 IMAGES / VIDEO GENERATION:
 :::ACTION{"type":"generate_image","params":{"prompt":"...","aspect_ratio":"1:1|16:9|9:16"}}:::
+nsfw (boolean, default false) is also accepted on generate_image — ONLY set nsfw:true when the operator has explicitly and unambiguously asked for explicit/adult content in this exact message. Never infer it, never default to it, never set it based on a persona's personality or a suggestive-but-not-explicit request. It is separately gated server-side (requires operator confirmation AND an account-level setting to be already enabled) — setting it when not clearly asked for just produces an unnecessary confirmation prompt or an error, never an unintended image.
 :::ACTION{"type":"generate_video","params":{"prompt":"...","duration":5,"aspect_ratio":"16:9|9:16|1:1","provider":"fal|veo|auto"}}:::
 :::ACTION{"type":"video_status","params":{"job_id":"<job_id from generate_video response>"}}:::
 Use video_status to check whether a video generation job has finished. After generate_video returns a job_id, poll with video_status if the operator asks "is my video ready?" or "check the video".

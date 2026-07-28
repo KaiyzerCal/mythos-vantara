@@ -1181,42 +1181,48 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
+      const wantsNsfw = p.nsfw === true;
 
       let imageUrl = "";
       let imageb64 = "";
       let note = "";
 
-      // Try Gemini Imagen first
-      if (geminiKey) {
-        try {
-          const imgRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${geminiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                instances: [{ prompt }],
-                parameters: { sampleCount: 1, aspectRatio },
-              }),
-              signal: AbortSignal.timeout(45_000),
-            }
-          );
-          if (imgRes.ok) {
-            const imgData = await imgRes.json();
-            imageb64 = imgData?.predictions?.[0]?.bytesBase64Encoded ?? "";
-            if (imageb64) {
-              imageUrl = `data:image/png;base64,${imageb64}`;
-            }
+      // Delegates actual pixel generation to mavis-image-gen, which has a
+      // full multi-provider cascade (Lovable/Imagen4/FluxPro/ModelsLab/
+      // OpenAI/StableDiffusion/Pollinations — Pollinations is always
+      // available with zero keys configured, so this practically always
+      // succeeds now) plus PromptChan when nsfw:true and the account has
+      // opted in via profiles.nsfw_generation_enabled. This used to call
+      // Gemini Imagen directly and inline, which meant this action never
+      // benefited from any of mavis-image-gen's other providers and
+      // degraded to "just save the prompt as text" whenever
+      // GEMINI_API_KEY wasn't set.
+      try {
+        const genRes = await fetch(`${supabaseUrl}/functions/v1/mavis-image-gen`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+          body: JSON.stringify({ prompt, aspect_ratio: aspectRatio, nsfw: wantsNsfw, userId }),
+          signal: AbortSignal.timeout(120_000),
+        });
+        if (genRes.ok) {
+          const genData = await genRes.json();
+          const url = String(genData?.url ?? "");
+          if (url.startsWith("data:image/")) {
+            imageb64 = url.split(",")[1] ?? "";
+            imageUrl = url;
+          } else if (url) {
+            imageUrl = url;
           }
-        } catch {
-          // fall through to vault fallback
         }
+      } catch {
+        // fall through to vault fallback
       }
 
       // Fallback: save prompt to vault for manual creation
       if (!imageUrl) {
-        note = "Image generation requires Imagen API access. Prompt saved to vault.";
+        note = wantsNsfw
+          ? "NSFW generation is disabled for this account (or PromptChan is unavailable). Prompt saved to vault."
+          : "Image generation is currently unavailable. Prompt saved to vault.";
         if (saveToVault) {
           await sb.from("vault_entries").insert({
             user_id: userId,
