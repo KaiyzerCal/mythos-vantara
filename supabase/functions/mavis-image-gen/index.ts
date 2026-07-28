@@ -21,8 +21,10 @@ const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 // fail-closed — see the gate in serve()). Never part of the default SFW
 // cascade.
 const PROMPTCHAN_KEY = Deno.env.get("PROMPTCHAN_API_KEY") ?? "";
-// Deliberately NOT hardcoded to a guessed domain — see CONFIDENCE NOTE below.
-const PROMPTCHAN_BASE = Deno.env.get("PROMPTCHAN_API_BASE") ?? "";
+// Base domain confirmed directly from the operator's own developer
+// dashboard (not publicly indexed — see CONFIDENCE NOTE below). Still
+// overridable via env var in case it ever changes.
+const PROMPTCHAN_BASE = Deno.env.get("PROMPTCHAN_API_BASE") ?? "https://prod.aicloudnetservices.com";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -220,16 +222,18 @@ async function generateWithOpenAiImage(prompt: string, size?: string, quality?: 
 // ⚠ CONFIDENCE NOTE — read before relying on this (same caveat class as
 // mavis-composio-agent's, for the same reason: full API reference sits
 // behind a logged-in developer dashboard, not publicly indexed).
-// Independently confirmed via public sources: endpoint path is
-// POST /api/external/create, auth is an `x-api-key` header, and a
-// successful response is {image: <base64>, gems: <remaining balance>}.
-// NOT independently confirmed: the base domain (PROMPTCHAN_API_BASE must
-// be set from your own dashboard — nothing is hardcoded here on purpose,
-// so a wrong guess can't send your API key/prompts to an unintended host)
-// and the exact request-body field names beyond "prompt" (style/negative-
-// prompt naming below is inferred from product UI copy, not a schema).
-// Smoke-test with a throwaway prompt and a real API key before trusting
-// this for anything.
+// Confirmed: endpoint path POST /api/external/create, auth via `x-api-key`
+// header, response shape {image: <base64>, gems: <remaining balance>}, and
+// the base domain (https://prod.aicloudnetservices.com, confirmed directly
+// from the operator's own dashboard — this is where PROMPTCHAN_API_BASE
+// defaults to now). NOT independently confirmed: the exact request-body
+// field names beyond "prompt" (style/negative-prompt naming below is
+// inferred from product UI copy, not a schema) — this couldn't be
+// smoke-tested from the dev sandbox this was built in (its network egress
+// policy blocks this host entirely; that's a sandbox-specific restriction,
+// not expected to affect this function once deployed). Run one throwaway
+// prompt from the actual deployed app and check the result before trusting
+// this beyond that.
 async function generateWithPromptchan(prompt: string): Promise<string | null> {
   if (!PROMPTCHAN_KEY || !PROMPTCHAN_BASE) return null;
   const res = await fetch(`${PROMPTCHAN_BASE}/api/external/create`, {
@@ -310,7 +314,7 @@ serve(async (req) => {
         });
       }
       if (!PROMPTCHAN_KEY || !PROMPTCHAN_BASE) {
-        return new Response(JSON.stringify({ error: "PromptChan is not configured (PROMPTCHAN_API_KEY / PROMPTCHAN_API_BASE missing)." }), {
+        return new Response(JSON.stringify({ error: "PromptChan is not configured (PROMPTCHAN_API_KEY missing in Supabase secrets)." }), {
           status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
