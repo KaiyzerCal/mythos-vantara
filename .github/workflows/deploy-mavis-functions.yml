@@ -87,7 +87,9 @@ jobs:
           )
           printf '%s\n' "${CORE[@]}" > /tmp/core-fns.txt
 
-          mapfile -t REMAINING < <(ls supabase/functions/ | grep -vxFf /tmp/core-fns.txt)
+          # _archive/ holds retired functions (Execution Blueprint Stage D) — not
+          # a deployable function itself, exclude it from the sweep.
+          mapfile -t REMAINING < <(ls supabase/functions/ | grep -vxFf /tmp/core-fns.txt | grep -vx '_archive')
           echo "Deploying ${#REMAINING[@]} non-core functions with 8 parallel workers..."
 
           FAILURES=/tmp/deploy-failures.txt

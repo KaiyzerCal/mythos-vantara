@@ -1960,6 +1960,68 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // ── AGENT IDENTITY (cryptographic action signing) ───
+    // mavis-agent-identity was fully built (mavis_agent_identity table,
+    // mavis_agent_traces.signature column) and the chat system prompt already
+    // told the LLM it could call these — but nothing here ever handled them,
+    // so every attempt returned "unknown action". Found via Execution
+    // Blueprint Stage D triage.
+    case "generate_keypair":
+    case "sign_action":
+    case "verify_action":
+    case "get_identity": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-agent-identity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ ...p, action: actionType, userId }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) throw new Error(`mavis-agent-identity failed (${res.status}): ${await res.text()}`);
+      return;
+    }
+
+    // ── SMART HOME (Home Assistant / Philips Hue) ───────
+    // mavis-home is fully implemented and mavis_capabilities already lists
+    // smart_home/iot_control as pointing here — but nothing dispatched to it.
+    // The sub-action (get_states/call_service/turn_on/turn_off/toggle/
+    // set_scene/get_hue_lights/set_hue_light/status) must be included in
+    // params as `action`. Found via Execution Blueprint Stage D triage.
+    case "smart_home":
+    case "iot_control": {
+      if (!p.action) throw new Error("smart_home requires an 'action' parameter (e.g. turn_on, get_states, set_scene)");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-home`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ ...p, userId }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`mavis-home failed (${res.status}): ${await res.text()}`);
+      return;
+    }
+
+    // ── MARKET DATA (stocks / crypto) ───────────────────
+    // Same situation as smart_home above — fully built, listed in
+    // mavis_capabilities, never dispatched. Found via Execution Blueprint
+    // Stage D triage.
+    case "get_market_data": {
+      const symbols = p.symbols ?? (p.symbol ? [p.symbol] : undefined);
+      if (!symbols) throw new Error("get_market_data requires a 'symbols' array (or a single 'symbol')");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/mavis-market-data`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ type: p.type ?? "stock", symbols, userId }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`mavis-market-data failed (${res.status}): ${await res.text()}`);
+      return;
+    }
+
     default: {
       // Activepieces fallback — dispatch to a configured flow for any action type
       // not handled natively. Set ACTIVEPIECES_BASE_URL and ACTIVEPIECES_FLOWS (JSON

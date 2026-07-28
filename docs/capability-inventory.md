@@ -157,9 +157,88 @@ outcome-tracker/self-reflect/self-improve/self-evolve at all — the
 intended "act → observe outcome → learn" loop is not wired, despite every
 individual piece existing in code.
 
+### 8. Stage D orphan triage — actions taken
+
+19 of the 20 ORPHANED/WEBHOOK?/NEEDS-DECISION functions got a full read
+(not just the grep-based caller check) and a disposition. `mavis-yamete`
+untouched per the ground rules. Full per-function reasoning is in the
+Stage D research agent's report (session transcript) — summary of what
+actually changed in the repo:
+
+**Fixed — 3 webhook auth gaps (same bug pattern as the Gmail/RuView case
+below, found by extending the search):** `mavis-a2a` (the real A2A
+protocol server — actually executes tasks via `mavis-actions`, unlike
+`mavis-a2a-gateway`), `mavis-gmail-webhook` (Google Pub/Sub push target,
+registered and renewed daily by `mavis-gmail-watch`'s cron job, but
+silently rejecting every real notification since day one — verified
+still-live infrastructure pointed at a broken endpoint, not dead code),
+and `mavis-ruview-bridge` (documented in-app as the URL for real ESP32-S3
+presence-sensor hardware to POST to). All three had no `config.toml`
+entry at all, defaulting to `verify_jwt = true`, which rejects every
+external caller since none of them can supply a Supabase user JWT. Added
+explicit `verify_jwt = false` entries for all three.
+
+**Archived to `supabase/functions/_archive/`** (full reasoning per
+function in that directory's `README.md`, code preserved, not deleted):
+`mavis-a2a-gateway` (superseded by `mavis-a2a` — never actually executed
+a submitted task, just inserted a row nothing reads again), `mavis-inbound-
+webhook` (redundant with `mavis-webhook`, which does the same job and is
+actually wired in), `mavis-mcp` (superseded by `mavis-mcp-server`, more
+complete and better secured), `mavis-webhook-calendar` (no evidence any
+external tool was ever registered against it, unlike the genuinely
+wired-in webhooks above). `.github/workflows/deploy-mavis-functions.yml`
+updated to skip `_archive/` in its deploy sweep.
+
+**Wired in — 3 dispatcher gaps, all genuinely mechanical fixes:**
+`mavis-agent-identity` (`generate_keypair`/`sign_action`/`verify_action`/
+`get_identity`), `mavis-home` (`smart_home`/`iot_control` — Home Assistant
++ Philips Hue), and `mavis-market-data` (`get_market_data` — stocks/
+crypto) were all fully built, all already listed as available capabilities
+elsewhere (either `mavis_capabilities` or the chat system prompt itself,
+with exact matching example `:::ACTION:::` syntax), but `mavis-actions`
+had no dispatch case for any of them — every attempt would have silently
+returned "unknown action type." Added the 3 dispatch cases. `mavis-home`
+and `mavis-market-data` also required a small auth fix first (they only
+accepted a real end-user JWT via `sb.auth.getUser()`, but `mavis-actions`
+calls them server-to-server with just a `userId` string, no JWT to
+forward) — added the same service-role-bypass-plus-explicit-user_id
+pattern used elsewhere in this codebase (`mavis-youtube-ingest`,
+`mavis-deep-research`).
+
+**Flagged, not built — genuinely bigger feature work, needs a product
+decision, not a triage-stage fix:**
+- `mavis-team` — a complete multi-tenant teams/workspaces backend
+  (create team, invite, RBAC, shared team memory) with zero frontend UI.
+  A real, shippable collaboration feature nobody built the UI for.
+- `agent-telegram-gateway` — lets each Council member/Persona have their
+  own Telegram bot; backend is sophisticated and correctly configured,
+  but nothing writes to `agent_telegram_config` and no setup flow
+  registers a second bot's webhook against it.
+- `local-mesh-proxy` — a working authenticated proxy for reaching a home
+  Ollama instance remotely; the frontend's local-mesh client currently
+  always calls Ollama directly instead of through this proxy.
+- `mavis-event-router` — a complete, well-built generic inbound-event
+  classifier; `mavis-stripe-webhook`/`mavis-gumroad-webhook` each
+  hand-roll their own narrower event logic instead of using it. Real
+  consolidation opportunity, but means touching already-working webhook
+  handlers — deliberately not done casually mid-triage.
+- `mavis-demo` — a complete, on-brand, no-auth public SSE demo endpoint
+  with curated fallback copy, clearly built for a "try MAVIS live"
+  marketing widget — but no landing page anywhere calls it. Can't tell
+  from the code alone whether it's ahead of an unshipped page or leftover
+  from a scrapped one; needs a 30-second answer from Calvin, not a guess.
+
+**Confirmed correctly `KEEP_AS_IS` (legitimate external-only entry
+points, no caller needed):** `mavis-identity-bootstrap` (manual backfill
+script), `mcp` (Lovable's own OAuth-secured MCP integration), `mavis-mcp-
+server` (the real external MCP server for Claude Desktop/Cursor/etc.),
+`telegram-setup` (one-time manual webhook registration).
+
 ---
 
-## Full function table
+## Full function table (Stage B snapshot — pre-dates Stage D's archiving/
+fixes above; canonical current disposition for the affected functions is
+section 8, not the row below)
 
 | Function | Frontend? | Other functions? | Cron/webhook? | Compiles clean? | Env vars set? | Status |
 |---|---|---|---|---|---|---|

@@ -94,15 +94,26 @@ serve(async (req) => {
 
   try {
     const auth = req.headers.get("Authorization") ?? "";
-    const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: { user }, error } = await sb.auth.getUser(auth.replace("Bearer ", ""));
-    if (error || !user) {
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const sb = createClient(Deno.env.get("SUPABASE_URL")!, serviceRoleKey);
+
+    const body = await req.json().catch(() => ({}));
+
+    // Service-role callers (e.g. mavis-actions dispatching a get_market_data
+    // action) pass an explicit user_id — same trust pattern used elsewhere in
+    // this codebase (mavis-youtube-ingest, mavis-deep-research). Market data
+    // isn't user-scoped, so this is purely an auth gate, not a lookup key.
+    let authorized = auth === `Bearer ${serviceRoleKey}` && !!String(body.userId ?? body.user_id ?? "").trim();
+    if (!authorized) {
+      const { data: { user }, error } = await sb.auth.getUser(auth.replace("Bearer ", ""));
+      authorized = !error && !!user;
+    }
+    if (!authorized) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const body = await req.json().catch(() => ({}));
     const type    = String(body.type ?? "stock").toLowerCase(); // stock | crypto | mixed
     const symbols = (body.symbols as string[] | undefined)?.map((s) => s.trim().toUpperCase()) ?? [];
 

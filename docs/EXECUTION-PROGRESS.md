@@ -1,6 +1,6 @@
 # Vantara Execution Blueprint — Progress
 
-Last updated: 2026-07-27, session 1
+Last updated: 2026-07-28, session 1 (continued)
 
 ## Stage status
 - [~] Stage A — Security cleanup (functionally done; 1 item still needs
@@ -16,7 +16,13 @@ Last updated: 2026-07-27, session 1
   documented above and in capability-inventory.md. Remaining items (env
   var confirmation, live cron re-check) are blocked on Supabase MCP
   access, not further static work.
-- [ ] Stage D — Phase 2: Orphan triage
+- [~] Stage D — Phase 2: Orphan triage. All 19 ORPHANED/WEBHOOK? functions
+  triaged (`mavis-yamete` excluded, hands-off): 3 more webhook auth gaps
+  fixed, 4 archived, 3 dispatcher gaps wired in, 5 flagged as real feature
+  work needing Calvin's decision (not built speculatively), 4 confirmed
+  correctly external-only. Orphan count is at zero for anything with a
+  clear disposition — the 5 flagged items are the only open loop, and
+  that's a "needs a product decision" state, not unfinished triage.
 - [ ] Stage E — Phase 3: Capabilities Hub + drift-proofing
 - [ ] Stage F — Phase 4: Smoke tests
 - [ ] Stage G — Phase 5: Composio (Track A / Track B — track separately)
@@ -198,3 +204,47 @@ that's resolved; not stalling the rest of the work on it.
 - 2026-07-27: Stage C's remaining items (env-var-set confirmation, live
   cron.job re-check) are blocked on Supabase MCP access, not further
   static work — moving to Stage D (orphan triage) rather than stalling.
+- 2026-07-28: Stage D. Ran a research agent to read the full source of all
+  19 ORPHANED/WEBHOOK? functions from the Stage B inventory (`mavis-yamete`
+  excluded — hands-off) and recommend a disposition for each. Full
+  reasoning in `docs/capability-inventory.md` section 8. Actions taken:
+  - **3 more webhook auth gaps fixed** (same bug class as trigger-engine's
+    vault-secret typo, different mechanism): `mavis-a2a`, `mavis-gmail-
+    webhook`, `mavis-ruview-bridge` all had no `config.toml` entry at all,
+    defaulting to `verify_jwt = true` — which silently rejects every real
+    external caller (Google Pub/Sub, ESP32 sensor hardware, other A2A
+    agents) since none can supply a Supabase user JWT. Confirmed these
+    are live, actively-maintained integrations, not dead code — e.g.
+    `mavis-gmail-watch` registers and daily-renews a Pub/Sub subscription
+    pointed at `mavis-gmail-webhook` that has been silently failing since
+    day one. Added `verify_jwt = false` for all three.
+  - **4 functions archived** to `supabase/functions/_archive/` (code kept,
+    not deleted; reasoning in that directory's README): `mavis-a2a-gateway`
+    (dead end — never executed submitted tasks), `mavis-inbound-webhook`
+    (redundant with the actually-wired-in `mavis-webhook`), `mavis-mcp`
+    (redundant with the more complete `mavis-mcp-server`), `mavis-webhook-
+    calendar` (no evidence any external tool was ever registered against
+    it). Deploy workflow updated to skip `_archive/`.
+  - **3 dispatcher gaps wired in**: `mavis-agent-identity` (action
+    signing), `mavis-home` (smart home), `mavis-market-data` (stocks/
+    crypto) were all fully built and already advertised to the LLM in the
+    chat system prompt with exact matching `:::ACTION:::` example syntax
+    — but `mavis-actions` had no dispatch case for any of them, so every
+    attempt silently failed as "unknown action type." Added all 3 cases.
+    `mavis-home`/`mavis-market-data` needed an auth fix first too (they
+    only accepted a real user JWT; `mavis-actions` calls them server-to-
+    server with just a `userId` string) — added the same service-role-
+    bypass pattern used elsewhere this session.
+  - **5 items flagged, not built** — genuine feature work needing a
+    product decision, not a triage-stage fix: `mavis-team` (complete
+    multi-tenant backend, zero UI), `agent-telegram-gateway` (per-persona
+    Telegram bots, no config UI or setup flow), `local-mesh-proxy`
+    (working remote-Ollama proxy, frontend doesn't route through it),
+    `mavis-event-router` (would mean refactoring already-working webhook
+    handlers to use it instead), `mavis-demo` (unclear if it's ahead of
+    an unshipped marketing page or leftover from a scrapped one — needs
+    Calvin's answer, not a guess).
+  - Confirmed `KEEP_AS_IS` (no action needed): `mavis-identity-bootstrap`,
+    `mcp`, `mavis-mcp-server`, `telegram-setup`.
+  All changes esbuild-verified, vitest suite still 53/53, workflow YAML
+  re-validated. Committing next.

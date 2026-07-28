@@ -25,8 +25,30 @@ verify_jwt = false
 [functions.stripe-widget-webhook]
 verify_jwt = false
 
-# A2A Protocol gateway — external agents call without Supabase JWT
-[functions.mavis-a2a-gateway]
+# A2A Protocol server — actually executes tasks via mavis-actions. Had no
+# config.toml entry at all, so it defaulted to verify_jwt=true and silently
+# rejected every external agent call, including AgentCard discovery.
+# (mavis-a2a-gateway, the entry that used to be here, was archived to
+# supabase/functions/_archive/ — it never executed submitted tasks, just
+# inserted a row nothing ever read again. Found via Execution Blueprint
+# Stage D triage.)
+[functions.mavis-a2a]
+verify_jwt = false
+
+# Google Gmail Pub/Sub push webhook — mavis-gmail-watch registers this exact
+# URL as the push subscription target and a daily cron renews it, but this
+# had no config.toml entry (defaulted to verify_jwt=true), so every real
+# Gmail push notification has been silently rejected since day one. Found
+# via Execution Blueprint Stage D triage.
+[functions.mavis-gmail-webhook]
+verify_jwt = false
+
+# RuView WiFi-CSI presence/vitals sensor webhook (ESP32-S3 hardware) —
+# documented in-app (IntegrationsPage/ScouterPage) as the URL to point real
+# sensors at, but had no config.toml entry, so real sensor POSTs were
+# silently rejected the same way. Found via Execution Blueprint Stage D
+# triage.
+[functions.mavis-ruview-bridge]
 verify_jwt = false
 
 # Resend inbound email webhook — Resend sends no Supabase JWT
