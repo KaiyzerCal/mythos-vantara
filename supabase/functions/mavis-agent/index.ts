@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { buildSharedTruth } from "../_shared/context.ts";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -2857,33 +2858,10 @@ Deno.serve(async (req) => {
       return "";
     })();
 
-    // Temporal awareness — mavis-agent previously had NO date/time in its system
-    // prompt and no tool to fetch it, so it had no way to know "today" unless the
-    // operator stated it. Uses the operator's profile timezone, same pattern as
-    // mavis-chat's timeBlock.
-    const timeFragmentP: Promise<string> = (async () => {
-      try {
-        const { data: profileRow } = await supabase
-          .from("profiles")
-          .select("timezone")
-          .eq("id", userId)
-          .maybeSingle();
-        const tz = (profileRow as any)?.timezone || "UTC";
-        const now = new Date();
-        let dateStr: string, timeStr: string;
-        try {
-          dateStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz });
-          timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZoneName: "short", timeZone: tz });
-        } catch {
-          dateStr = now.toDateString();
-          timeStr = now.toUTCString();
-        }
-        return `\n\n═══════════════════════════════════════════\nTEMPORAL CONTEXT\n═══════════════════════════════════════════\nLOCAL: ${dateStr}, ${timeStr} [${tz}]\nISO/UTC: ${now.toISOString()}`;
-      } catch {
-        const now = new Date();
-        return `\n\n═══════════════════════════════════════════\nTEMPORAL CONTEXT\n═══════════════════════════════════════════\nISO/UTC: ${now.toISOString()}`;
-      }
-    })();
+    // Shared source of truth — identity + temporal + app snapshot + directives.
+    // Identical block used by mavis-chat, personas, and council members.
+    const timeFragmentP: Promise<string> = buildSharedTruth(supabase, userId, { surface: "agent-mode" })
+      .then((t) => t.text, () => "");
 
     // System settings — the operator's Standing Orders (mavis_tacit) and Autonomy
     // (auto-execute types) from the System Settings page. mavis-agent previously

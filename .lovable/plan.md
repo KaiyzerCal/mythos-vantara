@@ -1,63 +1,51 @@
-# Skill Catalog Overhaul Plan
+# Shared Source of Truth for every MAVIS chat surface
 
-## Goal
-Make the skill catalog a first-class surface of MAVIS — fully discoverable, reliable, extensible, and deeply wired into chat so custom and built-in skills feel like native capabilities.
+## Problem (verified)
 
-## Current State (verified)
-- **System Settings → Custom Skills tab**: CRUD for user-created skills (`mavis_custom_skills` table) with name, trigger phrase, system prompt, description, modes, and enabled flag.
-- **MavisChat Skill Catalog Drawer**: side panel showing all registered skills grouped into Creative, Intelligence, Business, Personal, System.
-- **Registry**: `src/mavis/skills/_registry.ts` registers built-in skills via `registerSkill()` and supports runtime DB-backed skills (`mavis_skill_definitions`) and custom skills (`mavis_custom_skills`).
-- **Skill count**: 300+ skill directories under `src/mavis/skills/`.
-- **Built-in skill examples**: `image-gen`, `video-gen`, `logo-gen`, `music-gen`, `world-monitor`, `economics-calendar`, `revenue-report`, `daily-brief`, `agent-builder`, `code-delegate`, `persona-forge`, `capability-manifest`, `skill-catalog-browse`.
+Each chat path builds its own context independently:
+- `supabase/functions/mavis-chat/index.ts` (2537 lines) builds temporal awareness at ~line 1398 with operator timezone from `profiles`, plus a world-model snapshot at ~1505.
+- `supabase/functions/mavis-agent/index.ts` (3008 lines) rebuilds its own `timeFragment` at ~2862 and composes `SYSTEM_PROMPT + memory + prefs + specialist + time + settings` at ~2897.
+- `supabase/functions/mavis-persona-router/index.ts` has its own `buildSystemPrompt(...) + timeBlock + appCtx + settingsBlock` at ~563.
+- `supabase/functions/mavis-council-session/index.ts` builds its own group prompt with no shared app snapshot.
 
-## Workstreams
+Result: three-to-four different versions of "who Calvin is", "what time it is", and "what's in the app" — they drift, and council members get the least context.
 
-### 1. Audit Existing Skills
-- Inventory every `src/mavis/skills/**/index.ts` and confirm each calls `registerSkill()` with name, description, and keywords.
-- Build a small test harness that invokes each skill via `supabase.functions.invoke("mavis-chat")` or direct skill handler and records success/failure.
-- Categorize failures: missing edge function, broken API key, stale model ID, invalid imports, empty handler.
-- Fix the highest-impact broken skills first (e.g., `image-gen`, `video-gen`, `world-monitor`, `web-search`, `telegram-send`).
-- Add a `skill-health` edge function or a health page row so the user can see skill status at a glance.
+## The build
 
-### 2. Improve the Skill Catalog UI/UX
-- **System Settings → Custom Skills tab**:
-  - Add inline search/filter.
-  - Show which skills are enabled/disabled with a clearer toggle.
-  - Add a "Test Skill" button that sends a quick prompt through the skill.
-  - Add a duplicate/clone action.
-  - Add a suggested template picker (e.g., "Sales email drafter", "Daily standup summary").
-- **Skill Catalog Drawer (MavisChat)**:
-  - Add live skill count and recently used section.
-  - Add favorites / pin skills.
-  - Show skill status indicators (working, deprecated, needs API key).
-  - Add keyboard shortcut `/` to open the drawer.
-- **Shared**:
-  - Consistent empty/loading/error states using `EmptyState`, `LoadingState`, `ErrorState`.
-  - Add category iconography and color coding.
+### 1. New module: `supabase/functions/_shared/context.ts`
 
-### 3. Add More Built-In Skills
-Add missing high-value skills that fit the "ultimate AI agent copilot" vision:
-- **Productivity**: `meeting-brief`, `weekly-retro`, `travel-planner`, `expense-report`.
-- **Intelligence**: `reddit-sentiment`, `sec-filing-summarizer`, `patent-search`, `job-market-scan`.
-- **Creative**: `meme-gen`, `thumbnail-gen`, `ad-copy-gen`, `voice-clone`.
-- **Business**: `invoice-generator`, `contract-review`, `proposal-score`, `crm-enrichment`.
-- **System**: `skill-health`, `cost-tracker`, `prompt-optimizer`, `model-recommender`.
-Each new skill will follow the existing pattern in `src/mavis/skills/**/index.ts` and register itself with relevant keywords.
+One exported function, `buildSharedTruth(supabase, userId, opts)`, returning a single formatted block plus the raw object. Sections:
 
-### 4. Wire Custom Skills Deeper into Chat
-- Ensure `mavis-chat` and `mavis-agent` edge functions check `mavis_custom_skills` for the user's triggers and prepend the custom system prompt when matched.
-- Add a visual indicator in MavisChat when a custom skill is active (e.g., badge in the composer or message header).
-- Render custom skill output with the same markdown/code/media support as built-in skills.
-- Add a `/skills` slash command in the composer that opens the catalog drawer or lists available skills.
-- Persist skill invocation history so the user can see which skills were used and when.
+- **OPERATOR IDENTITY** — from `profiles` (display name, title, location) + `mavis_user_profile` (profile_md, communication_style, key_context, preferences, topics_of_interest). This is the AGENTS.md-equivalent layer.
+- **TEMPORAL** — current time/date rendered in the operator's `profiles.timezone` (fallback UTC), day of week, plus an optional entity timezone override for personas/council members that have their own.
+- **APP STATE SNAPSHOT** — compact counts + headline rows: active quests, high-priority tasks, energy systems, active goals, pending approvals/action queue, recent journal, top memories, latest world-model synthesis.
+- **STANDING DIRECTIVES** — system settings/autonomy config and learned preferences.
 
-## Deliverables
-1. `SKILL_AUDIT_REPORT.md` with skill inventory, health status, and fixed items.
-2. Updated `src/pages/SystemSettingsPage.tsx` with improved Custom Skills UI.
-3. Updated `src/components/chat/SkillCatalogDrawer.tsx` with search, favorites, status, and keyboard shortcut.
-4. New skill files under `src/mavis/skills/` for the selected high-value skills.
-5. Updated `mavis-chat` edge function to integrate custom skills and `/skills` slash command.
-6. Health/status badge or page row showing skill system status.
+Design rules: one `Promise.all` per call, hard per-query timeouts, everything failure-tolerant (a dead table yields an omitted section, never a 500), and a short in-memory TTL cache keyed by `userId` so a burst of messages doesn't re-query. Output is size-budgeted (each section truncated) so it can't blow the context window.
 
-## Next Step
-Approve this plan and I'll start with the audit inventory so we know exactly which skills are real, broken, or missing before building the UI and new skills.
+### 2. Wire every surface to it
+
+| Function | Change |
+|---|---|
+| `mavis-chat` | Replace inline time block + snapshot assembly with `buildSharedTruth`; keep MAVIS persona prompt and tool definitions as-is |
+| `mavis-agent` (agent mode) | Replace `timeFragment` and duplicated prefs/memory fragments with the shared block |
+| `mavis-persona-router` | Replace `timeBlock + appCtx + settingsBlock` with the shared block, appended after the persona's own identity prompt |
+| `mavis-council-session` | Add the shared block (currently missing) so council members reason on real app state |
+| `mavis-actions` / action executor | Use the same snapshot when resolving entities by name, so CRUD sees the same truth the chat saw |
+
+Persona and council prompts keep their distinct voice/identity; only the *truth layer* is shared and identical.
+
+### 3. Client parity
+
+`src/mavis/appContextLoader.ts` and `src/mavis/contextProviders.ts` duplicate this on the frontend (and `appContextLoader` currently queries `quests` twice — once as `quests`, once as `tasks`). Point both at the same section shape and fix the duplicate query so the client-side prompt matches the server-side truth.
+
+### 4. Verify
+
+- Invoke each of the 5 functions with a probe message and confirm the returned prompt contains the identical OPERATOR/TEMPORAL/SNAPSHOT header.
+- Confirm the time rendered matches the profile timezone, not UTC.
+- Confirm a council member and a persona both answer a "what's on my plate today?" question with the same underlying facts.
+- Deploy all touched functions.
+
+## Technical notes
+
+No schema changes required — all reads use existing tables (`profiles`, `mavis_user_profile`, `quests`, `tasks`, `energy_systems`, `mavis_goals`, `mavis_action_queue`, `approvals`, `mavis_agent_memories`, `mavis_learned_preferences`). No migration, no new secrets. Token cost per call is bounded by the section budget and reduced overall by removing duplicated fragments.
