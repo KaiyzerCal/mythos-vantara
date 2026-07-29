@@ -571,6 +571,21 @@ function safeParseToolArguments(raw: unknown): Record<string, unknown> {
   }
 }
 
+// Some providers — especially cheaper/free tiers under heavy system-prompt
+// pressure to "THINK FIRST, call think before other tools" — sometimes
+// write out a tool_use-shaped JSON blob as their plain response text
+// instead of making a real structured tool call. When that happens,
+// msg.tool_calls is empty (so the code below treats it as an ordinary
+// end_turn text response) but the "text" itself is literally the raw
+// {"type":"tool_use","id":"...","name":"think","input":{...}} the model
+// hallucinated, and it would otherwise leak straight through to the
+// operator as the visible reply. Detected by shape, not by looking for
+// any specific tool name, since any tool can trigger this.
+function looksLikeLeakedToolCall(text: string): boolean {
+  const t = text.trim();
+  return t.startsWith("{") && /"type"\s*:\s*"tool_?use"/i.test(t.slice(0, 200));
+}
+
 function encodeSheetRange(range: string): string {
   // Sheets ranges use A1 notation; ':' must remain a literal path character.
   return encodeURIComponent(range).replace(/%3A/gi, ":").replace(/%21/gi, "!");
@@ -2232,6 +2247,25 @@ async function runAgentLoop(
         .filter((b) => b.type === "text")
         .map((b) => b.text ?? "")
         .join("");
+
+      // Caught a hallucinated tool-call-shaped text response — force one
+      // corrective iteration (reusing the same loop machinery as a real
+      // tool_use turn) instead of returning raw internal JSON to the
+      // operator. Only for non-streamed turns: a streamed turn's text
+      // already reached the client live as deltas before we could inspect
+      // the full string, so there's nothing left to intercept there — a
+      // separate, harder problem not addressed by this fix.
+      if (!streamedThisCall && looksLikeLeakedToolCall(text) && iteration < MAX_ITERATIONS - 1) {
+        console.warn(`[mavis-agent] ${pinnedProvider ?? "provider"} leaked a tool-call-shaped response as text — forcing a corrective turn`);
+        messages.push({ role: "assistant", content: text });
+        messages.push({
+          role: "user",
+          content: "That looked like raw tool-call JSON, not a real tool invocation or a real answer. If you need a tool, call it properly. Otherwise respond in plain natural language — don't write out tool-call-shaped JSON as your answer.",
+        });
+        iteration++;
+        continue;
+      }
+
       // If we streamed, the text already reached the client as deltas.
       if (onEvent && text && !streamedThisCall) onEvent({ t: text });
       return {
