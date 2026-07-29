@@ -2212,7 +2212,7 @@ export default function MavisChat() {
                               </div>
                               {agentThinking && (
                                 <span className="text-xs font-mono text-violet-400/80 truncate max-w-[260px]">
-                                  ⚙ {agentThinking}
+                                  ⚙ {agentThinking}{agentElapsed > 2 ? ` · ${agentElapsed}s` : ""}
                                 </span>
                               )}
                             </div>
