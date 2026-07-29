@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,17 +42,8 @@ serve(async (req) => {
 
     const adminSb = createClient(supabaseUrl, serviceKey);
 
-    // Auth: Bearer token → uid, or fallback to TELEGRAM_OPERATOR_USER_ID
-    let uid: string | null = null;
-    const authHeader = req.headers.get("Authorization");
-    if (authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.slice(7);
-      const { data: { user } } = await adminSb.auth.getUser(token);
-      uid = user?.id ?? null;
-    }
-    if (!uid) {
-      uid = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? null;
-    }
+    // Auth → uid (real user JWT, or trusted internal caller via service-role key)
+    const uid = await resolveAuthedUid(req, adminSb);
     if (!uid) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -120,7 +112,10 @@ serve(async (req) => {
           },
           { onConflict: "user_id,metric_date,metric_type,source" },
         )
-        .catch(() => {
+        // Postgrest query builders are thenable but don't implement .catch() —
+        // calling it directly threw synchronously on every track, aborting the
+        // whole sync loop before it ever reached the fallback below.
+        .then(() => {}, () => {
           // If unique conflict, try insert into mavis_notes
           adminSb
             .from("mavis_notes")
@@ -136,7 +131,7 @@ serve(async (req) => {
                 artist: track.artists[0]?.name,
               },
             })
-            .catch(() => {});
+            .then(() => {}, () => {});
         });
     }
 
