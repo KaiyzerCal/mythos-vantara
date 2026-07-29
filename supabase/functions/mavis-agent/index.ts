@@ -2286,6 +2286,7 @@ async function runAgentLoop(
         .filter((b) => b.type === "text")
         .map((b) => b.text ?? "")
         .join("");
+      if (text.trim()) lastText = text;
 
       // Caught a hallucinated tool-call-shaped text response — force one
       // corrective iteration (reusing the same loop machinery as a real
