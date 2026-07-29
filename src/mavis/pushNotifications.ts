@@ -23,7 +23,7 @@ let listenersAttached = false;
 
 async function upsertToken(userId: string, token: string): Promise<void> {
   const platform = Capacitor.getPlatform(); // "ios" | "android" | "web"
-  await supabase.from("device_push_tokens").upsert(
+  await (supabase as any).from("device_push_tokens").upsert(
     {
       user_id: userId,
       token,
