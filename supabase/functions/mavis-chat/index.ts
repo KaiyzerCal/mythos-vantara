@@ -5,6 +5,7 @@ import { scoreImportance, compressBlock, isHighStakesQuery, estimateLlmCost, det
 import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream } from "./providers.ts";
 import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionIntent, hasResearchIntent, resolveActionsNative } from "./toolDispatch.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";
+import { buildSharedTruth } from "../_shared/context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1395,32 +1396,17 @@ ${telosData
       console.warn("attachment load failed", (e as any)?.message);
     }
 
-    // ── Temporal awareness (timezone-aware) ──────────────────
-    // Uses the operator's timezone from their profile.
-    // If chatting 1-on-1 with a persona who has their own timezone, that is shown as primary.
+    // ── SHARED SOURCE OF TRUTH ───────────────────────────────
+    // Identity + temporal + app snapshot + standing directives.
+    // Identical block used by mavis-agent, personas, and council members.
     const now = new Date();
-    const operatorTz: string = (profile as any).timezone || "UTC";
-    function _fmtDatetime(tz: string): { date: string; time: string } {
-      try {
-        return {
-          date: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: tz }),
-          time: now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short", timeZone: tz }),
-        };
-      } catch {
-        return { date: now.toDateString(), time: now.toUTCString() };
-      }
-    }
-    const _opDt = _fmtDatetime(operatorTz);
-    // If this entity has its own timezone (e.g. a Tokyo-based persona), show both
-    const _entDt = entityTimezone ? _fmtDatetime(entityTimezone) : null;
-    const timeBlock = `═══ TEMPORAL CONTEXT ═══
-${_entDt
-  ? `YOUR LOCAL TIME: ${_entDt.date}, ${_entDt.time} [${entityTimezone}]
-OPERATOR LOCAL: ${_opDt.date}, ${_opDt.time} [${operatorTz}]`
-  : `LOCAL: ${_opDt.date}, ${_opDt.time} [${operatorTz}]`}
-ISO/UTC: ${now.toISOString()}
-Always reference dates and times in the entity's own timezone when one is set, otherwise use the operator's timezone (${operatorTz}). Never show UTC unless explicitly asked.
-═══ END TEMPORAL CONTEXT ═══`;
+    const _truth = await buildSharedTruth(sb, user.id, {
+      entityTimezone,
+      surface: personaId ? (isCouncilMode ? "council" : "persona") : "mavis-chat",
+    });
+    const operatorTz: string = _truth.operatorTimezone;
+    const timeBlock = _truth.text;
+
 
     // ── Proactive pattern detection ──────────────────────────
     // Silently detect patterns MAVIS should surface when contextually relevant.

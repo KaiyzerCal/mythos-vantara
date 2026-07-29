@@ -1,63 +1,38 @@
-# Skill Catalog Overhaul Plan
-
 ## Goal
-Make the skill catalog a first-class surface of MAVIS — fully discoverable, reliable, extensible, and deeply wired into chat so custom and built-in skills feel like native capabilities.
+Agent mode in MAVIS chat should feel as fast as normal chat, stop sitting on "thinking" for long stretches, and stop erroring mid-action.
 
-## Current State (verified)
-- **System Settings → Custom Skills tab**: CRUD for user-created skills (`mavis_custom_skills` table) with name, trigger phrase, system prompt, description, modes, and enabled flag.
-- **MavisChat Skill Catalog Drawer**: side panel showing all registered skills grouped into Creative, Intelligence, Business, Personal, System.
-- **Registry**: `src/mavis/skills/_registry.ts` registers built-in skills via `registerSkill()` and supports runtime DB-backed skills (`mavis_skill_definitions`) and custom skills (`mavis_custom_skills`).
-- **Skill count**: 300+ skill directories under `src/mavis/skills/`.
-- **Built-in skill examples**: `image-gen`, `video-gen`, `logo-gen`, `music-gen`, `world-monitor`, `economics-calendar`, `revenue-report`, `daily-brief`, `agent-builder`, `code-delegate`, `persona-forge`, `capability-manifest`, `skill-catalog-browse`.
+## What I found (verified in code)
 
-## Workstreams
+`supabase/functions/mavis-agent/index.ts` runs the tool loop. Four concrete latency/error sources:
 
-### 1. Audit Existing Skills
-- Inventory every `src/mavis/skills/**/index.ts` and confirm each calls `registerSkill()` with name, description, and keywords.
-- Build a small test harness that invokes each skill via `supabase.functions.invoke("mavis-chat")` or direct skill handler and records success/failure.
-- Categorize failures: missing edge function, broken API key, stale model ID, invalid imports, empty handler.
-- Fix the highest-impact broken skills first (e.g., `image-gen`, `video-gen`, `world-monitor`, `web-search`, `telegram-send`).
-- Add a `skill-health` edge function or a health page row so the user can see skill status at a glance.
+1. **Tool results are sent wrong to the default provider.** The loop is written for Anthropic's block format. When the provider is the gateway (`google/gemini-3.6-flash`, the default first provider), `gatewayMessages` flattens the assistant tool-call message with `JSON.stringify(part)` and pushes tool results as a **user** message reading `Tool result for <id>: {...}`. The model never receives a real `role:"tool"` response tied to `tool_call_id`, so it frequently re-calls the same tool or reports the action failed. This is the biggest cause of both wasted iterations (slow) and "errors when executing actions".
+2. **The `think` tool burns a full round trip.** The system prompt says "THINK FIRST … don't skip this", and `MAX_ITERATIONS = 4`, so a typical request spends one entire model call producing scratchpad text the user never sees, before any real work — then has only 3 iterations left, often ending in the "I hit the agent time limit" message.
+3. **Stall failover is slow.** `fetchWithFailover` waits 20s for response headers before moving to the next provider, and the loop has a hard 55s deadline. One stalled call eats a third of the budget.
+4. **Heavy pre-flight before the request even starts.** In `src/pages/MavisChat.tsx`, agent mode awaits `dispatchToSpecialist`, then `buildSystemPromptFromSnapshot` (which itself awaits memory context, provider context, and pattern insights) before any network call to the agent — all while the UI shows "Building context…". The server then independently builds `buildSharedTruth`, so the same ground truth is assembled twice per message.
 
-### 2. Improve the Skill Catalog UI/UX
-- **System Settings → Custom Skills tab**:
-  - Add inline search/filter.
-  - Show which skills are enabled/disabled with a clearer toggle.
-  - Add a "Test Skill" button that sends a quick prompt through the skill.
-  - Add a duplicate/clone action.
-  - Add a suggested template picker (e.g., "Sales email drafter", "Daily standup summary").
-- **Skill Catalog Drawer (MavisChat)**:
-  - Add live skill count and recently used section.
-  - Add favorites / pin skills.
-  - Show skill status indicators (working, deprecated, needs API key).
-  - Add keyboard shortcut `/` to open the drawer.
-- **Shared**:
-  - Consistent empty/loading/error states using `EmptyState`, `LoadingState`, `ErrorState`.
-  - Add category iconography and color coding.
+## Changes
 
-### 3. Add More Built-In Skills
-Add missing high-value skills that fit the "ultimate AI agent copilot" vision:
-- **Productivity**: `meeting-brief`, `weekly-retro`, `travel-planner`, `expense-report`.
-- **Intelligence**: `reddit-sentiment`, `sec-filing-summarizer`, `patent-search`, `job-market-scan`.
-- **Creative**: `meme-gen`, `thumbnail-gen`, `ad-copy-gen`, `voice-clone`.
-- **Business**: `invoice-generator`, `contract-review`, `proposal-score`, `crm-enrichment`.
-- **System**: `skill-health`, `cost-tracker`, `prompt-optimizer`, `model-recommender`.
-Each new skill will follow the existing pattern in `src/mavis/skills/**/index.ts` and register itself with relevant keywords.
+**Correct the OpenAI-compatible message shape (main fix)**
+- Map the assistant turn to `{ role: "assistant", tool_calls: [...] }` with the real ids, and each tool result to `{ role: "tool", tool_call_id, content }` instead of the flattened user text.
+- Keep the Anthropic block format on the Anthropic branch, converting only at request time per provider.
 
-### 4. Wire Custom Skills Deeper into Chat
-- Ensure `mavis-chat` and `mavis-agent` edge functions check `mavis_custom_skills` for the user's triggers and prepend the custom system prompt when matched.
-- Add a visual indicator in MavisChat when a custom skill is active (e.g., badge in the composer or message header).
-- Render custom skill output with the same markdown/code/media support as built-in skills.
-- Add a `/skills` slash command in the composer that opens the catalog drawer or lists available skills.
-- Persist skill invocation history so the user can see which skills were used and when.
+**Cut a round trip out of the loop**
+- Make `think` optional: keep the tool but soften the "THINK FIRST / don't skip" instruction to "use `think` only for genuinely multi-step or ambiguous goals".
+- Don't count a pure-`think` turn against the iteration budget, and raise `MAX_ITERATIONS` from 4 to 5 so real tool work isn't starved.
 
-## Deliverables
-1. `SKILL_AUDIT_REPORT.md` with skill inventory, health status, and fixed items.
-2. Updated `src/pages/SystemSettingsPage.tsx` with improved Custom Skills UI.
-3. Updated `src/components/chat/SkillCatalogDrawer.tsx` with search, favorites, status, and keyboard shortcut.
-4. New skill files under `src/mavis/skills/` for the selected high-value skills.
-5. Updated `mavis-chat` edge function to integrate custom skills and `/skills` slash command.
-6. Health/status badge or page row showing skill system status.
+**Tighten timing**
+- Drop the header timeout from 20s to 8s (a provider that hasn't sent headers in 8s is stalled), keep the 90s total for legitimate long generations.
+- Raise the loop deadline from 55s to 75s, and when it trips, return whatever text/tool results already exist plus a short note, rather than discarding them.
 
-## Next Step
-Approve this plan and I'll start with the audit inventory so we know exactly which skills are real, broken, or missing before building the UI and new skills.
+**Trim pre-flight in the client**
+- Start the `mavis-agent` request without blocking on `dispatchToSpecialist` when no specialist is active (it currently runs regardless).
+- Reuse the already-computed system prompt across consecutive messages in the same conversation instead of rebuilding it per send, invalidating it on `refetchAll`.
+- Show a live elapsed indicator with the current tool name in the thinking chip so long tool calls read as progress, not a hang.
+
+**Verify**
+- Deploy `mavis-agent`, then run agent-mode requests that (a) need one tool, (b) need two chained tools, and (c) need no tool, checking the function logs for repeated identical tool calls and confirming no "hit the agent time limit" message.
+
+## Technical notes
+- Files touched: `supabase/functions/mavis-agent/index.ts`, `src/pages/MavisChat.tsx`, and the system-prompt cache in `src/mavis/buildSystemPrompt.ts`.
+- No schema changes, no new tables, no new secrets.
+- The `AGENT_STREAMING` env kill switch stays intact.

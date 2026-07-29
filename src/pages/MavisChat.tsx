@@ -24,7 +24,7 @@ import { SkillCatalogDrawer } from "@/components/chat/SkillCatalogDrawer";
 import { useMediaPoller } from "@/hooks/useMediaPoller";
 
 // ── MAVIS modules ───────────────────────────────────────────
-import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
+import { buildSystemPromptFromSnapshot, buildSystemPromptCached, invalidateSystemPromptCache } from "@/mavis/buildSystemPrompt";
 import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage, invokeAI } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
@@ -139,6 +139,15 @@ export default function MavisChat() {
   const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [agentThinking, setAgentThinking] = useState<string | null>(null);
+  // Elapsed seconds while the agent loop works — turns a long tool call into
+  // visible progress instead of a frozen "thinking" chip.
+  const [agentElapsed, setAgentElapsed] = useState(0);
+  useEffect(() => {
+    if (agentThinking === null) { setAgentElapsed(0); return; }
+    const started = Date.now();
+    const t = setInterval(() => setAgentElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [agentThinking !== null]);
   const [agentSteps, setAgentSteps] = useState<Array<{step: string; type?: string; ok?: boolean; count?: number; iteration?: number; preview?: string; label?: string}>>([]);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
   const [artifactLang, setArtifactLang] = useState<string>("text");
@@ -1206,8 +1215,8 @@ export default function MavisChat() {
           // ── Build full MAVIS context for the agent loop ───────────────────────────
           setAgentThinking("Building context…");
           const agentSystemPrompt = await (fullCtx
-            ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
-            : buildSystemPromptFromSnapshot(chatMode, ({
+            ? buildSystemPromptCached(chatMode, fullCtx, archivedMemories, vaultMedia)
+            : buildSystemPromptCached(chatMode, ({
                 profile: profile as any,
                 quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
                 rankings: [], transformations: appDataRef.current.transformations as any[],
@@ -1245,6 +1254,7 @@ export default function MavisChat() {
           const agentExecConfirmed = (agentResult.executionResults ?? []).filter((r) => r.status === "success");
           if (agentExecConfirmed.length > 0) {
             await new Promise((r) => setTimeout(r, 500));
+            invalidateSystemPromptCache();
             await refetchAll();
             if (userId) captureProceduralMemory(userId, content, agentExecConfirmed).catch(() => {});
           }
@@ -2211,7 +2221,7 @@ export default function MavisChat() {
                               </div>
                               {agentThinking && (
                                 <span className="text-xs font-mono text-violet-400/80 truncate max-w-[260px]">
-                                  ⚙ {agentThinking}
+                                  ⚙ {agentThinking}{agentElapsed > 2 ? ` · ${agentElapsed}s` : ""}
                                 </span>
                               )}
                             </div>

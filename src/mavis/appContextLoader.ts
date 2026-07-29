@@ -89,7 +89,8 @@ export async function loadFullAppContext(userId: string): Promise<AppContextSnap
   ] = await Promise.all([
     safeProfile(userId),
     safeQuery("quests", userId),
-    safeQuery("quests", userId),
+    safeQuery("tasks", userId),
+
     safeQuery("skills", userId),
     safeQuery("rankings_profiles", userId),
     safeQuery("transformations", userId),

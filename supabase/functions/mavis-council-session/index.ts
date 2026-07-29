@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { buildSharedTruth } from "../_shared/context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -407,7 +408,10 @@ serve(async (req) => {
       }
       if (session.topic) ctxLines.push(`Session topic: ${session.topic}`);
       ctxLines.push(`Council members on this call: ${allMembers.map((m: any) => `${m.name} (${m.role ?? m.specialty ?? "advisor"})`).join(", ")}`);
-      const contextSummary = ctxLines.join("\n");
+      // Shared source of truth — identical block used by MAVIS, agent mode and personas.
+      const sharedTruth = await buildSharedTruth(supabase, userId, { surface: "council" })
+        .then((t) => t.text, () => "");
+      const contextSummary = ctxLines.join("\n") + sharedTruth;
 
       // Append user message to history view for LLM context
       const historyWithUser = [
