@@ -2095,8 +2095,11 @@ async function runAgentLoop(
   };
   let pinnedProvider: ProviderId | null = null;
   let iteration = 0;
-  const MAX_ITERATIONS = 4;
-  const deadlineAt = Date.now() + 55_000;
+  const MAX_ITERATIONS = 5;
+  const deadlineAt = Date.now() + 75_000;
+  // Text streamed/collected so far, so a deadline trip returns partial work
+  // instead of throwing it away.
+  let lastText = "";
   let actionsQueued = 0;
   const toolsUsed: string[] = [];
   let generatedImageUrl: string | undefined;
