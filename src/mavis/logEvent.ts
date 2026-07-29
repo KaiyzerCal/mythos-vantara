@@ -7,7 +7,7 @@ import type { Json } from "@/integrations/supabase/types";
 export function logEvent(eventName: string, metadata: Record<string, unknown> = {}): void {
   supabase.auth.getUser().then(({ data: { user } }) => {
     if (!user) return;
-    return supabase.from("mavis_events").insert({
+    return (supabase as any).from("mavis_events").insert({
       event_name: eventName,
       user_id: user.id,
       metadata: metadata as Json,

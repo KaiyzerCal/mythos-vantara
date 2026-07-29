@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,16 +38,8 @@ serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminSb = createClient(supabaseUrl, serviceRoleKey);
 
-    // Auth → uid
-    let uid: string | null = null;
-    const authHeader = req.headers.get("authorization");
-    if (authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.replace("Bearer ", "");
-      const userSb = createClient(supabaseUrl, token);
-      const { data: { user } } = await userSb.auth.getUser();
-      uid = user?.id ?? null;
-    }
-    if (!uid) uid = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? null;
+    // Auth → uid (real user JWT, or trusted internal caller via service-role key)
+    const uid = await resolveAuthedUid(req, adminSb);
     if (!uid) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
@@ -110,9 +103,11 @@ serve(async (req) => {
             },
             { onConflict: "user_id,external_id" },
           )
-          .catch(() => {
+          // Postgrest builders are thenable but don't implement .catch() —
+          // calling it directly threw synchronously here, aborting the sync.
+          .then(() => {}, () => {
             // tasks table may not have external_id — insert only if not exists
-            adminSb.from("tasks").insert({ user_id: uid, title: gt.title, status: "active", type: "task" }).catch(() => {});
+            adminSb.from("tasks").insert({ user_id: uid, title: gt.title, status: "active", type: "task" }).then(() => {}, () => {});
           });
         pullCount++;
       }
@@ -141,7 +136,9 @@ serve(async (req) => {
         );
         const created = await res.json();
         if (created.id) {
-          await adminSb.from("tasks").update({ external_id: created.id }).eq("id", t.id).catch(() => {});
+          // Postgrest builders are thenable but don't implement .catch() —
+          // calling it directly threw synchronously here, aborting the sync.
+          await adminSb.from("tasks").update({ external_id: created.id }).eq("id", t.id).then(() => {}, () => {});
         }
         pushCount++;
       }
