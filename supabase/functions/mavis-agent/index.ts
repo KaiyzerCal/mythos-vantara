@@ -2384,7 +2384,10 @@ async function runAgentLoop(
 
       // Append tool results as a user message
       messages.push({ role: "user", content: toolResults });
-      iteration++;
+      // A turn that only called "think" produced no external work — don't spend
+      // an iteration on the scratchpad.
+      const thinkOnly = toolUseBlocks.length > 0 && toolUseBlocks.every((b) => b.name === "think");
+      if (!thinkOnly) iteration++;
       continue;
     }
 
