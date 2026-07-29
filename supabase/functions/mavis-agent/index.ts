@@ -2109,8 +2109,11 @@ async function runAgentLoop(
 
   while (iteration < MAX_ITERATIONS) {
     if (Date.now() > deadlineAt) {
+      const note = "…\n\n_(Hit the agent time limit mid-loop — send the next command and I'll continue from here.)_";
       return {
-        content: "I hit the agent time limit before finishing the full tool loop. Send the next command and I’ll continue from here.",
+        content: lastText.trim()
+          ? `${lastText.trim()}\n${note}`
+          : "I hit the agent time limit before finishing the full tool loop. Send the next command and I’ll continue from here.",
         toolsUsed,
         actionsQueued,
       };
