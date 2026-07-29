@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,14 +70,8 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminSb = createClient(supabaseUrl, serviceKey);
 
-    // Auth: Bearer JWT or TELEGRAM_OPERATOR_USER_ID env fallback
-    let uid: string | null = null;
-    const authHeader = req.headers.get("Authorization");
-    if (authHeader?.startsWith("Bearer ")) {
-      const { data: { user } } = await adminSb.auth.getUser(authHeader.slice(7));
-      uid = user?.id ?? null;
-    }
-    if (!uid) uid = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? null;
+    // Auth → uid (real user JWT, or trusted internal caller via service-role key)
+    const uid = await resolveAuthedUid(req, adminSb);
     if (!uid) return json({ error: "Unauthorized" }, 401);
 
     const { data: integration } = await adminSb

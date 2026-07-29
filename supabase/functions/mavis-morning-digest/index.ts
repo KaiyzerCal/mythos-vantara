@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
 serve(async (req) => {
@@ -12,17 +13,8 @@ serve(async (req) => {
   const claudeKey   = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const adminSb     = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-  // Step 1 — Determine uid
-  let uid: string;
-  const authHeader = req.headers.get("Authorization") ?? "";
-  if (authHeader.startsWith("Bearer ")) {
-    const token = authHeader.slice(7);
-    const userSb = createClient(supabaseUrl, token, { auth: { persistSession: false } });
-    const { data: { user } } = await userSb.auth.getUser();
-    uid = user?.id ?? Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
-  } else {
-    uid = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
-  }
+  // Step 1 — Determine uid (real user JWT, or trusted internal caller via service-role key)
+  const uid = await resolveAuthedUid(req, adminSb) ?? "";
   if (!uid) {
     return new Response(JSON.stringify({ error: "No user" }), { status: 401, headers: corsHeaders });
   }
