@@ -2122,18 +2122,50 @@ async function runAgentLoop(
       input?: Record<string, unknown>;
     }> = [];
 
-    const gatewayMessages = messages.map((message) => {
-      if (typeof message.content === "string") return message as { role: string; content: string };
-      if (Array.isArray(message.content)) {
-        const parts = (message.content as any[]).map((part) => {
-          if (part.type === "tool_result") return `Tool result for ${part.tool_use_id}: ${part.content}`;
-          if (part.type === "text") return part.text ?? "";
-          return JSON.stringify(part);
-        });
-        return { role: message.role, content: parts.join("\n") };
+    // Convert the internal Anthropic block format into real OpenAI-compatible
+    // messages. Tool calls must arrive as assistant.tool_calls and results as
+    // role:"tool" entries keyed by tool_call_id — flattening them into plain
+    // user text makes the model re-call the same tools and report false errors.
+    const gatewayMessages: any[] = [];
+    for (const message of messages) {
+      if (typeof message.content === "string") {
+        gatewayMessages.push({ role: message.role, content: message.content });
+        continue;
       }
-      return { role: message.role, content: JSON.stringify(message.content) };
-    });
+      if (!Array.isArray(message.content)) {
+        gatewayMessages.push({ role: message.role, content: JSON.stringify(message.content) });
+        continue;
+      }
+      const blocks = message.content as any[];
+      const toolResults = blocks.filter((b) => b.type === "tool_result");
+      if (toolResults.length > 0) {
+        for (const tr of toolResults) {
+          gatewayMessages.push({
+            role: "tool",
+            tool_call_id: tr.tool_use_id ?? "",
+            content: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content),
+          });
+        }
+        const extraText = blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n").trim();
+        if (extraText) gatewayMessages.push({ role: "user", content: extraText });
+        continue;
+      }
+      const toolUses = blocks.filter((b) => b.type === "tool_use");
+      const text = blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
+      if (toolUses.length > 0) {
+        gatewayMessages.push({
+          role: "assistant",
+          content: text || null,
+          tool_calls: toolUses.map((tu) => ({
+            id: tu.id ?? "",
+            type: "function",
+            function: { name: tu.name ?? "", arguments: JSON.stringify(tu.input ?? {}) },
+          })),
+        });
+      } else {
+        gatewayMessages.push({ role: message.role, content: text || JSON.stringify(blocks) });
+      }
+    }
 
     // Try each provider in the chain until one serves this iteration.
     // A pinned provider (one that already served) always goes first.
