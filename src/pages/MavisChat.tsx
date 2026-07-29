@@ -139,6 +139,15 @@ export default function MavisChat() {
   const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [agentThinking, setAgentThinking] = useState<string | null>(null);
+  // Elapsed seconds while the agent loop works — turns a long tool call into
+  // visible progress instead of a frozen "thinking" chip.
+  const [agentElapsed, setAgentElapsed] = useState(0);
+  useEffect(() => {
+    if (agentThinking === null) { setAgentElapsed(0); return; }
+    const started = Date.now();
+    const t = setInterval(() => setAgentElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [agentThinking !== null]);
   const [agentSteps, setAgentSteps] = useState<Array<{step: string; type?: string; ok?: boolean; count?: number; iteration?: number; preview?: string; label?: string}>>([]);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
   const [artifactLang, setArtifactLang] = useState<string>("text");
