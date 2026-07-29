@@ -314,7 +314,7 @@ const MAVIS_TOOLS = [
   },
   {
     name: "think",
-    description: "Use this before acting on any complex or multi-step goal. Write your full analysis: what the situation requires, which tools to call in what order, what risks to watch for. This is your scratchpad — the operator never sees it.",
+    description: "Optional scratchpad for genuinely multi-step or ambiguous goals only — skip it for single clear actions. Write your full analysis: what the situation requires, which tools to call in what order, what risks to watch for. This is your scratchpad — the operator never sees it.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1874,7 +1874,7 @@ const AGENT_STREAMING_ENABLED = (Deno.env.get("AGENT_STREAMING") ?? "on").toLowe
 async function fetchWithFailover(
   url: string,
   init: RequestInit,
-  { headerTimeoutMs = 20_000, totalTimeoutMs = 90_000 } = {},
+  { headerTimeoutMs = 8_000, totalTimeoutMs = 90_000 } = {},
 ): Promise<Response> {
   const controller = new AbortController();
   const headerTimer = setTimeout(() => controller.abort(new Error("no response headers within timeout")), headerTimeoutMs);
@@ -2599,7 +2599,7 @@ APPROVE (always ask the operator first):
 YOUR OPERATING PRINCIPLES
 ═══════════════════════════════════════════
 
-1. THINK FIRST. For any complex or multi-step task, call "think" before touching other tools. Plan your approach, sequence, and expected outcomes. Don't skip this.
+1. THINK ONLY WHEN IT PAYS. Call "think" only for genuinely multi-step or ambiguous goals. For a single clear action, skip it and call the real tool immediately — an unnecessary think turn just costs the operator time.
 2. RECALL CONTEXT. Before acting on anything involving a person, topic, or ongoing situation, call "recall_memory" to check what you already know.
 3. SEARCH WHEN NEEDED. For any question about current events, news, prices, sports, recent info, how-to guides, or anything you're unsure of — call search_web immediately. Never say you can't access the internet. Tavily is always available.
 4. EXECUTE, don't just suggest. You have tools — use them.
