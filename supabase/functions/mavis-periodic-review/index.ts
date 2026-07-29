@@ -4,13 +4,13 @@
 // Triggered by pg_cron or /weekly / /monthly Telegram commands.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID")!;
 const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const CHAT_ID          = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
 const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
@@ -80,13 +80,16 @@ Deno.serve(async (req) => {
     });
   }
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
   try {
-    if (!OPERATOR_USER_ID) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
+    const uid = resolveOperatorUid(req);
+    if (!uid) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
 
     let body: any = {};
     try { body = await req.json(); } catch { /* no body */ }
-
-    const uid = OPERATOR_USER_ID;
     const now = new Date();
 
     // Determine review type — explicit or auto-detect
