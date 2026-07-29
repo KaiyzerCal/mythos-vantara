@@ -5,6 +5,7 @@ import { scoreImportance, compressBlock, isHighStakesQuery, estimateLlmCost, det
 import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream } from "./providers.ts";
 import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionIntent, hasResearchIntent, resolveActionsNative } from "./toolDispatch.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";
+import { buildSharedTruth } from "../_shared/context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1401,7 +1402,7 @@ ${telosData
     const now = new Date();
     const _truth = await buildSharedTruth(sb, user.id, {
       entityTimezone,
-      surface: personaId ? (isCouncil ? "council" : "persona") : "mavis-chat",
+      surface: personaId ? (isCouncilMode ? "council" : "persona") : "mavis-chat",
     });
     const operatorTz: string = _truth.operatorTimezone;
     const timeBlock = _truth.text;
