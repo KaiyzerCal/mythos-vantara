@@ -76,9 +76,13 @@ serve(async (req) => {
         });
 
         if (cronErr) {
-          // cron_schedule RPC may not exist — fall back to raw SQL
+          // cron_schedule RPC may not exist — fall back to raw SQL. job_name and
+          // schedule come from mavis_cron_config, not request input, but escape
+          // them the same as the other interpolated values for defense in depth.
+          const escapedJobName = String(job.job_name).replace(/'/g, "''");
+          const escapedSchedule = String(job.schedule).replace(/'/g, "''");
           const { error: rawErr } = await adminSb.rpc("exec_sql", {
-            sql: `SELECT cron.schedule('${job.job_name}', '${job.schedule}', $cmd$${cronSql}$cmd$)`,
+            sql: `SELECT cron.schedule('${escapedJobName}', '${escapedSchedule}', $cmd$${cronSql}$cmd$)`,
           });
           if (rawErr) throw new Error(rawErr.message);
         }

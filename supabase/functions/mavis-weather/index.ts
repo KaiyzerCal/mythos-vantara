@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,25 +12,19 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminSb = createClient(supabaseUrl, serviceRoleKey);
 
-    // Auth → uid (Bearer or TELEGRAM_OPERATOR_USER_ID fallback)
-    let uid: string | null = null;
-    const authHeader = req.headers.get("authorization");
-    if (authHeader) {
-      const token = authHeader.replace("Bearer ", "");
-      const userSb = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY") ?? serviceRoleKey, {
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      });
-      const { data: { user } } = await userSb.auth.getUser();
-      uid = user?.id ?? null;
-    }
-    if (!uid) {
-      uid = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? null;
-    }
+    const uid = resolveOperatorUid(req);
     if (!uid) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,

@@ -1,10 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GROK_API_KEY = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY");
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-const TELEGRAM_OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID");
 
 interface ProductProposal {
   title: string;
@@ -74,6 +74,13 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (!isServiceRoleCaller(req)) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     let userId: string | undefined;
     try {
       const body = await req.json();
@@ -81,7 +88,7 @@ Deno.serve(async (req) => {
     } catch {
       // body is optional — ignore parse errors
     }
-    userId = userId ?? TELEGRAM_OPERATOR_USER_ID;
+    userId = userId ?? resolveOperatorUid(req) ?? undefined;
 
     if (!userId) {
       return new Response(

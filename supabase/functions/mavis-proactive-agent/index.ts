@@ -9,6 +9,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -558,39 +559,16 @@ serve(async (req) => {
     });
 
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-    const { action, userId: bodyUserId } = body as {
-      action?: string;
-      userId?: string;
-    };
+    const { action } = body as { action?: string };
 
-    // Resolve user ID: from JWT auth header, or from body (for cron/service calls)
-    let userId: string | null = null;
-
-    const authHeader = req.headers.get("authorization") ?? "";
-    if (authHeader.startsWith("Bearer ")) {
-      const token = authHeader.replace("Bearer ", "").trim();
-      try {
-        const userClient = createClient(SUPABASE_URL, token);
-        const {
-          data: { user },
-        } = await userClient.auth.getUser();
-        if (user?.id) userId = user.id;
-      } catch { /* auth failed — fall through to body userId */ }
-    }
-
-    // Allow cron/service callers to pass userId in body
-    if (!userId && bodyUserId) {
-      userId = bodyUserId;
-    }
-
-    // Also support TELEGRAM_OPERATOR_USER_ID as fallback (for cron invocation)
-    if (!userId) {
-      const operatorId = Deno.env.get("TELEGRAM_OPERATOR_USER_ID");
-      if (operatorId) userId = operatorId;
-    }
+    // Resolve user ID: real user JWT, or trusted internal caller (service-role
+    // key) resolving to the operator. Callers can no longer pass an arbitrary
+    // `userId` in the body — that was an IDOR letting anyone impersonate any
+    // user by guessing/supplying their id.
+    const userId = await resolveAuthedUid(req, adminSb);
 
     if (!userId) {
-      return json({ ok: false, error: "Unauthorized: no valid auth header or userId" }, 401);
+      return json({ ok: false, error: "Unauthorized: no valid auth header" }, 401);
     }
 
     const requestedAction = (action ?? "run_brief") as string;

@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,8 +34,14 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
-    const uid = Deno.env.get("TELEGRAM_OPERATOR_USER_ID");
+    const uid = resolveOperatorUid(req);
     if (!uid) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
 
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");

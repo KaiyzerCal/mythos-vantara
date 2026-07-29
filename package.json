@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/push-notifications": "^8.1.2",
     "@codesandbox/sandpack-react": "^2.20.0",

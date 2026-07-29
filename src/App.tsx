@@ -178,7 +178,6 @@ function AppContent() {
 
   return (
     <AppDataProvider>
-      <VoiceProvider>
       <div className="h-dvh flex overflow-hidden bg-background">
         <AppSidebar />
 
@@ -289,7 +288,6 @@ function AppContent() {
         </main>
         <MavisPageControl />
       </div>
-      </VoiceProvider>
     </AppDataProvider>
   );
 }
@@ -304,7 +302,9 @@ const App = () => (
           <SonnerToaster position="bottom-right" theme="dark" />
           <BrowserRouter>
             <AuthProvider>
-              <AppContent />
+              <VoiceProvider>
+                <AppContent />
+              </VoiceProvider>
             </AuthProvider>
           </BrowserRouter>
         </TooltipProvider>

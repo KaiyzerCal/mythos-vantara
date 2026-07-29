@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -63,16 +65,23 @@ serve(async (req: Request) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     // ── Env vars ─────────────────────────────────────────────────────────────
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
     const TELEGRAM_OPERATOR_CHAT_ID = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
-    const TELEGRAM_OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID");
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_OPERATOR_CHAT_ID || !TELEGRAM_OPERATOR_USER_ID) {
+    const uid = resolveOperatorUid(req);
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_OPERATOR_CHAT_ID || !uid) {
       return new Response(
         JSON.stringify({ error: "Missing TELEGRAM_* environment variables" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -85,7 +94,6 @@ serve(async (req: Request) => {
       );
     }
 
-    const uid = TELEGRAM_OPERATOR_USER_ID;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const now = new Date();

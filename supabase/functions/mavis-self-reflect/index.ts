@@ -11,6 +11,7 @@
 // Auth: service-role key required (pass as Authorization: Bearer <service_key>)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,6 +69,12 @@ async function callAI(prompt: string, key: string): Promise<string> {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const sb = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -76,7 +83,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
-    const userId: string = body?.user_id ?? Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
+    const userId: string = body?.user_id ?? resolveOperatorUid(req) ?? "";
     if (!userId) {
       return new Response(JSON.stringify({ error: "user_id required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },

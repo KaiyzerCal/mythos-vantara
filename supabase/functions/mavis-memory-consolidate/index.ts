@@ -6,6 +6,7 @@
 
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const supabase  = createClient(
@@ -18,15 +19,17 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization, content-type",
 };
 
-const OP_UID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: CORS });
+  }
 
   try {
     let body: { user_id?: string; dry_run?: boolean } = {};
     try { body = await req.json(); } catch { /* cron with no body */ }
-    const user_id = body.user_id ?? OP_UID;
+    const user_id = body.user_id ?? resolveOperatorUid(req) ?? "";
     const dry_run = body.dry_run ?? false;
     if (!user_id) {
       return new Response(JSON.stringify({ error: "user_id required" }), { status: 400, headers: CORS });

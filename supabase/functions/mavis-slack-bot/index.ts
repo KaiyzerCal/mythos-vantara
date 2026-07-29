@@ -115,6 +115,25 @@ serve(async (req) => {
     const contentType = req.headers.get("content-type") ?? "";
     const rawBody = await req.text();
 
+    // Verify Slack's request signature before processing anything. Slack signs
+    // every request the same way — slash commands and Event API callbacks
+    // alike — but this was previously only checked on the JSON (Event API)
+    // path, leaving the slash-command path (/mavis, /linear) reachable by
+    // anyone who knew the function URL, no Slack signature required.
+    const signingSecret = Deno.env.get("SLACK_SIGNING_SECRET")!;
+    const timestamp = req.headers.get("x-slack-request-timestamp") ?? "";
+    const slackSignature = req.headers.get("x-slack-signature") ?? "";
+
+    const timestampFresh = Math.abs(Date.now() / 1000 - Number(timestamp)) < 5 * 60;
+    const isValid = timestampFresh && await verifySlackSignature(signingSecret, timestamp, rawBody, slackSignature);
+
+    if (!isValid) {
+      return new Response(JSON.stringify({ error: "Invalid signature" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ── Slash command (application/x-www-form-urlencoded) ──────────────────
     if (contentType.includes("application/x-www-form-urlencoded")) {
       const params = new URLSearchParams(rawBody);
@@ -229,25 +248,6 @@ serve(async (req) => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           }
         );
-      }
-
-      // Verify Slack signing secret
-      const signingSecret = Deno.env.get("SLACK_SIGNING_SECRET")!;
-      const timestamp = req.headers.get("x-slack-request-timestamp") ?? "";
-      const slackSignature = req.headers.get("x-slack-signature") ?? "";
-
-      const isValid = await verifySlackSignature(
-        signingSecret,
-        timestamp,
-        rawBody,
-        slackSignature
-      );
-
-      if (!isValid) {
-        return new Response(JSON.stringify({ error: "Invalid signature" }), {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
       }
 
       // Handle app_mention or DM message events

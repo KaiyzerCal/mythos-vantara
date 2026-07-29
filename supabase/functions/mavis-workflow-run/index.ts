@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -234,6 +235,13 @@ async function executeStep(
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -243,29 +251,17 @@ serve(async (req) => {
 
     const adminSb = createClient(supabaseUrl, serviceKey);
 
-    // Auth: Bearer token → uid, or fallback to TELEGRAM_OPERATOR_USER_ID
-    let uid: string | null = null;
-    const authHeader = req.headers.get("Authorization");
-    if (authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.slice(7);
-      const { data: { user } } = await adminSb.auth.getUser(token);
-      uid = user?.id ?? null;
-    }
-    if (!uid) {
-      uid = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? null;
-    }
+    const body = await req.json();
+
+    // Trusted service-role caller may specify who to run as (called from mavis-actions);
+    // otherwise defaults to the operator.
+    const uid: string | null = body.userId ? String(body.userId) : resolveOperatorUid(req);
     if (!uid) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const body = await req.json();
-
-    // Server-to-server: service role key + body.userId (called from mavis-actions)
-    const token = authHeader?.slice(7) ?? "";
-    if (token === serviceKey && body.userId) uid = String(body.userId);
 
     const workflowId: string | undefined = body.workflow_id;
     let steps: Step[] = body.steps ?? [];

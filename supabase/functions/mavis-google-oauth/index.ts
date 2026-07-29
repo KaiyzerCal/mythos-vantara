@@ -7,6 +7,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,6 +73,60 @@ const SCOPES = [
   "https://www.googleapis.com/auth/blogger",
 ].join(" ");
 
+// ── Signed state ─────────────────────────────────────────────────────────
+// `state` round-trips through Google and back unauthenticated, so it must be
+// tamper-proof: previously it was plain base64(JSON), letting a caller bind
+// their own Google auth code to an arbitrary victim user_id (IDOR). It's now
+// HMAC-signed with the service-role key (a secret only this backend knows)
+// and expires after 15 minutes.
+const STATE_SECRET = SERVICE_KEY;
+const STATE_TTL_MS = 15 * 60 * 1000;
+
+async function hmacKey(secret: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+}
+
+function b64url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function b64urlToBytes(s: string): Uint8Array {
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+async function signState(payload: Record<string, unknown>): Promise<string> {
+  const payloadB64 = b64url(new TextEncoder().encode(JSON.stringify(payload)));
+  const sig = await crypto.subtle.sign("HMAC", await hmacKey(STATE_SECRET), new TextEncoder().encode(payloadB64));
+  return `${payloadB64}.${b64url(new Uint8Array(sig))}`;
+}
+
+async function verifyState(state: string | undefined): Promise<{ user_id?: string; redirect_origin?: string } | null> {
+  if (!state) return null;
+  const [payloadB64, sigB64] = state.split(".");
+  if (!payloadB64 || !sigB64) return null;
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    await hmacKey(STATE_SECRET),
+    b64urlToBytes(sigB64),
+    new TextEncoder().encode(payloadB64),
+  );
+  if (!valid) return null;
+  try {
+    const data = JSON.parse(new TextDecoder().decode(b64urlToBytes(payloadB64)));
+    if (typeof data.ts !== "number" || Date.now() - data.ts > STATE_TTL_MS) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 async function getCredentials(userId: string, adminSb: ReturnType<typeof createClient>) {
   // User stores their Google Cloud OAuth client_id + client_secret in the
   // google_workspace integration row (key_name: "Client ID" / "Client Secret")
@@ -93,22 +148,14 @@ serve(async (req) => {
   try {
     const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
     const body = await req.json().catch(() => ({}));
-    const { action, user_id: bodyUserId, redirect_origin } = body as Record<string, string>;
+    const { action, redirect_origin } = body as Record<string, string>;
 
-    // Resolve calling user
-    let userId = bodyUserId ?? "";
-    if (!userId) {
-      const authHeader = req.headers.get("authorization") ?? "";
-      if (authHeader.startsWith("Bearer ")) {
-        const token = authHeader.replace("Bearer ", "");
-        if (token !== SERVICE_KEY) {
-          const { data } = await createClient(SUPABASE_URL, token).auth.getUser();
-          userId = data.user?.id ?? "";
-        }
-      }
-    }
-
-    if (!userId) return json({ error: "user_id required" }, 401);
+    // Resolve calling user from a real session JWT, or trusted internal
+    // caller (service-role key). Callers can no longer pass user_id directly
+    // — that let anyone bind their own Google auth code to an arbitrary
+    // victim's account (IDOR).
+    const userId = await resolveAuthedUid(req, adminSb);
+    if (!userId) return json({ error: "Unauthorized" }, 401);
 
     switch (action) {
       // ── Build Google consent URL ────────────────────────────────
@@ -119,7 +166,7 @@ serve(async (req) => {
         const origin = redirect_origin ?? "http://localhost:8080";
         const redirectUri = `${origin}/integrations`;
 
-        const state = btoa(JSON.stringify({ user_id: userId, redirect_origin: origin, ts: Date.now() }));
+        const state = await signState({ user_id: userId, redirect_origin: origin, ts: Date.now() });
         const params = new URLSearchParams({
           client_id:     clientId,
           redirect_uri:  redirectUri,
@@ -138,12 +185,19 @@ serve(async (req) => {
         const { code, state } = body as Record<string, string>;
         if (!code) return json({ error: "code is required" }, 400);
 
-        // Decode state
-        let stateData: { user_id?: string; redirect_origin?: string } = {};
-        try { stateData = JSON.parse(atob(state ?? "")); } catch { /* optional */ }
+        // Verify the signed state (if present) instead of trusting it blindly —
+        // an unsigned/tampered state previously let a caller bind their own
+        // Google auth code to a victim's user_id.
+        const stateData = await verifyState(state);
+        if (state && !stateData) {
+          return json({ error: "Invalid or expired OAuth state" }, 400);
+        }
+        if (stateData?.user_id && stateData.user_id !== userId) {
+          return json({ error: "OAuth state does not match the authenticated user" }, 403);
+        }
 
-        const uid          = stateData.user_id ?? userId;
-        const origin       = stateData.redirect_origin ?? redirect_origin ?? "http://localhost:8080";
+        const uid          = userId;
+        const origin       = stateData?.redirect_origin ?? redirect_origin ?? "http://localhost:8080";
         const redirectUri  = `${origin}/integrations`;
 
         const { clientId, clientSecret } = await getCredentials(uid, adminSb);

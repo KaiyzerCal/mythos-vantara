@@ -20,6 +20,7 @@ const supabase = createClient(
 const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
 const OPERATOR_CHAT_ID = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID")!;
 const OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID")!;
+const WEBHOOK_SECRET   = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
 
 // ── Provider keys (same as mavis-chat cascade) ────────────────
 const AI_KEYS = {
@@ -2202,6 +2203,16 @@ Deno.serve(async (req) => {
   // Telegram sends POST for every update
   if (req.method !== "POST") return new Response("OK");
 
+  // Verify this request actually came from Telegram, not just a forged JSON
+  // body with a guessed chat_id. telegram-setup already registers
+  // TELEGRAM_WEBHOOK_SECRET with Telegram (as secret_token on setWebhook) —
+  // Telegram echoes it back on every update via this header. Without checking
+  // it, the identity gate below is just comparing fields in an attacker-
+  // controlled body, which anyone who finds this URL can forge.
+  if (WEBHOOK_SECRET && req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   let update: any;
   try { update = await req.json(); }
   catch { return new Response("Bad request", { status: 400 }); }
@@ -2237,7 +2248,10 @@ Deno.serve(async (req) => {
 
         let msg = "Done.";
         if (!res?.ok) {
-          const errText = await res?.text().catch(() => "");
+          // res?.text() short-circuits to undefined when res is null (network
+          // failure), and .catch() on undefined then throws — must guard on res
+          // itself, not just chain optional-call operators through it.
+          const errText = res ? await res.text().catch(() => "") : "";
           msg = `Failed (${res?.status ?? "network"}): ${errText.slice(0, 120)}`;
         } else {
           try { const d = await res.json(); if (d.result?.htmlLink) msg = `Event created.`; } catch {}
@@ -2279,7 +2293,10 @@ Deno.serve(async (req) => {
 
         let resultMsg = "Email sent.";
         if (!res?.ok) {
-          const errText = await res?.text().catch(() => "");
+          // res?.text() short-circuits to undefined when res is null (network
+          // failure), and .catch() on undefined then throws — must guard on res
+          // itself, not just chain optional-call operators through it.
+          const errText = res ? await res.text().catch(() => "") : "";
           resultMsg = `Email send failed (${res?.status ?? "network"}): ${errText.slice(0, 120)}`;
         } else {
           try {
@@ -2326,7 +2343,10 @@ Deno.serve(async (req) => {
 
         let msg = "Done.";
         if (!res?.ok) {
-          const errText = await res?.text().catch(() => "");
+          // res?.text() short-circuits to undefined when res is null (network
+          // failure), and .catch() on undefined then throws — must guard on res
+          // itself, not just chain optional-call operators through it.
+          const errText = res ? await res.text().catch(() => "") : "";
           msg = `Failed (${res?.status ?? "network"}): ${errText.slice(0, 120)}`;
         } else {
           try {

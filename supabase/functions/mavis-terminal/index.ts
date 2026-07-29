@@ -6,6 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -91,17 +92,6 @@ function killSandbox(sandboxId: string) {
     method: "DELETE",
     headers: e2bHeaders(),
   }).catch(() => {});
-}
-
-// ── Auth ──────────────────────────────────────────────────────────────────────
-
-async function resolveUid(req: Request, adminSb: any): Promise<string | null> {
-  const auth = req.headers.get("Authorization");
-  if (auth?.startsWith("Bearer ")) {
-    const { data: { user } } = await adminSb.auth.getUser(auth.slice(7));
-    if (user?.id) return user.id;
-  }
-  return Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? null;
 }
 
 // ── Session helpers ───────────────────────────────────────────────────────────
@@ -208,7 +198,7 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminSb = createClient(supabaseUrl, serviceKey);
 
-    const userId = await resolveUid(req, adminSb);
+    const userId = await resolveAuthedUid(req, adminSb);
     if (!userId) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json().catch(() => ({}));

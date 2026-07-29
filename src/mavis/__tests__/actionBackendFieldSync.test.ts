@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const BACKEND_SRC = readFileSync(join(ROOT, "supabase/functions/mavis-actions/index.ts"), "utf8");
+const FRONTEND_EXECUTOR_SRC = readFileSync(join(ROOT, "src/mavis/actionExecutor.ts"), "utf8");
 
 // Extracts the `for (const key of [...]) { if (p[key] !== undefined) updates[key]`
 // allowlist immediately following a given `case "...": {` handler.
@@ -68,4 +69,44 @@ describe("update schema fields stay in sync with mavis-actions' real allowlists"
       expect(declaredSet).toEqual(backendSet);
     });
   }
+});
+
+// actionExecutor.ts normalizes alias action-type spellings (e.g. "remove_quest")
+// to their canonical form BEFORE Zod validation and the ALWAYS_CONFIRM gate — see
+// the ACTION_ALIASES comment at the top of that file. If its alias map drifts
+// out of sync with mavis-actions/index.ts's own ACTION_ALIASES (the backend adds
+// one here without the frontend picking it up), any action using that alias
+// silently skips both validation and the confirm-before-execute gate for
+// destructive actions. This was previously an unenforced claim in a comment;
+// this test makes it real.
+function extractAliasMap(src: string): Record<string, string> {
+  const start = src.indexOf("const ACTION_ALIASES");
+  expect(start, "ACTION_ALIASES not found").toBeGreaterThan(-1);
+  const braceStart = src.indexOf("{", start);
+  let depth = 0, end = -1;
+  for (let i = braceStart; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+  }
+  const body = src.slice(braceStart + 1, end);
+  const pairs: Record<string, string> = {};
+  const re = /"([^"]+)"\s*:\s*"([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) pairs[m[1]] = m[2];
+  return pairs;
+}
+
+describe("actionExecutor's ACTION_ALIASES stays in sync with mavis-actions'", () => {
+  it("every backend alias exists in the frontend with the same canonical target", () => {
+    const backendAliases = extractAliasMap(BACKEND_SRC);
+    const frontendAliases = extractAliasMap(FRONTEND_EXECUTOR_SRC);
+    const missing: string[] = [];
+    const mismatched: string[] = [];
+    for (const [alias, canonical] of Object.entries(backendAliases)) {
+      if (!(alias in frontendAliases)) missing.push(alias);
+      else if (frontendAliases[alias] !== canonical) mismatched.push(alias);
+    }
+    expect(missing, `aliases in mavis-actions/index.ts missing from actionExecutor.ts: ${missing.join(", ")}`).toEqual([]);
+    expect(mismatched, `aliases mapping to a different canonical type: ${mismatched.join(", ")}`).toEqual([]);
+  });
 });

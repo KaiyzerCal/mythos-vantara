@@ -5,12 +5,12 @@
 // knows exactly what it can do. Sends a Telegram diff if anything changed.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BOT_TOKEN     = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
-const OPERATOR_UID  = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
 
 const NOTE_TITLE = "MAVIS System Capabilities — Live Audit";
 const NOTE_TAGS  = ["system", "capabilities", "audit", "self-knowledge"];
@@ -192,6 +192,14 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
   }
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const OPERATOR_UID = resolveOperatorUid(req) ?? "";
   const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
   try {

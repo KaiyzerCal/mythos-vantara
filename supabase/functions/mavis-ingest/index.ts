@@ -4,6 +4,7 @@
 // For text/clip: uses content directly → AI summary → saves note + embedding
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -15,7 +16,6 @@ const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_KEY   = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY    = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-const OPERATOR_UID  = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -105,13 +105,16 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "POST only" }), { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
 
   try {
     const body = await req.json();
     const type: "url" | "text" | "clip" = body.type ?? "text";
     const content: string = String(body.content ?? "").trim();
     const extraTags: string[] = Array.isArray(body.tags) ? body.tags : [];
-    const userId: string = body.user_id ?? OPERATOR_UID;
+    const userId: string = body.user_id ?? resolveOperatorUid(req) ?? "";
 
     if (!content) return new Response(JSON.stringify({ error: "content required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     if (!userId) return new Response(JSON.stringify({ error: "user_id required (or set TELEGRAM_OPERATOR_USER_ID)" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });

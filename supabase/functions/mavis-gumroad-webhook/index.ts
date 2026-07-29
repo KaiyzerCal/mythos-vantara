@@ -162,22 +162,18 @@ Deno.serve(async (req) => {
     }
 
     // Gumroad's Ping webhooks have no HMAC signing (unlike Stripe) — seller_id
-    // comparison is the strongest verification Gumroad itself offers. It's a
-    // plain body field, not cryptographically signed, so this is weak, but
-    // real: without GUMROAD_SELLER_ID configured there is no verification at
-    // all, so that gap must not be silent (ground rule: no silent fallback).
+    // comparison is the strongest verification Gumroad itself offers. Without
+    // GUMROAD_SELLER_ID configured there is no way to verify a ping at all, so
+    // fail closed (matching the Stripe webhook) rather than logging revenue
+    // and emailing arbitrary buyer addresses off an unverified payload.
     const sellerId = params.get("seller_id");
-    if (SELLER_ID) {
-      if (sellerId !== SELLER_ID) {
-        console.warn("[GumroadWebhook] seller_id mismatch — rejecting");
-        return new Response(JSON.stringify({ error: "seller_id mismatch" }), { status: 403 });
-      }
-    } else {
-      console.error("[GumroadWebhook] GUMROAD_SELLER_ID not set — accepting UNVERIFIED payload");
-      await supabase.from("mavis_events").insert({
-        event_name: "fallback_triggered",
-        metadata: { function: "mavis-gumroad-webhook", reason: "GUMROAD_SELLER_ID not set — seller verification skipped" },
-      }).then(() => {}, () => {});
+    if (!SELLER_ID) {
+      console.error("[GumroadWebhook] GUMROAD_SELLER_ID not set — rejecting unverifiable payload");
+      return new Response(JSON.stringify({ error: "Gumroad webhook not configured (GUMROAD_SELLER_ID missing)" }), { status: 503 });
+    }
+    if (sellerId !== SELLER_ID) {
+      console.warn("[GumroadWebhook] seller_id mismatch — rejecting");
+      return new Response(JSON.stringify({ error: "seller_id mismatch" }), { status: 403 });
     }
 
     const gumroadProductId = params.get("product_id") ?? "";

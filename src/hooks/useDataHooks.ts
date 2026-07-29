@@ -3,6 +3,7 @@
 // useTasks | useRituals | useJournal | useVault | useCouncils | useEnergy | useSkills
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -48,13 +49,23 @@ function makeHook<T extends { id: string }>(
 
     const update = useCallback(async (id: string, input: Partial<T>) => {
       setData((prev) => prev.map((row) => (row.id === id ? { ...row, ...input } : row)));
-      await (supabase as any).from(tableName).update({ ...input, updated_at: new Date().toISOString() }).eq("id", id);
-    }, []);
+      const { error } = await (supabase as any).from(tableName).update({ ...input, updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) {
+        console.error(`[useDataHooks] Error updating ${tableName}:`, error);
+        toast.error(`Failed to save changes — reverting`);
+        await fetch();
+      }
+    }, [fetch]);
 
     const remove = useCallback(async (id: string) => {
       setData((prev) => prev.filter((row) => row.id !== id));
-      await (supabase as any).from(tableName).delete().eq("id", id);
-    }, []);
+      const { error } = await (supabase as any).from(tableName).delete().eq("id", id);
+      if (error) {
+        console.error(`[useDataHooks] Error deleting from ${tableName}:`, error);
+        toast.error(`Failed to delete — reverting`);
+        await fetch();
+      }
+    }, [fetch]);
 
     return { data, loading, create, update, remove, refetch: fetch };
   };
@@ -194,11 +205,16 @@ export function useEnergySystems() {
     setSystems((prev) =>
       prev.map((s) => (s.id === id ? { ...s, current_value } : s))
     );
-    await supabase
+    const { error } = await supabase
       .from("energy_systems")
       .update({ current_value, updated_at: new Date().toISOString() })
       .eq("id", id);
-  }, []);
+    if (error) {
+      console.error("[useDataHooks] Error updating energy_systems:", error);
+      toast.error("Failed to save changes — reverting");
+      await fetch();
+    }
+  }, [fetch]);
 
   const createEnergy = useCallback(async (input: Omit<EnergySystem, "id" | "user_id" | "updated_at">): Promise<EnergySystem | null> => {
     if (!user) return null;
@@ -214,13 +230,23 @@ export function useEnergySystems() {
 
   const updateEnergyFull = useCallback(async (id: string, input: Partial<EnergySystem>) => {
     setSystems((prev) => prev.map((s) => (s.id === id ? { ...s, ...input } : s)));
-    await supabase.from("energy_systems").update({ ...input, updated_at: new Date().toISOString() }).eq("id", id);
-  }, []);
+    const { error } = await supabase.from("energy_systems").update({ ...input, updated_at: new Date().toISOString() }).eq("id", id);
+    if (error) {
+      console.error("[useDataHooks] Error updating energy_systems:", error);
+      toast.error("Failed to save changes — reverting");
+      await fetch();
+    }
+  }, [fetch]);
 
   const deleteEnergy = useCallback(async (id: string) => {
     setSystems((prev) => prev.filter((s) => s.id !== id));
-    await supabase.from("energy_systems").delete().eq("id", id);
-  }, []);
+    const { error } = await supabase.from("energy_systems").delete().eq("id", id);
+    if (error) {
+      console.error("[useDataHooks] Error deleting from energy_systems:", error);
+      toast.error("Failed to delete — reverting");
+      await fetch();
+    }
+  }, [fetch]);
 
   const seedDefaultEnergy = useCallback(async () => {
     if (!user || systems.length > 0) return;

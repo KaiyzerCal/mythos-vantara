@@ -88,6 +88,8 @@ const ACTION_ALIASES: Record<string, string> = {
   "remove_domain_effect": "delete_domain_effect", "clear_domain_effect": "delete_domain_effect",
   "lift_curse": "delete_domain_effect", "remove_curse": "delete_domain_effect",
   "remove_aura": "delete_domain_effect", "clear_aura": "delete_domain_effect",
+  "web_search": "search_web", "search": "search_web",
+  "browse": "browse_url", "scrape_url": "browse_url", "fetch_url": "browse_url", "read_url": "browse_url",
 };
 
 function normalizeActionType(type: string): string {

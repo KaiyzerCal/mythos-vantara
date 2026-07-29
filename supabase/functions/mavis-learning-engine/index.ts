@@ -9,12 +9,12 @@
 // Sends Telegram summary of any tier upgrades.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BOT_TOKEN     = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
-const OPERATOR_UID  = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
 
 const TIER_RANK: Record<string, number> = { auto: 2, queue: 1, approve: 0 };
 
@@ -44,6 +44,13 @@ async function heartbeat(sb: ReturnType<typeof createClient>, status: "running" 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+    });
+  }
+
   const sb  = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400_000).toISOString();
@@ -51,7 +58,7 @@ Deno.serve(async (req) => {
   await heartbeat(sb, "running");
 
   try {
-    const uid = OPERATOR_UID;
+    const uid = resolveOperatorUid(req);
     if (!uid) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
 
     // ── Pull all signals from last 30 days ────────────────────────────────────

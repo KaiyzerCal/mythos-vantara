@@ -10,13 +10,13 @@
 // All changes are non-destructive if AI is unavailable — fallback is pure age/count pruning.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID")!;
 const LOVABLE_KEY      = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY       = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
@@ -76,9 +76,13 @@ Deno.serve(async (req) => {
     });
   }
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
   try {
-    if (!OPERATOR_USER_ID) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
-    const uid = OPERATOR_USER_ID;
+    const uid = resolveOperatorUid(req);
+    if (!uid) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
 
     let totalDeleted  = 0;
     let totalMerged   = 0;
