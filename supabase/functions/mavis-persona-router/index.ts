@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { buildSharedTruth } from "../_shared/context.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -501,19 +502,12 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
         }).join("") + "\n═══ END FILES ═══\n"
       : "";
 
-    // Temporal awareness — persona always knows the real-world current time
+    // Shared source of truth — identity + temporal + app snapshot + directives.
     const now = new Date();
-    const timeBlock = `
-
-═══ TEMPORAL AWARENESS (current real-world time) ═══
-ISO: ${now.toISOString()}
-UTC: ${now.toUTCString()}
-Date: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC)
-Time: ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
-Unix: ${Math.floor(now.getTime() / 1000)}
-You always know the current date and time without being told. Reference it naturally when relevant (greetings, time-since-last-message, scheduling, urgency).
-═══ END TEMPORAL AWARENESS ═══
-`;
+    const timeBlock = await buildSharedTruth(supabase, user_id, {
+      entityTimezone: (persona as any)?.timezone ?? null,
+      surface: "persona",
+    }).then((t) => t.text, () => "");
 
     // Standing orders / autonomy settings from the System Settings page —
     // personas previously had zero visibility into these.
