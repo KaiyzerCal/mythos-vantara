@@ -853,6 +853,14 @@ function parseSearchQueries(text: string): string[] {
   return queries;
 }
 
+// A provider occasionally writes out a tool_use-shaped JSON blob as its
+// plain response text instead of a real answer (see the matching helper +
+// comment in mavis-agent/index.ts for the full root-cause explanation).
+function looksLikeLeakedToolCall(text: string): boolean {
+  const t = text.trim();
+  return t.startsWith("{") && /"type"\s*:\s*"tool_?use"/i.test(t.slice(0, 200));
+}
+
 function stripSearchTags(text: string): string {
   return text.replace(new RegExp(SEARCH_REGEX.source, "g"), "").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -2616,6 +2624,26 @@ No "As an AI" hedging. You have opinions — express them.`;
       const fbUserContent = [mediaContext, proactiveSearchContext, inputText].filter(Boolean).join("");
       const messages = [...history, { role: "user", content: fbUserContent }];
       let rawResponse = await callClaude(systemPrompt, messages);
+
+      // Defense-in-depth against the same leak class fixed in mavis-agent's
+      // loop (see looksLikeLeakedToolCall there): a provider occasionally
+      // writes out a tool_use-shaped JSON blob as plain text instead of a
+      // real answer. This path has no tools wired to it at all, so it
+      // shouldn't happen here, but the conversation history can carry a
+      // prior leaked JSON turn forward and prompt a weaker model to
+      // imitate the pattern. One corrective retry, then a safe fallback
+      // message rather than ever sending raw internal JSON to the operator.
+      if (looksLikeLeakedToolCall(rawResponse)) {
+        console.warn("[Telegram] fallback provider leaked a tool-call-shaped response as text — retrying with correction");
+        rawResponse = await callClaude(systemPrompt, [
+          ...messages,
+          { role: "assistant", content: rawResponse },
+          { role: "user", content: "That looked like raw tool-call JSON, not a real answer. Respond in plain natural language." },
+        ]);
+        if (looksLikeLeakedToolCall(rawResponse)) {
+          rawResponse = "Sorry — I hit a formatting glitch generating that response. Could you rephrase or try again?";
+        }
+      }
 
       if (TAVILY_KEY) {
         const queries = parseSearchQueries(rawResponse).slice(0, 2);

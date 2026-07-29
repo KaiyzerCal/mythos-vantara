@@ -218,34 +218,62 @@ async function runHeartbeatForUser(sb: any, userId: string): Promise<Record<stri
     }
   }
 
-  // ── Send consolidated Telegram alert ──────────────────────────────────────
+  // ── Send consolidated Telegram alert (content-deduplicated) ───────────────
+  // Structural guard against exactly this failure: the cron interval was
+  // separately fixed (was misconfigured to every 5 min instead of hourly —
+  // see 20260729000000_fix_heartbeat_cron_interval.sql), but a schedule fix
+  // alone is fragile — anything that fires this function more often than
+  // intended, or the mere fact that stalled items haven't changed hour to
+  // hour, would still nag the operator with an identical alert. Only send
+  // if this run's alert set actually differs from the last one sent, or the
+  // cooldown has elapsed — whichever comes first.
+  const COOLDOWN_MS = 4 * 3600_000; // don't repeat an unchanged alert set within 4h
+  const alertSignature = alerts.join("|");
   if (alerts.length) {
-    // Resolve Telegram chat ID from the linked-accounts table, falling back
-    // to the operator env vars. (There is no profiles.telegram_chat_id column.)
-    const { data: linked } = await sb
-      .from("telegram_linked_accounts")
-      .select("telegram_user_id")
+    const { data: recentHeartbeat } = await sb
+      .from("mavis_memory")
+      .select("content, timestamp")
       .eq("user_id", userId)
-      .order("created_at", { ascending: true })
+      .eq("session_id", "heartbeat")
+      .order("timestamp", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    const chatId = (linked as any)?.telegram_user_id
-      ?? Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID")
-      ?? Deno.env.get("TELEGRAM_CHAT_ID");
-    if (chatId) {
-      const msg = `🤖 <b>MAVIS Heartbeat</b> — ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })} UTC\n\n${alerts.join("\n\n")}`;
-      await tgSend(chatId, msg);
+    const lastSignature = String((recentHeartbeat as any)?.content ?? "").match(/\[SIG:([\s\S]*)\]$/)?.[1];
+    const lastTimestamp = (recentHeartbeat as any)?.timestamp as number | undefined;
+    const withinCooldown = !!lastTimestamp && (Date.now() - lastTimestamp) < COOLDOWN_MS;
+    const unchanged = withinCooldown && lastSignature === alertSignature;
+
+    if (!unchanged) {
+      // Resolve Telegram chat ID from the linked-accounts table, falling back
+      // to the operator env vars. (There is no profiles.telegram_chat_id column.)
+      const { data: linked } = await sb
+        .from("telegram_linked_accounts")
+        .select("telegram_user_id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      const chatId = (linked as any)?.telegram_user_id
+        ?? Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID")
+        ?? Deno.env.get("TELEGRAM_CHAT_ID");
+      if (chatId) {
+        const msg = `🤖 <b>MAVIS Heartbeat</b> — ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })} UTC\n\n${alerts.join("\n\n")}`;
+        await tgSend(chatId, msg);
+      }
     }
   }
 
   // ── Log heartbeat to mavis_memory ─────────────────────────────────────────
   // Schema: session_id, role, content, timestamp all NOT NULL; no tags column.
+  // Alert signature embedded at the end (opaque to anything reading this as
+  // a plain log line) so the next run can compare against it above.
   await Promise.resolve(sb.from("mavis_memory").insert({
     user_id: userId,
     session_id: "heartbeat",
     role: "system",
-    content: `Heartbeat: ${alerts.length} alert(s). ${JSON.stringify(log.checks)}`,
+    content: `Heartbeat: ${alerts.length} alert(s). ${JSON.stringify(log.checks)} [SIG:${alertSignature}]`,
     timestamp: Date.now(),
     consolidated: false,
   })).catch(() => {});

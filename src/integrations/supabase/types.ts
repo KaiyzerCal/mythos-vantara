@@ -957,42 +957,6 @@ export type Database = {
         }
         Relationships: []
       }
-      device_push_tokens: {
-        Row: {
-          active: boolean
-          created_at: string | null
-          device_name: string | null
-          error_count: number
-          id: string
-          last_used_at: string | null
-          platform: string
-          token: string
-          user_id: string
-        }
-        Insert: {
-          active?: boolean
-          created_at?: string | null
-          device_name?: string | null
-          error_count?: number
-          id?: string
-          last_used_at?: string | null
-          platform: string
-          token: string
-          user_id: string
-        }
-        Update: {
-          active?: boolean
-          created_at?: string | null
-          device_name?: string | null
-          error_count?: number
-          id?: string
-          last_used_at?: string | null
-          platform?: string
-          token?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       energy_systems: {
         Row: {
           color: string
@@ -1233,48 +1197,6 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
           whoop_enabled?: boolean | null
-        }
-        Relationships: []
-      }
-      hyperframes_renders: {
-        Row: {
-          id: string
-          user_id: string
-          provider_job_id: string | null
-          status: string
-          width: number
-          height: number
-          fps: number
-          render_url: string | null
-          error_message: string | null
-          created_at: string
-          completed_at: string | null
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          provider_job_id?: string | null
-          status?: string
-          width?: number
-          height?: number
-          fps?: number
-          render_url?: string | null
-          error_message?: string | null
-          created_at?: string
-          completed_at?: string | null
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          provider_job_id?: string | null
-          status?: string
-          width?: number
-          height?: number
-          fps?: number
-          render_url?: string | null
-          error_message?: string | null
-          created_at?: string
-          completed_at?: string | null
         }
         Relationships: []
       }
@@ -2826,30 +2748,6 @@ export type Database = {
           old_value?: string | null
           reason?: string
           user_id?: string
-        }
-        Relationships: []
-      }
-      mavis_events: {
-        Row: {
-          created_at: string
-          event_name: string
-          id: string
-          metadata: Json
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          event_name: string
-          id?: string
-          metadata?: Json
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          event_name?: string
-          id?: string
-          metadata?: Json
-          user_id?: string | null
         }
         Relationships: []
       }
@@ -5843,6 +5741,7 @@ export type Database = {
           inscribed_name: string
           level: number
           notification_settings: Json
+          nsfw_generation_enabled: boolean
           onboarding_done: boolean
           operator_level: number
           operator_xp: number
@@ -5882,6 +5781,7 @@ export type Database = {
           inscribed_name?: string
           level?: number
           notification_settings?: Json
+          nsfw_generation_enabled?: boolean
           onboarding_done?: boolean
           operator_level?: number
           operator_xp?: number
@@ -5921,6 +5821,7 @@ export type Database = {
           inscribed_name?: string
           level?: number
           notification_settings?: Json
+          nsfw_generation_enabled?: boolean
           onboarding_done?: boolean
           operator_level?: number
           operator_xp?: number
