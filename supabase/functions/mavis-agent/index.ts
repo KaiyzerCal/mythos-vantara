@@ -314,7 +314,7 @@ const MAVIS_TOOLS = [
   },
   {
     name: "think",
-    description: "Use this before acting on any complex or multi-step goal. Write your full analysis: what the situation requires, which tools to call in what order, what risks to watch for. This is your scratchpad — the operator never sees it.",
+    description: "Optional scratchpad for genuinely multi-step or ambiguous goals only — skip it for single clear actions. Write your full analysis: what the situation requires, which tools to call in what order, what risks to watch for. This is your scratchpad — the operator never sees it.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1874,7 +1874,7 @@ const AGENT_STREAMING_ENABLED = (Deno.env.get("AGENT_STREAMING") ?? "on").toLowe
 async function fetchWithFailover(
   url: string,
   init: RequestInit,
-  { headerTimeoutMs = 20_000, totalTimeoutMs = 90_000 } = {},
+  { headerTimeoutMs = 8_000, totalTimeoutMs = 90_000 } = {},
 ): Promise<Response> {
   const controller = new AbortController();
   const headerTimer = setTimeout(() => controller.abort(new Error("no response headers within timeout")), headerTimeoutMs);
@@ -2095,8 +2095,11 @@ async function runAgentLoop(
   };
   let pinnedProvider: ProviderId | null = null;
   let iteration = 0;
-  const MAX_ITERATIONS = 4;
-  const deadlineAt = Date.now() + 55_000;
+  const MAX_ITERATIONS = 5;
+  const deadlineAt = Date.now() + 75_000;
+  // Text streamed/collected so far, so a deadline trip returns partial work
+  // instead of throwing it away.
+  let lastText = "";
   let actionsQueued = 0;
   const toolsUsed: string[] = [];
   let generatedImageUrl: string | undefined;
@@ -2106,8 +2109,11 @@ async function runAgentLoop(
 
   while (iteration < MAX_ITERATIONS) {
     if (Date.now() > deadlineAt) {
+      const note = "…\n\n_(Hit the agent time limit mid-loop — send the next command and I'll continue from here.)_";
       return {
-        content: "I hit the agent time limit before finishing the full tool loop. Send the next command and I’ll continue from here.",
+        content: lastText.trim()
+          ? `${lastText.trim()}\n${note}`
+          : "I hit the agent time limit before finishing the full tool loop. Send the next command and I’ll continue from here.",
         toolsUsed,
         actionsQueued,
       };
@@ -2122,18 +2128,50 @@ async function runAgentLoop(
       input?: Record<string, unknown>;
     }> = [];
 
-    const gatewayMessages = messages.map((message) => {
-      if (typeof message.content === "string") return message as { role: string; content: string };
-      if (Array.isArray(message.content)) {
-        const parts = (message.content as any[]).map((part) => {
-          if (part.type === "tool_result") return `Tool result for ${part.tool_use_id}: ${part.content}`;
-          if (part.type === "text") return part.text ?? "";
-          return JSON.stringify(part);
-        });
-        return { role: message.role, content: parts.join("\n") };
+    // Convert the internal Anthropic block format into real OpenAI-compatible
+    // messages. Tool calls must arrive as assistant.tool_calls and results as
+    // role:"tool" entries keyed by tool_call_id — flattening them into plain
+    // user text makes the model re-call the same tools and report false errors.
+    const gatewayMessages: any[] = [];
+    for (const message of messages) {
+      if (typeof message.content === "string") {
+        gatewayMessages.push({ role: message.role, content: message.content });
+        continue;
       }
-      return { role: message.role, content: JSON.stringify(message.content) };
-    });
+      if (!Array.isArray(message.content)) {
+        gatewayMessages.push({ role: message.role, content: JSON.stringify(message.content) });
+        continue;
+      }
+      const blocks = message.content as any[];
+      const toolResults = blocks.filter((b) => b.type === "tool_result");
+      if (toolResults.length > 0) {
+        for (const tr of toolResults) {
+          gatewayMessages.push({
+            role: "tool",
+            tool_call_id: tr.tool_use_id ?? "",
+            content: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content),
+          });
+        }
+        const extraText = blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n").trim();
+        if (extraText) gatewayMessages.push({ role: "user", content: extraText });
+        continue;
+      }
+      const toolUses = blocks.filter((b) => b.type === "tool_use");
+      const text = blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n");
+      if (toolUses.length > 0) {
+        gatewayMessages.push({
+          role: "assistant",
+          content: text || null,
+          tool_calls: toolUses.map((tu) => ({
+            id: tu.id ?? "",
+            type: "function",
+            function: { name: tu.name ?? "", arguments: JSON.stringify(tu.input ?? {}) },
+          })),
+        });
+      } else {
+        gatewayMessages.push({ role: message.role, content: text || JSON.stringify(blocks) });
+      }
+    }
 
     // Try each provider in the chain until one serves this iteration.
     // A pinned provider (one that already served) always goes first.
@@ -2248,6 +2286,7 @@ async function runAgentLoop(
         .filter((b) => b.type === "text")
         .map((b) => b.text ?? "")
         .join("");
+      if (text.trim()) lastText = text;
 
       // Caught a hallucinated tool-call-shaped text response — force one
       // corrective iteration (reusing the same loop machinery as a real
@@ -2345,7 +2384,10 @@ async function runAgentLoop(
 
       // Append tool results as a user message
       messages.push({ role: "user", content: toolResults });
-      iteration++;
+      // A turn that only called "think" produced no external work — don't spend
+      // an iteration on the scratchpad.
+      const thinkOnly = toolUseBlocks.length > 0 && toolUseBlocks.every((b) => b.name === "think");
+      if (!thinkOnly) iteration++;
       continue;
     }
 
@@ -2557,7 +2599,7 @@ APPROVE (always ask the operator first):
 YOUR OPERATING PRINCIPLES
 ═══════════════════════════════════════════
 
-1. THINK FIRST. For any complex or multi-step task, call "think" before touching other tools. Plan your approach, sequence, and expected outcomes. Don't skip this.
+1. THINK ONLY WHEN IT PAYS. Call "think" only for genuinely multi-step or ambiguous goals. For a single clear action, skip it and call the real tool immediately — an unnecessary think turn just costs the operator time.
 2. RECALL CONTEXT. Before acting on anything involving a person, topic, or ongoing situation, call "recall_memory" to check what you already know.
 3. SEARCH WHEN NEEDED. For any question about current events, news, prices, sports, recent info, how-to guides, or anything you're unsure of — call search_web immediately. Never say you can't access the internet. Tavily is always available.
 4. EXECUTE, don't just suggest. You have tools — use them.

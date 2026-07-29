@@ -710,3 +710,31 @@ export async function buildSystemPromptFromSnapshot(
 
   return base + extras.join("");
 }
+
+// ── System-prompt cache ────────────────────────────────────────────────────
+// buildSystemPromptFromSnapshot awaits memory context, provider context and
+// pattern insights on every send, which stalls agent mode before the request
+// even leaves the browser. Consecutive messages in the same conversation reuse
+// the result for a short window; refetchAll (or any app-state change) should
+// call invalidateSystemPromptCache() to force a rebuild.
+const PROMPT_TTL_MS = 90_000;
+let promptCache: { key: string; at: number; value: string } | null = null;
+
+export function invalidateSystemPromptCache() {
+  promptCache = null;
+}
+
+export async function buildSystemPromptCached(
+  mode: string,
+  ctx: AppContextSnapshot,
+  archivedMemories?: string,
+  vaultMedia?: any[],
+): Promise<string> {
+  const key = `${mode}|${(ctx.profile as any)?.user_id ?? (ctx.profile as any)?.id ?? ""}`;
+  if (promptCache && promptCache.key === key && Date.now() - promptCache.at < PROMPT_TTL_MS) {
+    return promptCache.value;
+  }
+  const value = await buildSystemPromptFromSnapshot(mode, ctx, archivedMemories, vaultMedia);
+  promptCache = { key, at: Date.now(), value };
+  return value;
+}
