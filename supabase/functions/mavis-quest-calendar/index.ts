@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
 const GCAL_BASE = "https://www.googleapis.com/calendar/v3/calendars";
@@ -173,6 +174,13 @@ async function pullCalendar(sb: any, uid: string): Promise<Response> {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const body = await req.json();
     const action: string = body.action;
@@ -184,7 +192,7 @@ serve(async (req) => {
       });
     }
 
-    const uid: string = body.user_id ?? Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
+    const uid: string = body.user_id ?? resolveOperatorUid(req) ?? "";
 
     if (!uid) {
       return new Response(JSON.stringify({ error: "user_id is required" }), {

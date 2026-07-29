@@ -3,13 +3,13 @@
 // that haven't been completed today, and sends a Telegram nudge before midnight.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID")!;
 const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const CHAT_ID          = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
 
@@ -29,9 +29,13 @@ Deno.serve(async (req) => {
     });
   }
 
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
   try {
-    if (!OPERATOR_USER_ID) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
-    const uid = OPERATOR_USER_ID;
+    const uid = resolveOperatorUid(req);
+    if (!uid) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
     const now = new Date();
     const todayIso = now.toISOString().slice(0, 10);
 
