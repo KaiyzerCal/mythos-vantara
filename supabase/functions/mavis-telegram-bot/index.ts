@@ -2227,22 +2227,32 @@ async function handleGenerate(
   const comfyUrl_env  = Deno.env.get("COMFYUI_URL") ?? "";
   const isVideoType   = ["txt2vid", "img2vid", "wan_t2v", "wan_i2v", "talking_head"].includes(workflowType);
 
-  // Routing: ComfyUI-only types always go to ComfyUI.
-  // For shared types (txt2img, txt2vid): prefer ModelsLab when key is set.
-  const useModelsLab = modelsLabKey && !COMFYUI_ONLY_TYPES.has(workflowType);
-  const useComfyUI   = !useModelsLab && comfyUrl_env;
+  // Routing:
+  //   plain images (txt2img/realtime) → mavis-image-gen, which owns the full
+  //     multi-provider cascade (Lovable/Imagen4/FluxPro/OpenAI/ModelsLab/
+  //     Pollinations, plus PromptChan when explicitly requested). Sending
+  //     these straight to mavis-modelslab is what produced the hard
+  //     "ModelsLab error: You need to be subscribed to a plan" failures with
+  //     no fallback at all.
+  //   ComfyUI-only types → ComfyUI.
+  //   video / img2img → ModelsLab (mavis-image-gen can't do those).
+  const useImageGen  = workflowType === "txt2img" || workflowType === "realtime";
+  const useModelsLab = !useImageGen && modelsLabKey && !COMFYUI_ONLY_TYPES.has(workflowType);
+  const useComfyUI   = !useImageGen && !useModelsLab && comfyUrl_env;
 
-  if (!useModelsLab && !useComfyUI) {
+  if (!useImageGen && !useModelsLab && !useComfyUI) {
     await send(chatId, "⚠️ No generation provider configured. Set `MODELSLAB_API_KEY` or `COMFYUI_URL` in Supabase secrets.");
     return;
   }
 
-  const provider = useModelsLab ? "ModelsLab" : "ComfyUI";
+  const provider = useImageGen ? "MAVIS image cascade" : useModelsLab ? "ModelsLab" : "ComfyUI";
   await send(chatId, `🎨 Generating ${typeLabel[workflowType] ?? "image"} via *${provider}*: _${prompt.slice(0, 80)}_\n\nThis may take 30–120 seconds…`);
 
-  const fnUrl = useModelsLab
-    ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-modelslab`
-    : `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comfyui`;
+  const fnUrl = useImageGen
+    ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-image-gen`
+    : useModelsLab
+      ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-modelslab`
+      : `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comfyui`;
 
   const res = await fetch(fnUrl, {
     method:  "POST",
@@ -2259,6 +2269,8 @@ async function handleGenerate(
     await send(chatId, `⚠️ Generation failed: ${(data.error ?? "unknown error").slice(0, 200)}`);
     return;
   }
+  // mavis-image-gen returns { url }, the other backends return imageUrl/videoUrl.
+  if (useImageGen && data.url) data.imageUrl = data.url;
 
   const mediaUrl: string = data.imageUrl ?? data.videoUrl ?? "";
   if (!mediaUrl) {
