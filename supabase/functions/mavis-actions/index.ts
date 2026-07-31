@@ -1534,7 +1534,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const avRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-avatar-video`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-        body: JSON.stringify({ action: p.action ?? "generate", user_id: userId, ...p }),
+        body: JSON.stringify({ action: p.action ?? "generate", user_id: userId, userId, ...p }),
         signal: AbortSignal.timeout(120_000),
       });
       const avData = await avRes.json().catch(() => ({}));

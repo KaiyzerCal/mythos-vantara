@@ -8,8 +8,9 @@
 //
 // HeyGen setup: https://app.heygen.com/settings?nav=API
 //   Set HEYGEN_API_KEY in Supabase secrets vault.
-//   Free public avatars: "Ann_Doctor_Sitting2_public", "Angela-inblackskirt-20220820"
-//   Full avatar list: GET https://api.heygen.com/v2/avatars (with your API key)
+//   provider:"heygen" requires an explicit avatar_id/heygen_voice_id/userId —
+//   there is no default avatar. List avatars via mavis-heygen-agent's
+//   list_avatars action, or GET https://api.heygen.com/v2/avatars directly.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -29,51 +30,48 @@ const FAL_MODEL_HALLO2    = "fal-ai/hallo2";
 const FAL_MODEL_SADTALKER = "fal-ai/sadtalker";
 
 // ── HeyGen ───────────────────────────────────────────────────────────────────
+// Delegates to mavis-heygen-agent — the one place in the codebase that talks
+// to api.heygen.com directly — instead of duplicating that HTTP client here.
 
 async function submitHeyGenJob(
+  userId: string,
   text: string,
   avatarId: string,
   voiceId: string,
-  width = 1280,
-  height = 720,
-): Promise<string> {
-  const res = await fetch("https://api.heygen.com/v2/video/generate", {
+  width: number,
+  height: number,
+): Promise<{ status: string; requestId: string; url?: string }> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-heygen-agent`, {
     method: "POST",
-    headers: {
-      "X-Api-Key": HEYGEN_KEY,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
     body: JSON.stringify({
-      video_inputs: [{
-        character: { type: "avatar", avatar_id: avatarId, avatar_style: "normal" },
-        voice: { type: "text", input_text: text.slice(0, 1500), voice_id: voiceId },
-      }],
-      dimension: { width, height },
-      test: false,
+      userId, action: "generate_video",
+      avatar_id: avatarId, voice_id: voiceId, text,
+      width, height,
+      // Single quick check, not a full poll loop — this call must return
+      // fast since it's serving a synchronous HTTP request; the caller
+      // polls separately via action=poll&provider=heygen afterward.
+      max_attempts: 1, poll_interval_ms: 1000,
     }),
     signal: AbortSignal.timeout(20_000),
   });
-  if (!res.ok) throw new Error(`HeyGen submit ${res.status}: ${await res.text().then(t => t.slice(0, 300))}`);
-  const data = await res.json();
-  const videoId: string = data?.data?.video_id ?? data?.video_id;
-  if (!videoId) throw new Error("HeyGen returned no video_id");
-  return videoId;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error ?? `HeyGen submit ${res.status}`);
+  if (!data.video_id) throw new Error("HeyGen returned no video_id");
+  return { status: data.completed ? "complete" : "processing", requestId: data.video_id, url: data.video_url };
 }
 
-async function pollHeyGenJob(videoId: string): Promise<{ status: string; url?: string }> {
-  const res = await fetch(`https://api.heygen.com/v1/video_status.get?video_id=${videoId}`, {
-    headers: { "X-Api-Key": HEYGEN_KEY },
+async function pollHeyGenJob(userId: string, videoId: string): Promise<{ status: string; url?: string }> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-heygen-agent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ userId, action: "get_video_status", video_id: videoId }),
     signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) throw new Error(`HeyGen poll ${res.status}`);
-  const data = await res.json();
-  const status: string = data?.data?.status ?? "processing";
-  if (status === "completed") {
-    const url = data?.data?.video_url ?? data?.data?.video_url_caption;
-    return { status: "complete", url };
-  }
-  if (status === "failed") throw new Error(`HeyGen video failed: ${data?.data?.error ?? "unknown"}`);
-  return { status: "processing" };
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error ?? `HeyGen poll ${res.status}`);
+  if (data.status === "failed") throw new Error(`HeyGen video failed: ${data.status}`);
+  return data.completed ? { status: "complete", url: data.video_url } : { status: "processing" };
 }
 
 // ── Hallo2 (fal.ai — much better than SadTalker) ─────────────────────────────
@@ -199,34 +197,48 @@ serve(async (req) => {
       action,
       request_id,
       provider: requestedProvider,
+      userId,
       source_image_url,
       audio_url,
       text,
       voice_id,
       still_mode = false,
       use_enhancer = true,
-      // HeyGen-specific
-      avatar_id   = "Ann_Doctor_Sitting2_public",
-      heygen_voice_id = "1bd001e7e50f421d891986aad5158bc8",
+      // HeyGen-specific — required, never defaulted to a stock avatar
+      avatar_id,
+      heygen_voice_id,
       width = 1280,
       height = 720,
     } = body;
 
     // ── Poll path ─────────────────────────────────────────────────────────────
+    // provider must be explicit — silently defaulting to hallo2 meant a
+    // HeyGen job polled through the wrong provider's poller and just spun.
     if (action === "poll") {
       if (!request_id) return json({ error: "request_id required for poll" }, 400);
-      const provider = requestedProvider ?? "hallo2";
-      if (provider === "heygen") return json(await pollHeyGenJob(String(request_id)));
-      if (provider === "hallo2") return json(await pollHallo2Job(String(request_id)));
-      return json(await pollSadTalkerJob(String(request_id)));
+      if (!requestedProvider) return json({ error: "provider required for poll" }, 400);
+      if (requestedProvider === "heygen") {
+        if (!userId) return json({ error: "userId required for HeyGen poll" }, 400);
+        return json(await pollHeyGenJob(String(userId), String(request_id)));
+      }
+      if (requestedProvider === "hallo2") return json(await pollHallo2Job(String(request_id)));
+      if (requestedProvider === "sadtalker") return json(await pollSadTalkerJob(String(request_id)));
+      return json({ error: `unknown provider: ${requestedProvider}` }, 400);
     }
 
     // ── HeyGen path (text only, no image needed) ──────────────────────────────
-    if (requestedProvider === "heygen" || (!requestedProvider && HEYGEN_KEY)) {
-      if (!text?.trim()) return json({ error: "text required for HeyGen" }, 400);
+    // Only entered when explicitly requested — previously this silently
+    // fired for EVERY request whenever HEYGEN_API_KEY happened to be
+    // configured, ignoring the caller's uploaded photo/voice and using a
+    // hardcoded stock avatar instead.
+    if (requestedProvider === "heygen") {
       if (!HEYGEN_KEY) return json({ error: "HEYGEN_API_KEY not configured" }, 503);
-      const videoId = await submitHeyGenJob(String(text), avatar_id, heygen_voice_id, width, height);
-      return json({ status: "processing", request_id: videoId, provider: "heygen", avatar_id, note: "Poll with action=poll&provider=heygen" });
+      if (!text?.trim()) return json({ error: "text required for HeyGen" }, 400);
+      if (!userId) return json({ error: "userId required for HeyGen" }, 400);
+      if (!avatar_id) return json({ error: "avatar_id required for HeyGen" }, 400);
+      if (!heygen_voice_id) return json({ error: "heygen_voice_id required for HeyGen" }, 400);
+      const result = await submitHeyGenJob(String(userId), String(text), avatar_id, heygen_voice_id, width, height);
+      return json({ status: result.status, request_id: result.requestId, provider: "heygen", avatar_id, url: result.url, note: "Poll with action=poll&provider=heygen" });
     }
 
     // ── Hallo2 / SadTalker path (image + audio) ───────────────────────────────
