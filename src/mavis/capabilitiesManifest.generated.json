@@ -787,7 +787,8 @@
     "purpose": null,
     "status": "ACTIVE",
     "calledFromFrontend": [
-      "src/pages/MavisChat.tsx"
+      "src/pages/MavisChat.tsx",
+      "src/pages/MavisDemo.tsx"
     ],
     "calledFromBackend": [],
     "isCronTarget": false,
@@ -1802,7 +1803,10 @@
       "src/pages/MavisChat.tsx"
     ],
     "calledFromBackend": [
+      "mavis-actions",
+      "mavis-agent",
       "mavis-chat",
+      "mavis-telegram-bot",
       "mavis-web-builder",
       "telegram-webhook"
     ],
@@ -3806,6 +3810,7 @@
     ],
     "calledFromBackend": [
       "mavis-actions",
+      "mavis-agent",
       "mavis-higgsfield"
     ],
     "isCronTarget": false,

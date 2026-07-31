@@ -814,7 +814,8 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": null,
     "status": "ACTIVE",
     "calledFromFrontend": [
-      "src/pages/MavisChat.tsx"
+      "src/pages/MavisChat.tsx",
+      "src/pages/MavisDemo.tsx"
     ],
     "calledFromBackend": [],
     "isCronTarget": false,
@@ -1829,7 +1830,10 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
       "src/pages/MavisChat.tsx"
     ],
     "calledFromBackend": [
+      "mavis-actions",
+      "mavis-agent",
       "mavis-chat",
+      "mavis-telegram-bot",
       "mavis-web-builder",
       "telegram-webhook"
     ],
@@ -3833,6 +3837,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     ],
     "calledFromBackend": [
       "mavis-actions",
+      "mavis-agent",
       "mavis-higgsfield"
     ],
     "isCronTarget": false,
