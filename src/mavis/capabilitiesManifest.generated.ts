@@ -1728,7 +1728,8 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": "HeyGen avatar video generation",
     "status": "ACTIVE",
     "calledFromFrontend": [
-      "src/mavis/skills/heygen-simple/index.ts"
+      "src/mavis/skills/heygen-simple/index.ts",
+      "src/pages/AvatarStudioPage.tsx"
     ],
     "calledFromBackend": [
       "mavis-actions",
@@ -1744,7 +1745,8 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": "HeyGen agent with conversational interface",
     "status": "ACTIVE",
     "calledFromFrontend": [
-      "src/mavis/skills/heygen-video/index.ts"
+      "src/mavis/skills/heygen-video/index.ts",
+      "src/pages/AvatarStudioPage.tsx"
     ],
     "calledFromBackend": [
       "mavis-actions",

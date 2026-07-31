@@ -53,6 +53,10 @@ export interface ProfileData {
   // Column and field kept around unused rather than dropped; see
   // supabase/migrations/20260728000002_nsfw_generation_toggle.sql.
   nsfw_generation_enabled: boolean;
+  // Saved default HeyGen avatar/voice, set via Avatar Studio; see
+  // supabase/migrations/20260731000000_heygen_default_avatar.sql.
+  default_heygen_avatar_id: string | null;
+  default_heygen_voice_id: string | null;
 }
 
 const defaults: ProfileData = {
@@ -97,6 +101,8 @@ const defaults: ProfileData = {
     dailySummary: true,
   },
   nsfw_generation_enabled: false,
+  default_heygen_avatar_id: null,
+  default_heygen_voice_id: null,
 };
 
 export function useProfile() {

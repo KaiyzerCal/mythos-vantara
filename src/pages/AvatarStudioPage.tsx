@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProfile } from "@/hooks/useProfile";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
 
@@ -44,6 +45,10 @@ const VOICES = [
 type GenStatus = "idle" | "tts" | "processing" | "complete" | "error";
 type ImageMode = "upload" | "url";
 type AspectKey = "16:9" | "9:16" | "1:1";
+type EngineMode = "photo" | "heygen";
+type PollProvider = "heygen" | "hallo2" | "sadtalker";
+
+interface HeyGenOption { id: string; name: string; }
 
 const ASPECTS: { key: AspectKey; label: string; hint: string; w: number; h: number }[] = [
   { key: "9:16", label: "Vertical",  hint: "Reels, TikTok, Shorts", w: 720,  h: 1280 },
@@ -63,6 +68,25 @@ const SCRIPT_TEMPLATES: { label: string; text: string }[] = [
 
 export function AvatarStudioPage() {
   const { user } = useAuth();
+  const { profile, updateProfile } = useProfile();
+
+  // Engine — SadTalker face-animation vs. a trained HeyGen avatar
+  const [engineMode, setEngineMode] = useState<EngineMode>("photo");
+
+  // HeyGen avatar mode
+  const [avatarId, setAvatarId] = useState("");
+  const [heygenVoiceId, setHeygenVoiceId] = useState("");
+  const [saveAsDefault, setSaveAsDefault] = useState(true);
+  const [avatarOptions, setAvatarOptions] = useState<HeyGenOption[]>([]);
+  const [heygenVoiceOptions, setHeygenVoiceOptions] = useState<HeyGenOption[]>([]);
+  const [fetchingAvatars, setFetchingAvatars] = useState(false);
+  const [fetchingVoices, setFetchingVoices] = useState(false);
+
+  // Prefill from the saved default once the profile loads
+  useEffect(() => {
+    if (profile.default_heygen_avatar_id) setAvatarId(profile.default_heygen_avatar_id);
+    if (profile.default_heygen_voice_id) setHeygenVoiceId(profile.default_heygen_voice_id);
+  }, [profile.default_heygen_avatar_id, profile.default_heygen_voice_id]);
 
   // Image
   const [imageMode, setImageMode] = useState<ImageMode>("upload");
@@ -119,13 +143,65 @@ export function AvatarStudioPage() {
     }
   }
 
+  // ── HeyGen avatar/voice lookup ────────────────────────────
+
+  async function fetchHeyGenAvatars() {
+    setFetchingAvatars(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-heygen-agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+          apikey: SUPABASE_KEY,
+        },
+        body: JSON.stringify({ action: "list_avatars" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const avatars = (data.avatars ?? []) as any[];
+      setAvatarOptions(avatars.map((a) => ({ id: a.avatar_id ?? a.id, name: a.avatar_name ?? a.avatar_id ?? a.id })));
+      toast.success(`Found ${avatars.length} avatar${avatars.length === 1 ? "" : "s"}`);
+    } catch (err: any) {
+      toast.error(`Failed to fetch avatars: ${err.message}`);
+    } finally {
+      setFetchingAvatars(false);
+    }
+  }
+
+  async function fetchHeyGenVoices() {
+    setFetchingVoices(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-heygen-agent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+          apikey: SUPABASE_KEY,
+        },
+        body: JSON.stringify({ action: "list_voices" }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      const voices = (data.voices ?? []) as any[];
+      setHeygenVoiceOptions(voices.map((v) => ({ id: v.voice_id ?? v.id, name: v.name ?? v.voice_id ?? v.id })));
+      toast.success(`Found ${voices.length} voice${voices.length === 1 ? "" : "s"}`);
+    } catch (err: any) {
+      toast.error(`Failed to fetch voices: ${err.message}`);
+    } finally {
+      setFetchingVoices(false);
+    }
+  }
+
   // ── Polling ───────────────────────────────────────────────
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   }, []);
 
-  const doPoll = useCallback(async (rid: string) => {
+  const doPoll = useCallback(async (rid: string, provider: PollProvider = "hallo2") => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-avatar-video`, {
@@ -135,7 +211,7 @@ export function AvatarStudioPage() {
           Authorization: `Bearer ${session?.access_token}`,
           apikey: SUPABASE_KEY,
         },
-        body: JSON.stringify({ action: "poll", request_id: rid }),
+        body: JSON.stringify({ action: "poll", request_id: rid, provider, userId: user?.id }),
       });
       const data = await res.json();
 
@@ -155,11 +231,67 @@ export function AvatarStudioPage() {
     } catch {
       // network hiccup — keep polling silently
     }
-  }, [SUPABASE_URL, SUPABASE_KEY, stopPolling]);
+  }, [SUPABASE_URL, SUPABASE_KEY, stopPolling, user]);
 
   // ── Generate ──────────────────────────────────────────────
 
-  async function generate() {
+  async function generateHeyGen() {
+    if (!avatarId.trim()) { toast.error("Enter or fetch a HeyGen avatar ID first"); return; }
+    if (!heygenVoiceId.trim()) { toast.error("Enter or fetch a HeyGen voice ID first"); return; }
+    if (!script.trim()) { toast.error("Enter a script for the avatar to say"); return; }
+    if (!user) { toast.error("Not signed in"); return; }
+
+    stopPolling();
+    setStatus("processing");
+    setStatusMsg("Generating with HeyGen…");
+    setResultUrl("");
+    setRequestId("");
+
+    if (saveAsDefault) {
+      updateProfile({ default_heygen_avatar_id: avatarId.trim(), default_heygen_voice_id: heygenVoiceId.trim() });
+    }
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-avatar-video`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+          apikey: SUPABASE_KEY,
+        },
+        body: JSON.stringify({
+          provider: "heygen",
+          userId: user.id,
+          avatar_id: avatarId.trim(),
+          heygen_voice_id: heygenVoiceId.trim(),
+          text: script.trim(),
+          width: ASPECTS.find(a => a.key === aspect)?.w,
+          height: ASPECTS.find(a => a.key === aspect)?.h,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      if (data.status === "complete" && data.url) {
+        setResultUrl(data.url);
+        setStatus("complete");
+        setStatusMsg("");
+        toast.success("Avatar video ready!");
+        return;
+      }
+
+      setRequestId(data.request_id);
+      setStatusMsg("Generating with HeyGen… (30–120 seconds)");
+      pollRef.current = setInterval(() => doPoll(data.request_id, "heygen"), 5000);
+    } catch (err: any) {
+      setStatus("error");
+      setStatusMsg(err.message);
+      toast.error(err.message);
+    }
+  }
+
+  async function generatePhoto() {
     if (!imageUrl) { toast.error("Upload or enter a face image URL first"); return; }
     if (!script.trim()) { toast.error("Enter a script for the avatar to say"); return; }
 
@@ -197,13 +329,20 @@ export function AvatarStudioPage() {
       setStatus("processing");
       setStatusMsg("Animating face… (30–90 seconds)");
 
-      // Poll every 5 seconds
-      pollRef.current = setInterval(() => doPoll(data.request_id), 5000);
+      // Poll every 5 seconds — round-trip the provider submit actually used
+      // (hallo2 tried first, sadtalker on fallback) instead of assuming one.
+      const provider: PollProvider = data.provider === "sadtalker" ? "sadtalker" : "hallo2";
+      pollRef.current = setInterval(() => doPoll(data.request_id, provider), 5000);
     } catch (err: any) {
       setStatus("error");
       setStatusMsg(err.message);
       toast.error(err.message);
     }
+  }
+
+  function generate() {
+    if (engineMode === "heygen") return generateHeyGen();
+    return generatePhoto();
   }
 
   function reset() {
@@ -224,13 +363,85 @@ export function AvatarStudioPage() {
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
       <PageHeader
         title="Avatar Studio"
-        subtitle="AI talking-head videos — inspired by HeyGen. Your face, your voice, your script."
+        subtitle="AI talking-head videos. Your face or your trained HeyGen avatar, your voice, your script."
         icon={<User size={18} />}
       />
 
+      {/* Engine toggle */}
+      <div className="flex gap-2 mb-4">
+        {([
+          { key: "photo" as const, label: "My Photo (SadTalker)" },
+          { key: "heygen" as const, label: "My HeyGen Avatar" },
+        ]).map((m) => (
+          <button
+            key={m.key}
+            onClick={() => setEngineMode(m.key)}
+            className={`flex-1 py-2 rounded text-xs font-mono border transition-colors ${
+              engineMode === m.key
+                ? "bg-primary/20 border-primary/40 text-primary"
+                : "border-border text-muted-foreground hover:border-zinc-600"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        {/* ── Column 1: Face Image ── */}
+        {/* ── Column 1: Face Image or HeyGen Avatar ── */}
+        {engineMode === "heygen" ? (
+          <HudCard>
+            <h3 className="font-mono text-xs font-bold text-primary mb-3 flex items-center gap-2">
+              <User size={12} /> HeyGen Avatar
+            </h3>
+
+            <label className="text-xs font-mono text-muted-foreground block mb-1">Avatar ID</label>
+            <input
+              type="text"
+              value={avatarId}
+              onChange={(e) => setAvatarId(e.target.value)}
+              placeholder="e.g. your trained avatar's ID"
+              className="w-full bg-zinc-900 border border-border rounded px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary/50 mb-2"
+            />
+            {avatarOptions.length > 0 && (
+              <select
+                value={avatarId}
+                onChange={(e) => setAvatarId(e.target.value)}
+                className="w-full bg-zinc-900 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50 mb-2"
+              >
+                <option value="">— pick from your account —</option>
+                {avatarOptions.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={fetchHeyGenAvatars}
+              disabled={fetchingAvatars}
+              className="w-full text-[10px] font-mono px-2 py-1.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              {fetchingAvatars ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+              Fetch my avatars
+            </button>
+
+            <label className="flex items-center gap-2 cursor-pointer group mt-3">
+              <input
+                type="checkbox"
+                checked={saveAsDefault}
+                onChange={(e) => setSaveAsDefault(e.target.checked)}
+                className="accent-primary"
+              />
+              <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors">
+                Save as my default avatar/voice
+              </span>
+            </label>
+
+            <p className="text-xs text-muted-foreground mt-3 font-mono leading-relaxed">
+              Uses HeyGen's API directly — no photo needed, no lip-sync generation step. Fetch your avatars once, then it's remembered.
+            </p>
+          </HudCard>
+        ) : (
         <HudCard>
           <h3 className="font-mono text-xs font-bold text-primary mb-3 flex items-center gap-2">
             <User size={12} /> Face Image
@@ -317,6 +528,7 @@ export function AvatarStudioPage() {
             Best results: clear frontal face, good lighting, neutral expression, minimal background clutter.
           </p>
         </HudCard>
+        )}
 
         {/* ── Column 2: Script & Settings ── */}
         <HudCard>
@@ -385,43 +597,77 @@ export function AvatarStudioPage() {
           <div className="mb-3">
             <label className="text-xs font-mono text-muted-foreground block mb-1">Voice</label>
 
-            <select
-              value={voiceId}
-              onChange={(e) => setVoiceId(e.target.value)}
-              className="w-full bg-zinc-900 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50"
-            >
-              {VOICES.map((v) => (
-                <option key={v.id} value={v.id}>{v.name} ({v.gender})</option>
-              ))}
-            </select>
+            {engineMode === "heygen" ? (
+              <>
+                <input
+                  type="text"
+                  value={heygenVoiceId}
+                  onChange={(e) => setHeygenVoiceId(e.target.value)}
+                  placeholder="HeyGen voice ID"
+                  className="w-full bg-zinc-900 border border-border rounded px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary/50 mb-2"
+                />
+                {heygenVoiceOptions.length > 0 && (
+                  <select
+                    value={heygenVoiceId}
+                    onChange={(e) => setHeygenVoiceId(e.target.value)}
+                    className="w-full bg-zinc-900 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50 mb-2"
+                  >
+                    <option value="">— pick a voice —</option>
+                    {heygenVoiceOptions.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  onClick={fetchHeyGenVoices}
+                  disabled={fetchingVoices}
+                  className="w-full text-[10px] font-mono px-2 py-1.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {fetchingVoices ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                  Fetch voices
+                </button>
+              </>
+            ) : (
+              <select
+                value={voiceId}
+                onChange={(e) => setVoiceId(e.target.value)}
+                className="w-full bg-zinc-900 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50"
+              >
+                {VOICES.map((v) => (
+                  <option key={v.id} value={v.id}>{v.name} ({v.gender})</option>
+                ))}
+              </select>
+            )}
           </div>
 
-          {/* Options */}
-          <div className="space-y-2 mb-4">
-            <label className="text-xs font-mono text-muted-foreground block">Options</label>
-            <label className="flex items-center gap-2 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={useEnhancer}
-                onChange={(e) => setUseEnhancer(e.target.checked)}
-                className="accent-primary"
-              />
-              <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors">
-                Face enhancer — sharper output (slower)
-              </span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={stillMode}
-                onChange={(e) => setStillMode(e.target.checked)}
-                className="accent-primary"
-              />
-              <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors">
-                Still mode — minimal head movement
-              </span>
-            </label>
-          </div>
+          {/* Options — SadTalker-only, no HeyGen equivalent */}
+          {engineMode === "photo" && (
+            <div className="space-y-2 mb-4">
+              <label className="text-xs font-mono text-muted-foreground block">Options</label>
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={useEnhancer}
+                  onChange={(e) => setUseEnhancer(e.target.checked)}
+                  className="accent-primary"
+                />
+                <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors">
+                  Face enhancer — sharper output (slower)
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={stillMode}
+                  onChange={(e) => setStillMode(e.target.checked)}
+                  className="accent-primary"
+                />
+                <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors">
+                  Still mode — minimal head movement
+                </span>
+              </label>
+            </div>
+          )}
 
           {/* Generate button */}
           <button
@@ -513,7 +759,7 @@ export function AvatarStudioPage() {
                   <Loader2 size={16} className="animate-spin text-primary" />
                   <span className="text-xs font-mono text-primary/80">{statusMsg}</span>
                   <p className="text-xs text-muted-foreground font-mono">
-                    SadTalker typically takes 30–90 seconds
+                    {engineMode === "heygen" ? "HeyGen typically takes 30–120 seconds" : "SadTalker typically takes 30–90 seconds"}
                   </p>
                 </div>
               )}
@@ -526,11 +772,20 @@ export function AvatarStudioPage() {
       <div className="mt-4 px-4 py-3 rounded-lg border border-border bg-zinc-900/30">
         <p className="text-xs font-mono text-muted-foreground leading-relaxed">
           <span className="text-muted-foreground font-bold">How it works:</span>{" "}
-          Upload a face photo → type your script → choose a voice → Generate.
-          MAVIS converts the script to speech via ElevenLabs, then uses{" "}
-          <span className="text-muted-foreground">SadTalker (fal.ai)</span> to animate the face with precise lip sync.
-          The result is a fully synthetic talking-head video — no HeyGen subscription needed.
-          For best quality, use a well-lit frontal headshot with a plain background.
+          {engineMode === "heygen" ? (
+            <>
+              Enter (or fetch) your HeyGen avatar and voice ID → type your script → Generate.
+              Renders through your HeyGen account directly — no photo or TTS step needed here.
+              Save it as your default once and it's remembered next time.
+            </>
+          ) : (
+            <>
+              Upload a face photo → type your script → choose a voice → Generate.
+              MAVIS converts the script to speech via ElevenLabs, then uses{" "}
+              <span className="text-muted-foreground">SadTalker (fal.ai)</span> to animate the face with precise lip sync.
+              For best quality, use a well-lit frontal headshot with a plain background.
+            </>
+          )}
         </p>
       </div>
     </div>
