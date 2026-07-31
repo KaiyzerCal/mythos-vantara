@@ -303,11 +303,6 @@ export function IntegrationsPage() {
     const state = params.get("state");
     if (!code || !state || !user) return;
 
-    // Only handle Google OAuth callbacks (state is base64 JSON with user_id)
-    let stateData: { user_id?: string } = {};
-    try { stateData = JSON.parse(atob(state)); } catch { return; }
-    if (!stateData.user_id) return;
-
     // Clean URL immediately
     window.history.replaceState({}, "", window.location.pathname);
 
@@ -318,7 +313,7 @@ export function IntegrationsPage() {
         const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-google-oauth`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-          body: JSON.stringify({ action: "exchange_code", code, state, user_id: user.id }),
+          body: JSON.stringify({ action: "exchange_code", code, state }),
         });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error ?? "Token exchange failed");
