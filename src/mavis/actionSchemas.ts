@@ -841,11 +841,20 @@ export const ProposeProductSchema = z.object({
 });
 
 // IMAGE GENERATION
-// nsfw is fail-closed server-side (mavis-image-gen checks
-// profiles.nsfw_generation_enabled before ever calling PromptChan) —
-// accepting it here just lets the request through; it does NOT grant
-// anything by itself.
-export const GenerateImageSchema = z.object({ type: z.literal("generate_image"), prompt: z.string().min(1), aspect_ratio: z.enum(["1:1","16:9","9:16","4:3","3:4"]).optional(), save_to_vault: z.boolean().optional(), nsfw: z.boolean().optional() });
+// provider explicitly selects which backend mavis-image-gen uses
+// (gemini/imagen-4, flux-pro, openai, modelslab, stable-diffusion,
+// lovable, pollinations, promptchan) instead of its automatic cascade.
+// nsfw:true is a shorthand synonym for provider:"promptchan". Neither
+// requires anything else — provider selection here is AUTO, not
+// confirmation-gated (see actionExecutor.ts's classifyAction comment).
+export const GenerateImageSchema = z.object({
+  type: z.literal("generate_image"),
+  prompt: z.string().min(1),
+  aspect_ratio: z.enum(["1:1","16:9","9:16","4:3","3:4"]).optional(),
+  save_to_vault: z.boolean().optional(),
+  provider: z.enum(["auto","flux-pro","imagen-4","openai","modelslab","stable-diffusion","lovable","pollinations","promptchan"]).optional(),
+  nsfw: z.boolean().optional(),
+});
 
 // VIDEO GENERATION
 export const GenerateVideoSchema = z.object({

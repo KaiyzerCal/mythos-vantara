@@ -1181,7 +1181,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const wantsNsfw = p.nsfw === true;
+      const wantsNsfw = p.nsfw === true || p.provider === "promptchan";
 
       let imageUrl = "";
       let imageb64 = "";
@@ -1189,19 +1189,19 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
       // Delegates actual pixel generation to mavis-image-gen, which has a
       // full multi-provider cascade (Lovable/Imagen4/FluxPro/ModelsLab/
-      // OpenAI/StableDiffusion/Pollinations — Pollinations is always
-      // available with zero keys configured, so this practically always
-      // succeeds now) plus PromptChan when nsfw:true and the account has
-      // opted in via profiles.nsfw_generation_enabled. This used to call
-      // Gemini Imagen directly and inline, which meant this action never
-      // benefited from any of mavis-image-gen's other providers and
-      // degraded to "just save the prompt as text" whenever
+      // OpenAI/StableDiffusion/Pollinations, plus PromptChan when
+      // explicitly selected via provider:"promptchan" or the nsfw:true
+      // shorthand) — Pollinations is always available with zero keys
+      // configured, so the automatic cascade practically always succeeds.
+      // This used to call Gemini Imagen directly and inline, which meant
+      // this action never benefited from any of mavis-image-gen's other
+      // providers and degraded to "just save the prompt as text" whenever
       // GEMINI_API_KEY wasn't set.
       try {
         const genRes = await fetch(`${supabaseUrl}/functions/v1/mavis-image-gen`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-          body: JSON.stringify({ prompt, aspect_ratio: aspectRatio, nsfw: wantsNsfw, userId }),
+          body: JSON.stringify({ prompt, aspect_ratio: aspectRatio, provider: p.provider, nsfw: wantsNsfw, userId }),
           signal: AbortSignal.timeout(120_000),
         });
         if (genRes.ok) {
@@ -1221,7 +1221,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // Fallback: save prompt to vault for manual creation
       if (!imageUrl) {
         note = wantsNsfw
-          ? "NSFW generation is disabled for this account (or PromptChan is unavailable). Prompt saved to vault."
+          ? "PromptChan is unavailable (check PROMPTCHAN_API_KEY in Supabase secrets). Prompt saved to vault."
           : "Image generation is currently unavailable. Prompt saved to vault.";
         if (saveToVault) {
           await sb.from("vault_entries").insert({

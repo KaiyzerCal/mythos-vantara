@@ -134,12 +134,12 @@ function classifyAction(action: ParsedAction): ActionClassification {
   if (type === "update_ranking" && "rank" in payload) return "CONFIRM";
   // Git write operations require confirmation; read-only ops (status, diff, log) do not
   if (type === "git_operation" && ["commit", "push"].includes(String(payload.operation))) return "CONFIRM";
-  // Explicit-mode image generation (PromptChan, mavis-image-gen) is also
-  // fail-closed server-side (profiles.nsfw_generation_enabled), but that's
-  // a one-time account setting — each individual request still gets a
-  // chat-time confirmation on top of it, same posture as every other
-  // sensitive action here.
-  if (type === "generate_image" && payload.nsfw === true) return "CONFIRM";
+  // generate_image with provider:"promptchan" (or the nsfw:true synonym)
+  // is deliberately AUTO, not CONFIRM — by operator request, PromptChan is
+  // treated the same as every other named provider (flux-pro, modelslab,
+  // etc.), none of which are confirmation-gated either. It still can't be
+  // reached silently: mavis-image-gen never puts it in the automatic
+  // cascade, so it only ever runs when explicitly named.
   if (type === "composio_action") return classifyComposioAction(payload);
   return "AUTO";
 }

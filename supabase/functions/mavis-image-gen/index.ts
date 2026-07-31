@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,19 +14,18 @@ const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 // Set: STABLE_DIFFUSION_URL=http://your-server:7860
 const SD_URL = Deno.env.get("STABLE_DIFFUSION_URL") ?? "";
 const LOVABLE_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
-// PromptChan — explicit/NSFW-capable image generation. ONLY ever invoked
-// when the caller explicitly requests nsfw:true AND the calling account's
-// profiles.nsfw_generation_enabled flag is true (checked server-side below,
-// fail-closed — see the gate in serve()). Never part of the default SFW
-// cascade.
+// PromptChan — explicit/NSFW-capable image generation. Selectable like any
+// other named provider (provider:"promptchan" or nsfw:true as a synonym);
+// deliberately NOT part of the silent automatic cascade below, so an
+// ordinary image request never ends up routed here without being asked
+// for by name. No additional account-level gate on top of that — by
+// operator request, this behaves the same as ModelsLab's existing
+// NSFW-capable path (also ungated here).
 const PROMPTCHAN_KEY = Deno.env.get("PROMPTCHAN_API_KEY") ?? "";
 // Base domain confirmed directly from the operator's own developer
 // dashboard (not publicly indexed — see CONFIDENCE NOTE below). Still
 // overridable via env var in case it ever changes.
 const PROMPTCHAN_BASE = Deno.env.get("PROMPTCHAN_API_BASE") ?? "https://prod.aicloudnetservices.com";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 // Lovable AI Gateway — free via workspace credits, high-quality Gemini image gen.
 async function generateWithLovableAI(prompt: string): Promise<string | null> {
@@ -255,28 +253,6 @@ async function generateWithPromptchan(prompt: string): Promise<string | null> {
   return `data:image/png;base64,${b64}`;
 }
 
-// Resolves the calling user's id for the NSFW gate check only — the SFW
-// cascade below stays exactly as unauthenticated-compatible as it always
-// was (zero behavior change for existing callers). Mirrors the dual-path
-// auth pattern already established in mavis-actions/index.ts: server-to-
-// server callers (mavis-chat, telegram-webhook, etc.) present the service
-// role key + an explicit userId in the body; frontend callers present the
-// user's own JWT.
-async function resolveCallingUserId(req: Request, body: Record<string, unknown>): Promise<string | null> {
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  const token = authHeader.replace("Bearer ", "");
-  if (token === SUPABASE_SERVICE_ROLE_KEY && body.userId) return String(body.userId);
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
-  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
-  const { data, error } = await userClient.auth.getUser(token);
-  if (error || !data?.user?.id) return null;
-  return data.user.id;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -289,54 +265,18 @@ serve(async (req) => {
       });
     }
 
-    // NSFW explicit-mode generation — fail-closed. This is the ONLY path
-    // that ever touches PromptChan; everything below is the pre-existing
-    // SFW cascade, unchanged. No userId → no enabled flag → no image, full
-    // stop. This never silently falls back to an SFW provider on failure
-    // (that would misleadingly hand back an unrelated image for what was
-    // asked as an explicit request) — it fails loudly instead, matching
-    // the no-silent-fallback rule used throughout this app's action layer.
-    if (nsfw === true) {
-      const callingUserId = await resolveCallingUserId(req, body);
-      if (!callingUserId) {
-        return new Response(JSON.stringify({ error: "NSFW generation requires authentication." }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-      });
-      const { data: profile } = await adminClient.from("profiles")
-        .select("nsfw_generation_enabled").eq("id", callingUserId).maybeSingle();
-      if (!profile?.nsfw_generation_enabled) {
-        return new Response(JSON.stringify({ error: "NSFW generation is disabled for this account. Enable profiles.nsfw_generation_enabled to use it." }), {
-          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (!PROMPTCHAN_KEY || !PROMPTCHAN_BASE) {
-        return new Response(JSON.stringify({ error: "PromptChan is not configured (PROMPTCHAN_API_KEY missing in Supabase secrets)." }), {
-          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const imageData = await generateWithPromptchan(prompt);
-      if (!imageData) {
-        return new Response(JSON.stringify({ error: "PromptChan returned no image." }), {
-          status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      return new Response(
-        JSON.stringify({ url: imageData, revised_prompt: prompt, provider: "promptchan", notes: [] }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     // Support width/height as an alternative to size string. Default to HD.
     const effectiveSize: string =
       size ??
       (width && height ? `${width}x${height}` : "1024x1024");
     // Default quality is now "high" for crisper output.
     const effectiveQuality: string = quality ?? "high";
-    const forced = typeof requestedProvider === "string" ? requestedProvider.toLowerCase() : "auto";
+    // nsfw:true is a synonym for provider:"promptchan" — either explicitly
+    // selects it. Neither is part of the "auto" cascade below (see
+    // PROMPTCHAN_KEY's own comment) — has to be asked for by name.
+    const forced = nsfw === true
+      ? "promptchan"
+      : (typeof requestedProvider === "string" ? requestedProvider.toLowerCase() : "auto");
 
     let imageData: string | null = null;
     let provider = "unknown";
@@ -346,7 +286,11 @@ serve(async (req) => {
     // Try explicit provider first (if any); on failure, fall through to cascade.
     if (forced && forced !== "auto") {
       try {
-        if (forced === "flux-pro" || forced === "flux") {
+        if (forced === "promptchan") {
+          if (!PROMPTCHAN_KEY) throw new Error("PROMPTCHAN_API_KEY missing");
+          imageData = await generateWithPromptchan(prompt);
+          if (imageData) provider = "promptchan";
+        } else if (forced === "flux-pro" || forced === "flux") {
           if (!FAL_KEY) throw new Error("FAL_API_KEY missing");
           imageData = await generateWithFluxPro(prompt, effectiveSize);
           if (imageData) provider = "flux-pro";
