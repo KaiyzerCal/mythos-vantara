@@ -436,6 +436,17 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-avatar-publish",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-avatar-video",
     "category": "Media Generation",
     "purpose": "Talking avatar video synthesis",
@@ -1723,28 +1734,12 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
-    "name": "mavis-heygen",
-    "category": "Media Generation",
-    "purpose": "HeyGen avatar video generation",
-    "status": "ACTIVE",
-    "calledFromFrontend": [
-      "src/mavis/skills/heygen-simple/index.ts",
-      "src/pages/AvatarStudioPage.tsx"
-    ],
-    "calledFromBackend": [
-      "mavis-actions",
-      "mavis-avatar-video"
-    ],
-    "isCronTarget": false,
-    "requiresJwt": true,
-    "autonomyPathway": null
-  },
-  {
     "name": "mavis-heygen-agent",
     "category": "Media Generation",
     "purpose": "HeyGen agent with conversational interface",
     "status": "ACTIVE",
     "calledFromFrontend": [
+      "src/mavis/skills/heygen-simple/index.ts",
       "src/mavis/skills/heygen-video/index.ts",
       "src/pages/AvatarStudioPage.tsx"
     ],

@@ -97,6 +97,8 @@ interface ContentPackage {
   video_script?: string;
   video_caption?: string;
   tiktok_caption?: string;
+  youtube_title?: string;
+  youtube_description?: string;
   image_prompt?: string;
 }
 
@@ -157,18 +159,22 @@ async function generateContent(title: string, articleText: string, paths: string
     tasks.push(
       callAI(
         "You write short video scripts for AI avatar social videos. Conversational, upbeat, maximum 15 seconds when spoken aloud (~35-40 words).",
-        `Article: "${title}"\n\n${excerpt.slice(0, 1000)}\n\n---\nWrite a TikTok/Reels video package in JSON (raw JSON, no code block):
+        `Article: "${title}"\n\n${excerpt.slice(0, 1000)}\n\n---\nWrite a video package in JSON (raw JSON, no code block):
 {
   "video_script": "15-second avatar speaking script (35-40 words). Direct address to viewer. Strong hook + value + CTA.",
   "video_caption": "TikTok caption for the video (100-150 chars). Hook line + 5-8 trending hashtags.",
-  "tiktok_caption": "Full TikTok post text (200-300 chars with hashtags)."
+  "tiktok_caption": "Full TikTok post text (200-300 chars with hashtags).",
+  "youtube_title": "YouTube title (max 100 chars). Clear, keyword-forward, no clickbait.",
+  "youtube_description": "YouTube description (2-4 sentences expanding on the video, plus 3-5 relevant hashtags on a final line)."
 }`
       ).then(async (raw) => {
         try {
           const d = JSON.parse(raw.replace(/```json\n?|```/g, "").trim());
-          pkg.video_script   = d.video_script;
-          pkg.video_caption  = d.video_caption;
-          pkg.tiktok_caption = d.tiktok_caption;
+          pkg.video_script         = d.video_script;
+          pkg.video_caption        = d.video_caption;
+          pkg.tiktok_caption       = d.tiktok_caption;
+          pkg.youtube_title        = d.youtube_title;
+          pkg.youtube_description  = d.youtube_description;
         } catch {
           pkg.video_script = raw.slice(0, 200);
         }
@@ -234,6 +240,8 @@ async function runPipeline(
     video_script: content.video_script,
     video_caption: content.video_caption,
     tiktok_content: content.tiktok_caption,
+    youtube_title: content.youtube_title,
+    youtube_description: content.youtube_description,
   }).eq("id", queueId);
 
   if (dryRun) {
@@ -307,50 +315,31 @@ async function runPipeline(
     })());
   }
 
-  // ── Path C: HeyGen video → TikTok ─────────────────────────────────────────
+  // ── Path C: HeyGen video → TikTok + YouTube ───────────────────────────────
+  // Delegates to mavis-avatar-publish, which resolves the operator's saved
+  // default HeyGen avatar (never a hardcoded stock one), generates via
+  // mavis-heygen-agent, and publishes to both platforms -- same ~180s
+  // generation budget this inline version used to run itself.
   if (paths.includes("C") && content.video_script) {
     publishPromises.push((async () => {
-      // Create HeyGen video
-      const videoRes = await callFunction("mavis-heygen", {
-        action: "create",
+      const res = await callFunction("mavis-avatar-publish", {
+        userId: r.user_id,
+        action: "generate_and_post",
         script: content.video_script,
-        title: `${articleTitle} — TikTok`,
+        platforms: ["tiktok", "youtube"],
+        tiktok_caption: content.tiktok_caption ?? content.video_caption ?? articleTitle,
+        youtube_title: (content.youtube_title ?? articleTitle).slice(0, 100),
+        youtube_description: content.youtube_description ?? content.video_caption ?? "",
+        queue_id: queueId,
       });
-
-      const videoId = videoRes.video_id;
-      if (videoId) {
-        await sb.from("mavis_social_queue" as any)
-          .update({ heygen_video_id: videoId, video_status: "processing" })
-          .eq("id", queueId);
-
-        publishResults["heygen"] = { video_id: videoId, status: "processing" };
-
-        // Poll up to ~3 minutes (18 × 10s)
-        let videoUrl: string | undefined;
-        for (let i = 0; i < 18; i++) {
-          await new Promise(r => setTimeout(r, 10_000));
-          const poll = await callFunction("mavis-heygen", { action: "poll", video_id: videoId });
-          if (poll.status === "complete") { videoUrl = poll.video_url; break; }
-          if (poll.status === "failed")   break;
-        }
-
-        if (videoUrl) {
-          await sb.from("mavis_social_queue" as any)
-            .update({ video_url: videoUrl, video_status: "done" })
-            .eq("id", queueId);
-
-          const tikRes = await callFunction("mavis-blotato", {
-            platforms: ["tiktok"],
-            content: content.tiktok_caption ?? content.video_caption ?? articleTitle,
-            video_url: videoUrl,
-          });
-          publishResults["tiktok"] = tikRes;
-        } else {
-          await sb.from("mavis_social_queue" as any)
-            .update({ video_status: "failed" }).eq("id", queueId);
-          publishResults["tiktok"] = { error: "HeyGen video did not complete in time" };
-        }
+      if (res.error) {
+        publishResults["tiktok"] = { error: res.error };
+        publishResults["youtube"] = { error: res.error };
+        return;
       }
+      const results = (res.results ?? {}) as Record<string, unknown>;
+      publishResults["tiktok"] = results.tiktok;
+      publishResults["youtube"] = results.youtube;
     })());
   }
 
