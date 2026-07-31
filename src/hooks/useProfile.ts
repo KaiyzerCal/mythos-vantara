@@ -48,9 +48,9 @@ export interface ProfileData {
     xpMilestones: boolean;
     dailySummary: boolean;
   };
-  // Server-side gate for PromptChan explicit-mode image generation
-  // (mavis-image-gen) — off by default, checked in the edge function
-  // before it will ever call PromptChan. See
+  // No longer enforced anywhere (by operator request, PromptChan behaves
+  // the same as every other image provider — no account-level gate).
+  // Column and field kept around unused rather than dropped; see
   // supabase/migrations/20260728000002_nsfw_generation_toggle.sql.
   nsfw_generation_enabled: boolean;
 }

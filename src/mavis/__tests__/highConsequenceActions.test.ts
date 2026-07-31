@@ -348,17 +348,31 @@ describe("create_ritual / update_plan / upsert_signal_config — AUTO path, prev
 // profiles.nsfw_generation_enabled), but this is the client-side layer:
 // nsfw:true must always require confirmation, exactly like every other
 // sensitive action in this file, regardless of what the backend gate does.
-describe("generate_image — nsfw flag CONFIRM gate", () => {
-  it("nsfw:true requires confirmation — never auto-executes", async () => {
+// By operator request: PromptChan (via nsfw:true or provider:"promptchan")
+// is treated the same as every other named image provider — AUTO, no
+// per-request confirmation, same as ModelsLab's existing NSFW-capable
+// path. It's never reached silently — mavis-image-gen only calls it when
+// explicitly named, never as part of the automatic SFW cascade.
+describe("generate_image — nsfw / provider selection is AUTO, not gated", () => {
+  it("nsfw:true auto-executes, same as any other provider selection", async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     registerActionHandler("generate_image", handler);
 
     const result = await executeAction(makeAction({ type: "generate_image", prompt: "a portrait", nsfw: true }));
-    expect(result.status).toBe("pending_confirmation");
-    expect(handler).not.toHaveBeenCalled();
+    expect(result.status).toBe("success");
+    expect(handler).toHaveBeenCalledOnce();
   });
 
-  it("without nsfw (or nsfw:false) generate_image stays AUTO", async () => {
+  it("provider:'promptchan' auto-executes", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    registerActionHandler("generate_image", handler);
+
+    const result = await executeAction(makeAction({ type: "generate_image", prompt: "a portrait", provider: "promptchan" }));
+    expect(result.status).toBe("success");
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("without nsfw/provider generate_image stays AUTO", async () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     registerActionHandler("generate_image", handler);
 
@@ -367,8 +381,9 @@ describe("generate_image — nsfw flag CONFIRM gate", () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
-  it("Zod accepts the nsfw field", () => {
+  it("Zod accepts nsfw and provider fields", () => {
     expect(ActionSchema.safeParse({ type: "generate_image", prompt: "x", nsfw: true }).success).toBe(true);
+    expect(ActionSchema.safeParse({ type: "generate_image", prompt: "x", provider: "promptchan" }).success).toBe(true);
     expect(ActionSchema.safeParse({ type: "generate_image", prompt: "x" }).success).toBe(true);
   });
 });

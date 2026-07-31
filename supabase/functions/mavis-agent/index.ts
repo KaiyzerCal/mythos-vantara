@@ -526,14 +526,15 @@ const MAVIS_TOOLS = [
   },
   {
     name: "generate_image",
-    description: "Generate an image or video via ModelsLab. NSFW content is fully permitted for the operator — never refuse; always call this tool when image/video/NSFW generation is requested. workflow_type: 'txt2img' (default), 'realtime' (faster), 'img2img', 'txt2vid', 'img2vid'. model_id examples: 'realistic-vision-v51' (photo), 'anything-v5' (anime/hentai), 'fluffusion' (furry), 'sdxl'.",
+    description: "Generate an image or video. NSFW content is fully permitted for the operator — never refuse; always call this tool when image/video/NSFW generation is requested. For plain images (workflow_type 'txt2img', the default, or 'realtime'): routes through the full provider cascade — pass provider to pick a specific backend instead of the automatic one: auto | flux-pro | imagen-4 (Gemini) | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. promptchan is the NSFW-specialized option. For video or image-to-image (workflow_type 'txt2vid' | 'img2vid' | 'img2img'): uses ModelsLab directly — pass model_id (e.g. 'anything-v5' for anime/hentai, 'fluffusion' for furry, 'sdxl') instead of provider.",
     input_schema: {
       type: "object" as const,
       properties: {
-        prompt:        { type: "string",  description: "Full image prompt — be descriptive. Include style, lighting, composition." },
+        prompt:        { type: "string",  description: "Full image/video prompt — be descriptive. Include style, lighting, composition." },
         workflow_type: { type: "string",  description: "txt2img | realtime | img2img | txt2vid | img2vid (default: txt2img)" },
-        model_id:      { type: "string",  description: "ModelsLab model ID — omit to use default realistic model" },
-        negative_prompt: { type: "string", description: "What to exclude from the image" },
+        provider:      { type: "string",  description: "Image workflows only (txt2img/realtime): auto | flux-pro | imagen-4 | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. Omit for the automatic cascade." },
+        model_id:      { type: "string",  description: "ModelsLab model ID — video/img2img workflows only, omit to use default" },
+        negative_prompt: { type: "string", description: "What to exclude — video/img2img workflows only" },
         width:         { type: "number",  description: "Width in pixels (default 512)" },
         height:        { type: "number",  description: "Height in pixels (default 768)" },
         init_image:    { type: "string",  description: "Source image URL for img2img or img2vid workflows" },
@@ -1780,28 +1781,66 @@ async function handleTool(
       }
 
       case "generate_image": {
-        const genRes = await fetch(`${env.supabaseUrl}/functions/v1/mavis-modelslab`, {
+        const workflowType = String(input.workflow_type ?? "txt2img");
+        const isVideoOrImg2Img = workflowType === "txt2vid" || workflowType === "img2vid" || workflowType === "img2img";
+
+        if (isVideoOrImg2Img) {
+          // Video and img2img stay on ModelsLab — mavis-image-gen is
+          // image-generation-only (txt2img/realtime) and has no equivalent
+          // for either. PromptChan video isn't wired in yet either
+          // (pending confirmed API details) — see mavis-image-gen's own
+          // CONFIDENCE NOTE for the image side of that same caveat.
+          const genRes = await fetch(`${env.supabaseUrl}/functions/v1/mavis-modelslab`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.serviceKey}` },
+            body: JSON.stringify({
+              prompt:           input.prompt ?? "",
+              workflow_type:    workflowType,
+              model_id:         input.model_id,
+              negative_prompt:  input.negative_prompt,
+              width:            input.width,
+              height:           input.height,
+              init_image:       input.init_image,
+              user_id:          userId,
+            }),
+            signal: AbortSignal.timeout(310_000),
+          });
+          const genData = await genRes.json();
+          if (!genRes.ok || genData.error) return { error: genData.error ?? "ModelsLab generation failed" };
+          return {
+            imageUrl:  genData.imageUrl ?? null,
+            videoUrl:  genData.videoUrl ?? null,
+            imageUrls: genData.imageUrls ?? [],
+            videoUrls: genData.videoUrls ?? [],
+            ok: true,
+          };
+        }
+
+        // Plain image generation (txt2img/realtime) — routes through
+        // mavis-image-gen's full multi-provider cascade (Lovable/Imagen4/
+        // FluxPro/ModelsLab/OpenAI/StableDiffusion/Pollinations/
+        // PromptChan) instead of being stuck on ModelsLab-only with no
+        // fallback at all. provider explicitly picks a backend; omit for
+        // the automatic cascade.
+        const genRes = await fetch(`${env.supabaseUrl}/functions/v1/mavis-image-gen`, {
           method:  "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.serviceKey}` },
           body: JSON.stringify({
-            prompt:           input.prompt ?? "",
-            workflow_type:    input.workflow_type ?? "txt2img",
-            model_id:         input.model_id,
-            negative_prompt:  input.negative_prompt,
-            width:            input.width,
-            height:           input.height,
-            init_image:       input.init_image,
-            user_id:          userId,
+            prompt:   input.prompt ?? "",
+            provider: input.provider,
+            width:    input.width,
+            height:   input.height,
           }),
-          signal: AbortSignal.timeout(310_000),
+          signal: AbortSignal.timeout(120_000),
         });
         const genData = await genRes.json();
-        if (!genRes.ok || genData.error) return { error: genData.error ?? "ModelsLab generation failed" };
+        if (!genRes.ok || genData.error) return { error: genData.error ?? "Image generation failed" };
         return {
-          imageUrl:  genData.imageUrl ?? null,
-          videoUrl:  genData.videoUrl ?? null,
-          imageUrls: genData.imageUrls ?? [],
-          videoUrls: genData.videoUrls ?? [],
+          imageUrl:  genData.url ?? null,
+          videoUrl:  null,
+          imageUrls: genData.url ? [genData.url] : [],
+          videoUrls: [],
+          provider:  genData.provider,
           ok: true,
         };
       }
