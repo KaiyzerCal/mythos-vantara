@@ -365,6 +365,7 @@ const VIDEO_PROVIDERS = [
   { key: "runway",     label: "Runway",      hint: "Runway Gen-3" },
   { key: "veo",        label: "Veo",         hint: "Google Veo" },
   { key: "modelslab",  label: "ModelsLab",   hint: "SDXL video, uncensored" },
+  { key: "promptchan", label: "PromptChan",  hint: "NSFW, text-only — cannot animate a reference image" },
 ] as const;
 
 function VideoGenPanel({ onGenerated, seedImageUrl }: { onGenerated: (item: MediaItem) => void; seedImageUrl?: string | null }) {
@@ -538,6 +539,11 @@ function VideoGenPanel({ onGenerated, seedImageUrl }: { onGenerated: (item: Medi
           </>
         )}
       </div>
+      {imageUrl && videoProvider === "promptchan" && (
+        <p className="text-[10px] font-mono text-amber-500">
+          PromptChan video is text-only — it will ignore this reference image and generate from the prompt alone.
+        </p>
+      )}
 
       {/* Camera motion */}
       <div>
