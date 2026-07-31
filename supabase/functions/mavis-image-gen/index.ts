@@ -327,13 +327,15 @@ serve(async (req) => {
       try { const u = await generateWithFluxPro(prompt, effectiveSize); if (u) { imageData = u; provider = "flux-pro"; } }
       catch (e: any) { notes.push(`flux-pro: ${e.message}`); }
     }
-    if (!imageData && MODELSLAB_KEY) {
-      try { const u = await generateWithModelsLab(prompt, effectiveSize); if (u) { imageData = u; provider = "modelslab"; } }
-      catch (e: any) { notes.push(`modelslab: ${e.message}`); }
-    }
     if (!imageData && OPENAI_KEY) {
       try { imageData = await generateWithOpenAiImage(prompt, effectiveSize, effectiveQuality); if (imageData) provider = "openai-gpt-image-1"; }
       catch (e: any) { notes.push(`openai: ${e.message}`); }
+    }
+    // ModelsLab sits after OpenAI: a plan/subscription-gated ModelsLab account
+    // otherwise shapes every auto result by failing ahead of working providers.
+    if (!imageData && MODELSLAB_KEY) {
+      try { const u = await generateWithModelsLab(prompt, effectiveSize); if (u) { imageData = u; provider = "modelslab"; } }
+      catch (e: any) { notes.push(`modelslab: ${e.message}`); }
     }
     if (!imageData && SD_URL) {
       const [w, h] = parseDimensions(effectiveSize);
