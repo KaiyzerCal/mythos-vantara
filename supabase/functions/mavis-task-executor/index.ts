@@ -1146,6 +1146,10 @@ const handleNoraContentMachine: TaskHandler = async (task) => {
     const pollRes = await callFunction("mavis-avatar-video", {
       action: "poll",
       request_id: String(p.fal_request_id),
+      // provider is now required by mavis-avatar-video (no more silent
+      // default-to-hallo2); fall back to hallo2 for tasks queued before
+      // this field was captured on submit.
+      provider: String(p.provider ?? "hallo2"),
     });
     const pollData = await pollRes.json().catch(() => ({})) as Record<string, unknown>;
 
@@ -1324,6 +1328,7 @@ Output ONLY a JSON object (no markdown, no preamble):
   await markContinue(task.id, {
     ...p,
     fal_request_id: String(submitData.request_id),
+    provider: String(submitData.provider ?? "hallo2"),
     script,
     captions,
     poll_attempts: 0,

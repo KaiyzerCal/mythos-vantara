@@ -1731,7 +1731,8 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
       "src/mavis/skills/heygen-simple/index.ts"
     ],
     "calledFromBackend": [
-      "mavis-actions"
+      "mavis-actions",
+      "mavis-avatar-video"
     ],
     "isCronTarget": false,
     "requiresJwt": true,
@@ -1746,7 +1747,8 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
       "src/mavis/skills/heygen-video/index.ts"
     ],
     "calledFromBackend": [
-      "mavis-actions"
+      "mavis-actions",
+      "mavis-avatar-video"
     ],
     "isCronTarget": false,
     "requiresJwt": true,

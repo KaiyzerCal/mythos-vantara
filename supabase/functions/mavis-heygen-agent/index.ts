@@ -12,6 +12,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveAuthedUid } from "../_shared/auth.ts";
 
 const SB_URL     = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -45,12 +46,20 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { userId, action, ...p } = body as Record<string, unknown>;
-
-    if (!userId) throw new Error("userId required");
-    if (!action)  throw new Error("action required");
+    const { userId: bodyUserId, action, ...p } = body as Record<string, unknown>;
 
     const adminSb = createClient(SB_URL, SB_SRK, { auth: { persistSession: false } });
+
+    // A caller presenting the exact service-role key is trusted to name any
+    // userId (internal automation acting on a specific user's behalf);
+    // anyone else must prove identity via a real Supabase JWT — previously
+    // any caller could act as any userId just by putting it in the body.
+    const userId = isServiceRoleCaller(req)
+      ? String(bodyUserId ?? "")
+      : await resolveAuthedUid(req, adminSb);
+    if (!userId) throw new Error("Unauthorized");
+    if (!action) throw new Error("action required");
+
     let result: unknown;
 
     switch (action as string) {
@@ -161,13 +170,17 @@ serve(async (req) => {
     }
 
     await adminSb.from("mavis_memory").insert({
-      user_id:    userId,
-      content:    action === "generate_video"
+      user_id:          userId,
+      session_id:       "mavis-heygen-agent",
+      role:             "system",
+      content:          action === "generate_video"
         ? `HeyGen video generated: ${(result as Record<string, unknown>).video_url ?? "processing"} (id: ${(result as Record<string, unknown>).video_id})`
         : `HeyGen ${action}: ${JSON.stringify(result).slice(0, 200)}`,
-      importance: action === "generate_video" ? 4 : 2,
-      tags:       ["heygen", "video_generation", "ai_avatar", action as string],
-    }).then(() => {});
+      timestamp:        Date.now(),
+      importance_score: action === "generate_video" ? 4 : 2,
+    }).then(({ error }) => {
+      if (error) console.error("mavis-heygen-agent: mavis_memory insert failed:", error.message);
+    });
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
