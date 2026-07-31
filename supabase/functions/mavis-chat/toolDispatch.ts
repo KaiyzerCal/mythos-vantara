@@ -183,19 +183,11 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
   },
   {
     name: "generate_image",
-    description: "Generate an AI image based on a description",
+    description: "Generate an AI image based on a description. provider picks a specific backend instead of the automatic cascade: auto | flux-pro | imagen-4 | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. promptchan is NSFW-capable — only pick it when the operator has explicitly asked for that provider by name or for explicit/adult content, never inferred.",
     params: {
       prompt:       { type: "string", desc: "Image description / prompt", required: true },
       aspect_ratio: { type: "string", desc: "Aspect ratio",               enum: ["1:1","16:9","9:16"] },
-      // nsfw is deliberately NOT exposed here. Native tool-calling
-      // (resolveActionsNative → executeAgentAction) resolves server-side
-      // and calls mavis-actions directly — it never passes through
-      // actionExecutor.ts's classifyAction() CONFIRM gate at all (that
-      // gate only exists in the frontend). Exposing nsfw here would let
-      // the model generate explicit content with zero confirmation step,
-      // regardless of the account-level toggle. The properly-gated route
-      // is the :::ACTION{"type":"generate_image",...}::: text-tag path
-      // (see promptBuilder.ts), which does go through actionExecutor.ts.
+      provider:     { type: "string", desc: "auto | flux-pro | imagen-4 | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. Omit for the automatic cascade." },
     },
   },
   {
