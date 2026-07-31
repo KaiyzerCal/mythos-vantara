@@ -2346,24 +2346,25 @@ async function handleYamete(chatId: string | number, uid: string, prompt: string
     await send(chatId, "What should I generate? e.g. _nsfw a forest nymph_");
     return;
   }
-  await send(chatId, `🔞 Generating ${style} image via ModelsLab: _${prompt.slice(0, 60)}_…`);
+  await send(chatId, `🔞 Generating ${style} image via PromptChan: _${prompt.slice(0, 60)}_…`);
 
-  const modelId = NSFW_MODELS[style] ?? NSFW_MODELS.realistic;
-  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-modelslab`, {
+  const styledPrompt = prompt + (style === "hentai" ? ", anime, detailed, nsfw" : style === "furry" ? ", furry, anthro, detailed" : ", photorealistic, nsfw");
+
+  // PromptChan is the NSFW-capable provider; mavis-image-gen falls through to
+  // its normal cascade if PromptChan errors, so this never dead-ends on a
+  // ModelsLab plan/subscription failure the way the old direct call did.
+  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-image-gen`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
     body: JSON.stringify({
-      workflow_type:    "txt2img",
-      prompt:           prompt + (style === "hentai" ? ", anime, detailed, nsfw" : style === "furry" ? ", furry, anthro, detailed" : ", photorealistic, nsfw"),
-      negative_prompt:  "ugly, deformed, blurry, low quality, watermark, text",
-      model_id:         modelId,
-      width:            512,
-      height:           768,
-      steps:            25,
-      user_id:          uid,
+      prompt:   styledPrompt,
+      provider: "promptchan",
+      nsfw:     true,
+      width:    512,
+      height:   768,
+      user_id:  uid,
     }),
-    // mavis-modelslab polls up to 300s for async generations
-    signal: AbortSignal.timeout(310_000),
+    signal: AbortSignal.timeout(180_000),
   });
 
   const data = await res.json();
@@ -2371,7 +2372,7 @@ async function handleYamete(chatId: string | number, uid: string, prompt: string
     await send(chatId, `⚠️ Generation failed: ${(data.error ?? "unknown").slice(0, 200)}`);
     return;
   }
-  const url = data.imageUrl ?? "";
+  const url = data.url ?? data.imageUrl ?? "";
   if (!url) { await send(chatId, "⚠️ Generation done but no image URL returned."); return; }
   // Plain-text caption via the helper (no parse_mode) so a '*'/'_'/'[' in the
   // prompt can't break Telegram Markdown parsing and drop the photo.
