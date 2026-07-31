@@ -1263,11 +1263,21 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "generate_video": {
+      // Was {...action, user_id} — spreading the RAW dispatcher object
+      // (MavisAction: {type, params}), not the normalized flat field set
+      // (p). Only happened to work for flat-dispatched calls (the
+      // :::ACTION{}::: text-tag path, where action already IS flat) —
+      // for nested {type, params} calls (native tool-calling, e.g.
+      // toolDispatch.ts), params would land as a nested sub-object
+      // instead of top-level fields, and mavis-video-gen's own
+      // destructuring (`const { prompt, ... } = body`) would find nothing
+      // there, always 400ing "prompt is required". Same bug class as
+      // generate_image (already fixed to use p) and video_status below.
       const videoUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-gen`;
       const videoRes = await fetch(videoUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-        body: JSON.stringify({ ...action, user_id: userId }),
+        body: JSON.stringify({ ...p, user_id: userId }),
         signal: AbortSignal.timeout(120_000),
       });
       if (!videoRes.ok) throw new Error(`mavis-video-gen error: ${videoRes.status}`);
@@ -1280,12 +1290,14 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // which requires a "prompt" field that video_status calls never
       // send). Every video_status call has always 400'd with "prompt is
       // required" instead of returning job status — found while wiring
-      // PromptChan video generation through this same path.
+      // PromptChan video generation through this same path. Also fixed
+      // the same {...action} → {...p} bug as generate_video above, for
+      // the same reason (nested-dispatch callers would otherwise 400).
       const vsUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-gen`;
       const vsRes = await fetch(vsUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-        body: JSON.stringify({ action: "poll", ...action, user_id: userId }),
+        body: JSON.stringify({ action: "poll", ...p, user_id: userId }),
         signal: AbortSignal.timeout(30_000),
       });
       if (!vsRes.ok) throw new Error(`mavis-video-gen status error: ${vsRes.status}`);

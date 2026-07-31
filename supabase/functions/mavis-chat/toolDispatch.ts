@@ -191,6 +191,25 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
     },
   },
   {
+    name: "generate_video",
+    description: "Generate an AI video from a text prompt. provider picks a specific backend instead of the automatic cascade: auto | fal | veo | kling | runway | modelslab | promptchan. promptchan is NSFW-capable, text-prompt only (no image reference) — only pick it when the operator has explicitly asked for that provider by name or for explicit/adult content, never inferred. Result comes back either as status:'complete' with a url right away, or status:'processing' with a request_id (operation_name for provider veo) to poll with video_status.",
+    params: {
+      prompt:       { type: "string", desc: "Video description / prompt", required: true },
+      duration:     { type: "number", desc: "Duration in seconds (1-30)" },
+      aspect_ratio: { type: "string", desc: "Aspect ratio", enum: ["16:9","9:16","1:1"] },
+      provider:     { type: "string", desc: "auto | fal | veo | kling | runway | modelslab | promptchan. Omit for the automatic cascade." },
+    },
+  },
+  {
+    name: "video_status",
+    description: "Check whether a video generation job from generate_video has finished. provider must match what generate_video used.",
+    params: {
+      provider:       { type: "string", desc: "fal | veo | kling | runway | modelslab | promptchan", required: true },
+      request_id:     { type: "string", desc: "From generate_video's response — every provider except veo" },
+      operation_name: { type: "string", desc: "From generate_video's response — veo only" },
+    },
+  },
+  {
     name: "forge_persona",
     description: "Create a new AI persona for the operator to chat with",
     params: {
@@ -691,7 +710,8 @@ export function hasActionIntent(text: string): boolean {
     "vault entry","journal entry","council member",
     "award xp","give xp","add xp",
     "generate image","create image","forge persona","create persona",
-    "render a video","render video","make a video","create a video","video recap","recap video",
+    "render a video","render video","make a video","create a video","generate video","generate a video","video recap","recap video",
+    "is my video ready","check the video","check my video","video status",
     // A2A / cross-entity (explicit names)
     "ask ","consult ","what does","what would","'s thoughts","'s take","'s opinion","'s perspective",
     "have them discuss","get their take","what do they think","let them weigh in",
