@@ -526,18 +526,18 @@ const MAVIS_TOOLS = [
   },
   {
     name: "generate_image",
-    description: "Generate an image or video. NSFW content is fully permitted for the operator — never refuse; always call this tool when image/video/NSFW generation is requested. For plain images (workflow_type 'txt2img', the default, or 'realtime'): routes through the full provider cascade — pass provider to pick a specific backend instead of the automatic one: auto | flux-pro | imagen-4 (Gemini) | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. promptchan is the NSFW-specialized option. For video or image-to-image (workflow_type 'txt2vid' | 'img2vid' | 'img2img'): uses ModelsLab directly — pass model_id (e.g. 'anything-v5' for anime/hentai, 'fluffusion' for furry, 'sdxl') instead of provider.",
+    description: "Generate an image or video. NSFW content is fully permitted for the operator — never refuse; always call this tool when image/video/NSFW generation is requested. For plain images (workflow_type 'txt2img', the default, or 'realtime'): routes through the full provider cascade — pass provider to pick a specific backend instead of the automatic one: auto | flux-pro | imagen-4 (Gemini) | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. promptchan is the NSFW-specialized option. For video (workflow_type 'txt2vid'): pass provider:'promptchan' for PromptChan's NSFW-capable video model (text prompt only, no image reference); omit provider (or any other workflow_type) to use ModelsLab directly, with model_id (e.g. 'anything-v5' for anime/hentai, 'fluffusion' for furry, 'sdxl'). img2vid/img2img always use ModelsLab regardless of provider — PromptChan's video API has no image-to-video input.",
     input_schema: {
       type: "object" as const,
       properties: {
         prompt:        { type: "string",  description: "Full image/video prompt — be descriptive. Include style, lighting, composition." },
         workflow_type: { type: "string",  description: "txt2img | realtime | img2img | txt2vid | img2vid (default: txt2img)" },
-        provider:      { type: "string",  description: "Image workflows only (txt2img/realtime): auto | flux-pro | imagen-4 | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. Omit for the automatic cascade." },
-        model_id:      { type: "string",  description: "ModelsLab model ID — video/img2img workflows only, omit to use default" },
-        negative_prompt: { type: "string", description: "What to exclude — video/img2img workflows only" },
+        provider:      { type: "string",  description: "txt2img/realtime: auto | flux-pro | imagen-4 | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. txt2vid: promptchan, or omit for ModelsLab. Omit for the automatic image cascade." },
+        model_id:      { type: "string",  description: "ModelsLab model ID — video/img2img workflows only (not used for provider:'promptchan'), omit to use default" },
+        negative_prompt: { type: "string", description: "What to exclude — ModelsLab video/img2img workflows only" },
         width:         { type: "number",  description: "Width in pixels (default 512)" },
         height:        { type: "number",  description: "Height in pixels (default 768)" },
-        init_image:    { type: "string",  description: "Source image URL for img2img or img2vid workflows" },
+        init_image:    { type: "string",  description: "Source image URL for img2img or img2vid workflows (ModelsLab only)" },
       },
       required: ["prompt"],
     },
@@ -1785,11 +1785,52 @@ async function handleTool(
         const isVideoOrImg2Img = workflowType === "txt2vid" || workflowType === "img2vid" || workflowType === "img2img";
 
         if (isVideoOrImg2Img) {
-          // Video and img2img stay on ModelsLab — mavis-image-gen is
-          // image-generation-only (txt2img/realtime) and has no equivalent
-          // for either. PromptChan video isn't wired in yet either
-          // (pending confirmed API details) — see mavis-image-gen's own
-          // CONFIDENCE NOTE for the image side of that same caveat.
+          // PromptChan video (txt2vid only — its submit API takes no
+          // image-reference input, so img2vid/img2img never route here
+          // regardless of provider). Delegates to mavis-video-gen, the
+          // only place that actually talks to PromptChan's video API, and
+          // polls it to completion here since this tool's contract is one
+          // blocking call, not submit-then-poll-later.
+          if (workflowType === "txt2vid" && input.provider === "promptchan") {
+            const w = Number(input.width) || 0;
+            const h = Number(input.height) || 0;
+            const aspectRatio = w && h ? (w > h ? "16:9" : w < h ? "9:16" : "1:1") : "9:16";
+
+            const submitRes = await fetch(`${env.supabaseUrl}/functions/v1/mavis-video-gen`, {
+              method:  "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.serviceKey}` },
+              body: JSON.stringify({ prompt: input.prompt ?? "", provider: "promptchan", aspect_ratio: aspectRatio }),
+              signal: AbortSignal.timeout(30_000),
+            });
+            const submitData = await submitRes.json().catch(() => ({}));
+            if (!submitRes.ok || submitData.error) return { error: submitData.error ?? "PromptChan video submit failed" };
+            if (submitData.status === "complete" && submitData.url) {
+              return { imageUrl: null, videoUrl: submitData.url, imageUrls: [], videoUrls: [submitData.url], ok: true };
+            }
+            const requestId = submitData.request_id;
+            if (!requestId) return { error: "PromptChan video submit returned no request_id" };
+
+            const deadline = Date.now() + 280_000; // stays under this tool's existing 310s budget
+            while (Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 6_000));
+              const pollRes = await fetch(`${env.supabaseUrl}/functions/v1/mavis-video-gen`, {
+                method:  "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.serviceKey}` },
+                body: JSON.stringify({ action: "poll", provider: "promptchan", request_id: requestId }),
+                signal: AbortSignal.timeout(20_000),
+              });
+              const pollData = await pollRes.json().catch(() => ({}));
+              if (pollData.status === "complete" && pollData.url) {
+                return { imageUrl: null, videoUrl: pollData.url, imageUrls: [], videoUrls: [pollData.url], ok: true };
+              }
+              if (pollData.error) return { error: pollData.error };
+            }
+            return { error: "PromptChan video generation timed out — try checking back shortly, or send the command again." };
+          }
+
+          // Video and img2img otherwise stay on ModelsLab — mavis-image-gen
+          // is image-generation-only (txt2img/realtime) and has no
+          // equivalent for either.
           const genRes = await fetch(`${env.supabaseUrl}/functions/v1/mavis-modelslab`, {
             method:  "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.serviceKey}` },

@@ -217,21 +217,11 @@ async function generateWithOpenAiImage(prompt: string, size?: string, quality?: 
   throw new Error("gpt-image-1 returned no image");
 }
 
-// ⚠ CONFIDENCE NOTE — read before relying on this (same caveat class as
-// mavis-composio-agent's, for the same reason: full API reference sits
-// behind a logged-in developer dashboard, not publicly indexed).
-// Confirmed: endpoint path POST /api/external/create, auth via `x-api-key`
-// header, response shape {image: <base64>, gems: <remaining balance>}, and
-// the base domain (https://prod.aicloudnetservices.com, confirmed directly
-// from the operator's own dashboard — this is where PROMPTCHAN_API_BASE
-// defaults to now). NOT independently confirmed: the exact request-body
-// field names beyond "prompt" (style/negative-prompt naming below is
-// inferred from product UI copy, not a schema) — this couldn't be
-// smoke-tested from the dev sandbox this was built in (its network egress
-// policy blocks this host entirely; that's a sandbox-specific restriction,
-// not expected to affect this function once deployed). Run one throwaway
-// prompt from the actual deployed app and check the result before trusting
-// this beyond that.
+// Confirmed against the operator's own OpenAPI spec (Promptchan API v1.21) —
+// no more guessing. POST /api/external/create, auth via `x-api-key` header,
+// response {image: <base64>, gems: <remaining balance>}. style must be one
+// of the real enum values (Cinematic/Anime/Hyperreal/Hyperanime/K-Pop/Fur/
+// Furtoon/...XL variants) — the previous "hyper-anime" was never valid.
 async function generateWithPromptchan(prompt: string): Promise<string | null> {
   if (!PROMPTCHAN_KEY || !PROMPTCHAN_BASE) return null;
   const res = await fetch(`${PROMPTCHAN_BASE}/api/external/create`, {
@@ -239,7 +229,7 @@ async function generateWithPromptchan(prompt: string): Promise<string | null> {
     headers: { "x-api-key": PROMPTCHAN_KEY, "Content-Type": "application/json" },
     body: JSON.stringify({
       prompt: prompt.trim().slice(0, 2000),
-      style: "hyper-anime",
+      style: "Hyperanime",
     }),
     signal: AbortSignal.timeout(90_000),
   });

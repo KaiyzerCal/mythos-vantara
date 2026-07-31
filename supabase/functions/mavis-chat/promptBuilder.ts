@@ -731,9 +731,10 @@ Use council_notify when a council member, persona, or The System needs to push a
 IMAGES / VIDEO GENERATION:
 :::ACTION{"type":"generate_image","params":{"prompt":"...","aspect_ratio":"1:1|16:9|9:16"}}:::
 provider (optional) picks a specific backend instead of the automatic cascade: auto | flux-pro | imagen-4 | openai | modelslab | stable-diffusion | lovable | pollinations | promptchan. promptchan is NSFW-capable; nsfw:true (boolean) is a shorthand synonym for provider:"promptchan". Both are AUTO — no confirmation step, no account gate — same as picking any other named provider. Use them when the operator asks for a specific provider by name, or for explicit/adult content.
-:::ACTION{"type":"generate_video","params":{"prompt":"...","duration":5,"aspect_ratio":"16:9|9:16|1:1","provider":"fal|veo|auto"}}:::
-:::ACTION{"type":"video_status","params":{"job_id":"<job_id from generate_video response>"}}:::
-Use video_status to check whether a video generation job has finished. After generate_video returns a job_id, poll with video_status if the operator asks "is my video ready?" or "check the video".
+:::ACTION{"type":"generate_video","params":{"prompt":"...","duration":5,"aspect_ratio":"16:9|9:16|1:1","provider":"fal|veo|kling|runway|modelslab|promptchan|auto"}}:::
+promptchan is NSFW-capable, text-prompt only (no image reference / img2vid). If generate_video's response has status:"complete", the video is already done (its "url" field) — no need to poll. If status:"processing", it returned a request_id (or, for provider:"veo", an operation_name) — poll with video_status, passing that same field back along with the same provider, until status becomes "complete".
+:::ACTION{"type":"video_status","params":{"provider":"fal|veo|kling|runway|modelslab|promptchan","request_id":"<request_id from generate_video's response>"}}:::
+Use video_status to check whether a video generation job has finished, if the operator asks "is my video ready?" or "check the video". provider must match what generate_video used. Pass request_id for every provider except veo, which uses operation_name instead.
 VIDEO EDITOR (if the operator has uploaded footage):
 :::ACTION{"type":"analyze_video","params":{"source_url":"...","title":"..."}}:::
 :::ACTION{"type":"generate_clips","params":{"project_id":"...","formats":["shorts","reels"],"count_per_format":3}}:::

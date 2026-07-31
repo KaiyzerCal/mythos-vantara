@@ -1275,11 +1275,17 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     case "video_status": {
+      // Was action: "status" — mavis-video-gen only recognizes
+      // action === "poll" (its only other branch is the "Generate path",
+      // which requires a "prompt" field that video_status calls never
+      // send). Every video_status call has always 400'd with "prompt is
+      // required" instead of returning job status — found while wiring
+      // PromptChan video generation through this same path.
       const vsUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-video-gen`;
       const vsRes = await fetch(vsUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-        body: JSON.stringify({ action: "status", ...action, user_id: userId }),
+        body: JSON.stringify({ action: "poll", ...action, user_id: userId }),
         signal: AbortSignal.timeout(30_000),
       });
       if (!vsRes.ok) throw new Error(`mavis-video-gen status error: ${vsRes.status}`);

@@ -336,3 +336,26 @@ describe("update_inventory_item — matches promptBuilder.ts example + real inve
     expect(result.success).toBe(false);
   });
 });
+
+// generate_video/video_status's provider enum was missing kling/runway/
+// modelslab/promptchan — all four were already live in mavis-video-gen's
+// own provider chain, just unreachable through this validated path.
+describe("generate_video / video_status — provider enum matches mavis-video-gen's real chain", () => {
+  it.each(["fal", "veo", "omni", "kling", "runway", "modelslab", "promptchan", "auto"])(
+    "generate_video accepts provider %s",
+    (provider) => {
+      expect(ActionSchema.safeParse({ type: "generate_video", prompt: "x", provider }).success).toBe(true);
+    },
+  );
+
+  it.each(["fal", "veo", "omni", "kling", "runway", "modelslab", "promptchan"])(
+    "video_status accepts provider %s",
+    (provider) => {
+      expect(ActionSchema.safeParse({ type: "video_status", provider, request_id: "abc" }).success).toBe(true);
+    },
+  );
+
+  it("video_status rejects an unknown provider", () => {
+    expect(ActionSchema.safeParse({ type: "video_status", provider: "not-a-real-provider" }).success).toBe(false);
+  });
+});
