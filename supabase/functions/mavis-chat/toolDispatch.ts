@@ -210,6 +210,22 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
     },
   },
   {
+    name: "avatar_social_post",
+    description: "Generate a video of the operator's trained HeyGen avatar speaking a script, then auto-post it to TikTok and/or YouTube. Use action:'post_existing' with video_url instead of script to publish an already-generated video without regenerating it. Uses the operator's default_heygen_avatar_id/voice_id from their profile unless avatar_id/voice_id are passed explicitly — if neither is set, this errors asking the operator to configure one in Avatar Studio first, never assumes a stock avatar. YouTube defaults to privacy_status:'private' — pass 'public' or 'unlisted' explicitly once trusted. Takes ~1-3 min for generation plus publish time; for pure video generation without posting, use heygen_agent instead.",
+    params: {
+      action:               { type: "string", desc: "generate_and_post | post_existing", required: true, enum: ["generate_and_post", "post_existing"] },
+      script:               { type: "string", desc: "Script for the avatar to speak (generate_and_post only)" },
+      video_url:            { type: "string", desc: "Existing video URL to publish (post_existing only)" },
+      platforms:            { type: "string", desc: "Comma-separated: tiktok, youtube", required: true },
+      avatar_id:            { type: "string", desc: "Override the operator's default HeyGen avatar" },
+      voice_id:             { type: "string", desc: "Override the operator's default HeyGen voice" },
+      tiktok_caption:       { type: "string", desc: "TikTok caption text" },
+      youtube_title:        { type: "string", desc: "YouTube title (max 100 chars)" },
+      youtube_description:  { type: "string", desc: "YouTube description" },
+      privacy_status:       { type: "string", desc: "YouTube privacy — default private", enum: ["private", "unlisted", "public"] },
+    },
+  },
+  {
     name: "forge_persona",
     description: "Create a new AI persona for the operator to chat with",
     params: {
@@ -712,6 +728,8 @@ export function hasActionIntent(text: string): boolean {
     "generate image","create image","forge persona","create persona",
     "render a video","render video","make a video","create a video","generate video","generate a video","video recap","recap video",
     "is my video ready","check the video","check my video","video status",
+    "avatar video","post to youtube","post to tiktok","post my avatar","publish to youtube","publish to tiktok","upload to youtube","upload to tiktok","post a video","post it to",
+    "my avatar",
     // A2A / cross-entity (explicit names)
     "ask ","consult ","what does","what would","'s thoughts","'s take","'s opinion","'s perspective",
     "have them discuss","get their take","what do they think","let them weigh in",

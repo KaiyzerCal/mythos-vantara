@@ -439,9 +439,11 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "name": "mavis-avatar-publish",
     "category": "Uncategorized",
     "purpose": null,
-    "status": "ORPHANED",
+    "status": "ACTIVE",
     "calledFromFrontend": [],
-    "calledFromBackend": [],
+    "calledFromBackend": [
+      "mavis-actions"
+    ],
     "isCronTarget": false,
     "requiresJwt": true,
     "autonomyPathway": null

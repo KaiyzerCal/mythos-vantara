@@ -1542,6 +1542,20 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return avData;
     }
 
+    // ── Avatar Social Post — script → HeyGen avatar video → TikTok/YouTube ───
+    // generate_and_post (script) | post_existing (video_url)
+    case "avatar_social_post": {
+      const asRes = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-avatar-publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ userId, ...p }),
+        signal: AbortSignal.timeout(280_000), // HeyGen poll budget (180s) + TikTok/YouTube publish
+      });
+      const asData = await asRes.json().catch(() => ({}));
+      if (!asRes.ok) throw new Error((asData as any).error ?? `mavis-avatar-publish returned ${asRes.status}`);
+      return asData;
+    }
+
     // ── Higgsfield Cinematic Video ────────────────────────────────────────────
     // generate_video | get_video_status | list_models
     // Specialties: image animation, camera motion, character consistency
