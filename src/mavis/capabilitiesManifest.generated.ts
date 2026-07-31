@@ -4238,6 +4238,17 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-youtube-publish",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mcp",
     "category": "Uncategorized",
     "purpose": null,
