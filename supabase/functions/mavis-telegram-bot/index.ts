@@ -2227,22 +2227,32 @@ async function handleGenerate(
   const comfyUrl_env  = Deno.env.get("COMFYUI_URL") ?? "";
   const isVideoType   = ["txt2vid", "img2vid", "wan_t2v", "wan_i2v", "talking_head"].includes(workflowType);
 
-  // Routing: ComfyUI-only types always go to ComfyUI.
-  // For shared types (txt2img, txt2vid): prefer ModelsLab when key is set.
-  const useModelsLab = modelsLabKey && !COMFYUI_ONLY_TYPES.has(workflowType);
-  const useComfyUI   = !useModelsLab && comfyUrl_env;
+  // Routing:
+  //   plain images (txt2img/realtime) → mavis-image-gen, which owns the full
+  //     multi-provider cascade (Lovable/Imagen4/FluxPro/OpenAI/ModelsLab/
+  //     Pollinations, plus PromptChan when explicitly requested). Sending
+  //     these straight to mavis-modelslab is what produced the hard
+  //     "ModelsLab error: You need to be subscribed to a plan" failures with
+  //     no fallback at all.
+  //   ComfyUI-only types → ComfyUI.
+  //   video / img2img → ModelsLab (mavis-image-gen can't do those).
+  const useImageGen  = workflowType === "txt2img" || workflowType === "realtime";
+  const useModelsLab = !useImageGen && modelsLabKey && !COMFYUI_ONLY_TYPES.has(workflowType);
+  const useComfyUI   = !useImageGen && !useModelsLab && comfyUrl_env;
 
-  if (!useModelsLab && !useComfyUI) {
+  if (!useImageGen && !useModelsLab && !useComfyUI) {
     await send(chatId, "⚠️ No generation provider configured. Set `MODELSLAB_API_KEY` or `COMFYUI_URL` in Supabase secrets.");
     return;
   }
 
-  const provider = useModelsLab ? "ModelsLab" : "ComfyUI";
+  const provider = useImageGen ? "MAVIS image cascade" : useModelsLab ? "ModelsLab" : "ComfyUI";
   await send(chatId, `🎨 Generating ${typeLabel[workflowType] ?? "image"} via *${provider}*: _${prompt.slice(0, 80)}_\n\nThis may take 30–120 seconds…`);
 
-  const fnUrl = useModelsLab
-    ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-modelslab`
-    : `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comfyui`;
+  const fnUrl = useImageGen
+    ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-image-gen`
+    : useModelsLab
+      ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-modelslab`
+      : `${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-comfyui`;
 
   const res = await fetch(fnUrl, {
     method:  "POST",
@@ -2259,6 +2269,8 @@ async function handleGenerate(
     await send(chatId, `⚠️ Generation failed: ${(data.error ?? "unknown error").slice(0, 200)}`);
     return;
   }
+  // mavis-image-gen returns { url }, the other backends return imageUrl/videoUrl.
+  if (useImageGen && data.url) data.imageUrl = data.url;
 
   const mediaUrl: string = data.imageUrl ?? data.videoUrl ?? "";
   if (!mediaUrl) {
@@ -2334,24 +2346,25 @@ async function handleYamete(chatId: string | number, uid: string, prompt: string
     await send(chatId, "What should I generate? e.g. _nsfw a forest nymph_");
     return;
   }
-  await send(chatId, `🔞 Generating ${style} image via ModelsLab: _${prompt.slice(0, 60)}_…`);
+  await send(chatId, `🔞 Generating ${style} image via PromptChan: _${prompt.slice(0, 60)}_…`);
 
-  const modelId = NSFW_MODELS[style] ?? NSFW_MODELS.realistic;
-  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-modelslab`, {
+  const styledPrompt = prompt + (style === "hentai" ? ", anime, detailed, nsfw" : style === "furry" ? ", furry, anthro, detailed" : ", photorealistic, nsfw");
+
+  // PromptChan is the NSFW-capable provider; mavis-image-gen falls through to
+  // its normal cascade if PromptChan errors, so this never dead-ends on a
+  // ModelsLab plan/subscription failure the way the old direct call did.
+  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/mavis-image-gen`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
     body: JSON.stringify({
-      workflow_type:    "txt2img",
-      prompt:           prompt + (style === "hentai" ? ", anime, detailed, nsfw" : style === "furry" ? ", furry, anthro, detailed" : ", photorealistic, nsfw"),
-      negative_prompt:  "ugly, deformed, blurry, low quality, watermark, text",
-      model_id:         modelId,
-      width:            512,
-      height:           768,
-      steps:            25,
-      user_id:          uid,
+      prompt:   styledPrompt,
+      provider: "promptchan",
+      nsfw:     true,
+      width:    512,
+      height:   768,
+      user_id:  uid,
     }),
-    // mavis-modelslab polls up to 300s for async generations
-    signal: AbortSignal.timeout(310_000),
+    signal: AbortSignal.timeout(180_000),
   });
 
   const data = await res.json();
@@ -2359,7 +2372,7 @@ async function handleYamete(chatId: string | number, uid: string, prompt: string
     await send(chatId, `⚠️ Generation failed: ${(data.error ?? "unknown").slice(0, 200)}`);
     return;
   }
-  const url = data.imageUrl ?? "";
+  const url = data.url ?? data.imageUrl ?? "";
   if (!url) { await send(chatId, "⚠️ Generation done but no image URL returned."); return; }
   // Plain-text caption via the helper (no parse_mode) so a '*'/'_'/'[' in the
   // prompt can't break Telegram Markdown parsing and drop the photo.
