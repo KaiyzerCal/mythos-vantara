@@ -516,7 +516,7 @@ const MAVIS_TOOLS = [
   },
   {
     name: "self_diagnose",
-    description: "Run a health check on MAVIS — checks which integrations are connected, which API keys are configured, and surfaces recent tool failures. Use when the operator asks 'are you working?', 'what can you do?', 'what's connected?', or reports something not working.",
+    description: "Run a health check on MAVIS — checks which integrations are connected, which API keys are configured, and surfaces recent tool failures. This is the ONLY ground truth you have about your own backend — you cannot read your own source code, so never guess about routing/implementation details. Use when the operator asks 'are you working?', 'what can you do?', 'what's connected?', reports something not working, or asks why a tool call failed.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1752,6 +1752,9 @@ async function handleTool(
           firecrawl: !!Deno.env.get("FIRECRAWL_API_KEY"),
           elevenlabs: !!Deno.env.get("ELEVENLABS_API_KEY"),
           lovable: !!Deno.env.get("LOVABLE_API_KEY"),
+          promptchan: !!Deno.env.get("PROMPTCHAN_API_KEY"),
+          modelslab: !!Deno.env.get("MODELSLAB_API_KEY"),
+          fal: !!Deno.env.get("FAL_API_KEY"),
         };
         report.api_keys = keys;
         const { data: integrations } = await supabase
@@ -1772,7 +1775,13 @@ async function handleTool(
         report.recent_tool_failures = failures ?? [];
         report.summary = {
           web_search: keys.tavily ? "Tavily (active)" : keys.grok ? "Grok (active)" : "unavailable — set TAVILY_API_KEY",
-          image_gen: keys.gemini ? "Gemini Imagen" : keys.openai ? "DALL-E" : "unavailable",
+          image_gen: "multi-provider cascade (auto-picks from whichever of these are configured: " +
+            [keys.lovable && "lovable", keys.gemini && "imagen-4", keys.fal && "flux-pro", keys.modelslab && "modelslab",
+             keys.openai && "openai", keys.promptchan && "promptchan (NSFW, must be explicitly requested)", "pollinations (always available, no key needed)"]
+              .filter(Boolean).join(", ") + ") — pass provider explicitly to force one",
+          video_gen: keys.promptchan
+            ? "promptchan (NSFW, must be explicitly requested via provider) or modelslab (default) — no automatic fallback between them"
+            : keys.modelslab ? "modelslab only — PROMPTCHAN_API_KEY not set, no NSFW video option" : "unavailable",
           tts: keys.elevenlabs ? "ElevenLabs" : "unavailable",
           ai_provider: keys.lovable ? "Lovable Gateway" : keys.anthropic ? "Anthropic Claude" : "NONE — agent broken",
           telegram: keys.telegram ? "connected" : "not configured",
@@ -2493,7 +2502,7 @@ const SYSTEM_PROMPT =
 
 You are not a chatbot. You are an agent. You have real tools, real integrations, and real execution capability. You operate across the operator's entire digital life.
 
-⚠️ YOU CANNOT SEE YOUR OWN SOURCE CODE. You have no tool that reads your own backend implementation, edge functions, or routing logic. If the operator asks why a tool call failed, what's "hardcoded," which endpoint/URL something calls, or how your own backend is wired — you do not know, and guessing invents specific-sounding but false claims (file names, API URLs, "the code does X") that the operator may act on as fact. Say plainly that you can't inspect your own code and that the answer is a question for your developer, not a specific technical diagnosis. This also means: never create a quest/task about fixing, refactoring, or updating your own backend/edge functions based on your own speculation about what's wrong with them — that's a decision for the developer, not something you can verify or should self-assign.
+⚠️ YOU CANNOT SEE YOUR OWN SOURCE CODE. You have no tool that reads your own backend implementation, edge functions, or routing logic. If the operator asks why a tool call failed, what's "hardcoded," which endpoint/URL something calls, or how your own backend is wired — you do not know that from memory, and guessing invents specific-sounding but false claims (file names, API URLs, "the code does X") that the operator may act on as fact. Call self_diagnose first — it reports real, live ground truth (which API keys are actually configured, which integrations are connected, recent tool failures) — and answer from that. If self_diagnose doesn't cover what's being asked, say plainly that you can't inspect your own code and that it's a question for your developer, not a specific technical diagnosis. This also means: never create a quest/task about fixing, refactoring, or updating your own backend/edge functions based on your own speculation about what's wrong with them — that's a decision for the developer, not something you can verify or should self-assign.
 
 ═══════════════════════════════════════════
 COMMON ACTIONS — HOW TO DO THEM
