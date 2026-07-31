@@ -857,18 +857,22 @@ export const GenerateImageSchema = z.object({
 });
 
 // VIDEO GENERATION
+// provider enum was missing kling/runway/modelslab/promptchan — all four
+// were already live in mavis-video-gen's own provider chain, just never
+// reachable through this validated action-tag path (the LLM could name
+// them, but Zod would reject the request before it ever got there).
 export const GenerateVideoSchema = z.object({
   type: z.literal("generate_video"),
   prompt: z.string().min(1),
   duration: z.number().int().min(1).max(30).optional(),
   aspect_ratio: z.enum(["16:9","9:16","1:1"]).optional(),
-  provider: z.enum(["fal","veo","omni","auto"]).optional(),
+  provider: z.enum(["fal","veo","omni","kling","runway","modelslab","promptchan","auto"]).optional(),
   save_to_vault: z.boolean().optional(),
 });
 
 export const VideoStatusSchema = z.object({
   type: z.literal("video_status"),
-  provider: z.enum(["fal","veo","omni"]),
+  provider: z.enum(["fal","veo","omni","kling","runway","modelslab","promptchan"]),
   request_id: z.string().optional(),
   operation_name: z.string().optional(),
 });

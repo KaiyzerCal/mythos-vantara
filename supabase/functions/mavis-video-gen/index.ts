@@ -8,9 +8,11 @@ const corsHeaders = {
 const FAL_KEY    = Deno.env.get("FAL_API_KEY")    ?? Deno.env.get("FAL_AI_API_KEY") ?? "";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
 const MODELSLAB_KEY = Deno.env.get("MODELSLAB_API_KEY") ?? "";
+const PROMPTCHAN_KEY = Deno.env.get("PROMPTCHAN_API_KEY") ?? "";
+const PROMPTCHAN_BASE = Deno.env.get("PROMPTCHAN_API_BASE") ?? "https://prod.aicloudnetservices.com";
 
 type AspectRatio = "16:9" | "9:16" | "1:1";
-type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" | "auto";
+type Provider = "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" | "promptchan" | "auto";
 
 interface VideoRequest {
   prompt: string;
@@ -228,6 +230,74 @@ async function pollModelsLabJob(request_id: string): Promise<{ status: string; u
   throw new Error(`ModelsLab failed: ${data?.message ?? "unknown"}`);
 }
 
+// ── PromptChan video_v4 (NSFW-capable) ───────────────────────────────────────
+// Confirmed against the operator's own OpenAPI spec (Promptchan API v1.21).
+// Submit → poll status_with_logs → fetch result is a genuine 3-endpoint flow
+// (unlike this file's other providers, which fold status+result into one
+// poll call): status_with_logs only reports queue position/progress, no
+// "done" boolean, so pollPromptchanJob below checks that first and only
+// then tries the result endpoint — the docs don't state what result returns
+// before the job finishes, so a failed/non-success result there is treated
+// as "still processing" rather than a hard error.
+
+const PROMPTCHAN_ASPECT_MAP: Record<AspectRatio, string> = {
+  "16:9": "Landscape",
+  "9:16": "Portrait",
+  "1:1":  "Square",
+};
+
+async function submitPromptchanJob(
+  prompt: string,
+  aspect_ratio: AspectRatio,
+): Promise<{ status: string; request_id: string; provider: string }> {
+  if (!PROMPTCHAN_KEY) throw new Error("PROMPTCHAN_API_KEY is required for PromptChan video generation");
+  const res = await fetch(`${PROMPTCHAN_BASE}/api/external/video_v4/submit`, {
+    method: "POST",
+    headers: { "x-api-key": PROMPTCHAN_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: prompt.trim(),
+      aspect: PROMPTCHAN_ASPECT_MAP[aspect_ratio] ?? "Portrait",
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`PromptChan video submit ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  if (!data.request_id) throw new Error("PromptChan returned no request_id");
+  return { status: "processing", request_id: data.request_id, provider: "promptchan" };
+}
+
+async function pollPromptchanJob(request_id: string): Promise<{ status: string; url?: string; provider: string; progress?: number }> {
+  const statusRes = await fetch(`${PROMPTCHAN_BASE}/api/external/video_v4/status_with_logs/${encodeURIComponent(request_id)}`, {
+    headers: { "x-api-key": PROMPTCHAN_KEY },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!statusRes.ok) throw new Error(`PromptChan video status ${statusRes.status}: ${(await statusRes.text()).slice(0, 300)}`);
+  const statusData = await statusRes.json();
+  const progress = Number(statusData?.progress ?? 0);
+  const queueLength = Number(statusData?.current_queue_length ?? 0);
+
+  // Still queued/in progress by the API's own numbers — don't bother
+  // checking the result endpoint yet.
+  if (queueLength > 0 && progress < 100) {
+    return { status: "processing", provider: "promptchan", progress };
+  }
+
+  const resultRes = await fetch(`${PROMPTCHAN_BASE}/api/external/video_v4/result/${encodeURIComponent(request_id)}`, {
+    headers: { "x-api-key": PROMPTCHAN_KEY },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (resultRes.ok) {
+    const resultData = await resultRes.json();
+    const url = Array.isArray(resultData?.video) ? resultData.video[0] : undefined;
+    if (resultData?.status === "success" && url) {
+      return { status: "complete", url, provider: "promptchan" };
+    }
+  }
+  // Result not ready yet (or came back in a shape the docs don't cover) —
+  // keep polling rather than surfacing an error for what's likely a normal
+  // "not finished" state.
+  return { status: "processing", provider: "promptchan", progress };
+}
 
 // ── Veo 3.1 via Gemini API ──────────────────────────────────────────────────
 
@@ -282,12 +352,13 @@ async function pollVeoOperation(
 
 // ── Resolve provider ────────────────────────────────────────────────────────
 
-function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" {
-  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab";
+function resolveProvider(requested?: Provider): "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" | "promptchan" {
+  if (requested && requested !== "auto") return requested as "fal" | "veo" | "omni" | "kling" | "runway" | "modelslab" | "promptchan";
   if (FAL_KEY) return "fal";
   if (MODELSLAB_KEY) return "modelslab";
   if (GEMINI_KEY) return "veo";
-  throw new Error("No video generation API key configured (FAL_API_KEY, MODELSLAB_API_KEY, or GEMINI_API_KEY required)");
+  if (PROMPTCHAN_KEY) return "promptchan";
+  throw new Error("No video generation API key configured (FAL_API_KEY, MODELSLAB_API_KEY, GEMINI_API_KEY, or PROMPTCHAN_API_KEY required)");
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -322,6 +393,9 @@ serve(async (req) => {
       } else if (requestedProvider === "modelslab") {
         if (!request_id) return new Response(JSON.stringify({ error: "request_id required for modelslab poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         result = await pollModelsLabJob(request_id);
+      } else if (requestedProvider === "promptchan") {
+        if (!request_id) return new Response(JSON.stringify({ error: "request_id required for promptchan poll" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        result = await pollPromptchanJob(request_id);
       } else if (requestedProvider === "omni") {
         result = { status: "queued", message: "Gemini Omni Flash coming soon", provider: "omni" };
       } else {
@@ -351,6 +425,7 @@ serve(async (req) => {
     if (FAL_KEY) { push("kling"); push("fal"); push("runway"); }
     if (MODELSLAB_KEY) push("modelslab");
     if (GEMINI_KEY) push("veo");
+    if (PROMPTCHAN_KEY) push("promptchan");
 
     const attempts: Array<{ provider: string; error: string }> = [];
     let result: Record<string, unknown> | null = null;
@@ -362,6 +437,7 @@ serve(async (req) => {
         else if (p === "fal") result = await submitFalJob(prompt.trim(), resolvedDuration, resolvedAspect, model);
         else if (p === "modelslab") result = await submitModelsLabJob(prompt.trim(), resolvedDuration, resolvedAspect);
         else if (p === "veo") result = await submitVeoJob(prompt.trim(), resolvedAspect);
+        else if (p === "promptchan") result = await submitPromptchanJob(prompt.trim(), resolvedAspect);
         else continue;
         break;
       } catch (e: unknown) {
