@@ -877,6 +877,24 @@ export const VideoStatusSchema = z.object({
   operation_name: z.string().optional(),
 });
 
+// AVATAR SOCIAL POST — script → trained HeyGen avatar video → TikTok/YouTube,
+// via mavis-avatar-publish. Uses the operator's saved default_heygen_avatar_id/
+// voice_id (set in Avatar Studio) unless avatar_id/voice_id are given — never
+// assumes a stock avatar; errors if neither the params nor the profile have one.
+export const AvatarSocialPostSchema = z.object({
+  type: z.literal("avatar_social_post"),
+  action: z.enum(["generate_and_post", "post_existing"]),
+  script: z.string().optional(),
+  video_url: z.string().optional(),
+  avatar_id: z.string().optional(),
+  voice_id: z.string().optional(),
+  platforms: z.string().min(1), // comma-separated: "tiktok,youtube"
+  tiktok_caption: z.string().optional(),
+  youtube_title: z.string().optional(),
+  youtube_description: z.string().optional(),
+  privacy_status: z.enum(["private", "unlisted", "public"]).optional(),
+});
+
 // PLAN-AND-EXECUTE — decompose a high-level goal into a DAG of steps via mavis-planner
 // plan_execute requires confirmation — see actionExecutor.ts ALWAYS_CONFIRM
 export const PlanExecuteSchema = z.object({
@@ -1177,6 +1195,7 @@ export const ActionSchema = z.discriminatedUnion("type", [
   GenerateImageSchema,
   GenerateVideoSchema,
   VideoStatusSchema,
+  AvatarSocialPostSchema,
   CreateSkillDefinitionSchema,
   PlanExecuteSchema,
   CreateWebsiteSchema,

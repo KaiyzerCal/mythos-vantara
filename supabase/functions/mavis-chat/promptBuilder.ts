@@ -615,6 +615,11 @@ PHOTO AVATAR (lip-sync any face image to a script):
 :::ACTION{"type":"avatar_video","params":{"action":"poll","request_id":"..."}}:::
 Use avatar_video to animate any still photo to speak. Requires source_image_url (face-forward image URL) and either text (uses ElevenLabs TTS with voice_id) or audio_url (pre-made audio). still_mode:true keeps head more stable; use_enhancer:true improves quality. Returns request_id immediately — poll for video_url. Use for: animating a profile photo, talking headshot from still, quick lip-sync prototypes. Powered by fal.ai SadTalker. Requires FAL_API_KEY + ELEVENLABS_API_KEY.
 
+AVATAR SOCIAL POST — generate a video of the operator's trained HeyGen avatar and auto-post it:
+:::ACTION{"type":"avatar_social_post","params":{"action":"generate_and_post","script":"Your script here...","platforms":"tiktok,youtube","youtube_title":"...","tiktok_caption":"..."}}:::
+:::ACTION{"type":"avatar_social_post","params":{"action":"post_existing","video_url":"https://...","platforms":"youtube","youtube_title":"..."}}:::
+Use avatar_social_post when the operator wants a script turned into a video AND posted, in one step — this is the shortcut over manually chaining heygen_agent + separate publish calls. Uses the operator's default_heygen_avatar_id/voice_id from their profile unless avatar_id/voice_id are passed explicitly — if neither is set, this errors asking the operator to configure one in Avatar Studio first (never assumes a stock avatar). YouTube defaults to privacy_status:"private" — pass "public" or "unlisted" explicitly once trusted. Takes ~1-3 min for generation plus publish time; for pure video generation without posting, use heygen_agent instead.
+
 HIGGSFIELD CINEMATIC VIDEO — AI video with fine-grained camera motion and character consistency:
 :::ACTION{"type":"higgsfield_agent","params":{"action":"generate_video","prompt":"A confident founder walks into a sleek office, cinematic lighting","camera_motion":"push_in","aspect_ratio":"9:16","duration":4}}:::
 :::ACTION{"type":"higgsfield_agent","params":{"action":"generate_video","image_url":"https://...","prompt":"Character looks directly at camera, slight confident smile","camera_motion":"zoom_in","duration":3}}:::

@@ -542,6 +542,26 @@ const MAVIS_TOOLS = [
       required: ["prompt"],
     },
   },
+  {
+    name: "avatar_social_post",
+    description: "Generate a video of the operator's trained HeyGen avatar speaking a script, then auto-post it to TikTok and/or YouTube. Use action:'post_existing' with video_url instead of script to publish an already-generated video without regenerating it. Uses the operator's default_heygen_avatar_id/voice_id from their profile unless avatar_id/voice_id are passed explicitly — if neither is set, this errors asking the operator to configure one in Avatar Studio first, never assumes a stock avatar. YouTube defaults to privacy_status:'private' — pass 'public' or 'unlisted' explicitly once trusted. Takes ~1-3 min for generation plus publish time; for pure video generation without posting, use heygen_agent instead.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action:               { type: "string", description: "generate_and_post | post_existing" },
+        script:               { type: "string", description: "Script for the avatar to speak (generate_and_post only)" },
+        video_url:            { type: "string", description: "Existing video URL to publish (post_existing only)" },
+        platforms:            { type: "string", description: "Comma-separated: tiktok, youtube" },
+        avatar_id:            { type: "string", description: "Override the operator's default HeyGen avatar" },
+        voice_id:             { type: "string", description: "Override the operator's default HeyGen voice" },
+        tiktok_caption:       { type: "string", description: "TikTok caption text" },
+        youtube_title:        { type: "string", description: "YouTube title (max 100 chars)" },
+        youtube_description:  { type: "string", description: "YouTube description" },
+        privacy_status:       { type: "string", description: "YouTube privacy: private | unlisted | public (default private)" },
+      },
+      required: ["action", "platforms"],
+    },
+  },
 ];
 
 // ── Tool handler ──────────────────────────────────────────────────────────────
@@ -1893,6 +1913,24 @@ async function handleTool(
           provider:  genData.provider,
           ok: true,
         };
+      }
+
+      case "avatar_social_post": {
+        const res = await fetch(`${env.supabaseUrl}/functions/v1/mavis-actions`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.serviceKey}` },
+          body: JSON.stringify({ actions: [{ type: "avatar_social_post", params: input }], userId }),
+          // HeyGen poll budget (180s) + TikTok/YouTube publish
+          signal: AbortSignal.timeout(280_000),
+        });
+        if (!res.ok) {
+          const errText = await res.text().catch(() => "");
+          return { error: `mavis-actions error ${res.status}: ${errText.slice(0, 200)}` };
+        }
+        const data = await res.json();
+        const firstResult = Array.isArray(data.results) ? (data.results as Array<Record<string, unknown>>)[0] : null;
+        if (firstResult?.success === false) return { error: firstResult.error ?? "avatar_social_post failed" };
+        return { executed: true, result: data };
       }
 
       default:
