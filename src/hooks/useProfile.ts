@@ -57,6 +57,10 @@ export interface ProfileData {
   // supabase/migrations/20260731000000_heygen_default_avatar.sql.
   default_heygen_avatar_id: string | null;
   default_heygen_voice_id: string | null;
+  // Full roster of saved avatars (not just the default) — any of them can
+  // drive the full generate+post pipeline by label via avatar_name; see
+  // supabase/migrations/20260801000000_heygen_avatar_roster.sql.
+  saved_heygen_avatars: { label: string; avatar_id: string; voice_id: string }[];
 }
 
 const defaults: ProfileData = {
@@ -103,6 +107,7 @@ const defaults: ProfileData = {
   nsfw_generation_enabled: false,
   default_heygen_avatar_id: null,
   default_heygen_voice_id: null,
+  saved_heygen_avatars: [],
 };
 
 export function useProfile() {

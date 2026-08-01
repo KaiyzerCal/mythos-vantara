@@ -544,16 +544,18 @@ const MAVIS_TOOLS = [
   },
   {
     name: "avatar_social_post",
-    description: "Generate a video of the operator's trained HeyGen avatar speaking a script, then auto-post it to TikTok and/or YouTube. Use action:'post_existing' with video_url instead of script to publish an already-generated video without regenerating it. Uses the operator's default_heygen_avatar_id/voice_id from their profile unless avatar_id/voice_id are passed explicitly — if neither is set, this errors asking the operator to configure one in Avatar Studio first, never assumes a stock avatar. YouTube defaults to privacy_status:'private' — pass 'public' or 'unlisted' explicitly once trusted. Takes ~1-3 min for generation plus publish time; for pure video generation without posting, use heygen_agent instead.",
+    description: "Generate a video of one of the operator's trained HeyGen avatars speaking a script, then auto-post it to any combination of social platforms. Use action:'post_existing' with video_url instead of script to publish an already-generated video without regenerating it. Avatar selection: pass avatar_name to use one of the operator's saved avatars by label (any of them can run this full pipeline, not just one default), or avatar_id/voice_id directly, or omit both to use the operator's hands-free default. Errors clearly if none resolve to a real avatar — never assumes a stock one. tiktok/youtube post through their own dedicated integrations; facebook/linkedin/instagram/twitter/threads post through Blotato using the generic caption param. YouTube defaults to privacy_status:'private' — pass 'public' or 'unlisted' explicitly once trusted. Takes ~1-3 min for generation plus publish time; for pure video generation without posting, use heygen_agent instead.",
     input_schema: {
       type: "object" as const,
       properties: {
         action:               { type: "string", description: "generate_and_post | post_existing" },
         script:               { type: "string", description: "Script for the avatar to speak (generate_and_post only)" },
         video_url:            { type: "string", description: "Existing video URL to publish (post_existing only)" },
-        platforms:            { type: "string", description: "Comma-separated: tiktok, youtube" },
-        avatar_id:            { type: "string", description: "Override the operator's default HeyGen avatar" },
-        voice_id:             { type: "string", description: "Override the operator's default HeyGen voice" },
+        platforms:            { type: "string", description: "Comma-separated, any of: tiktok, youtube, facebook, linkedin, instagram, twitter, threads" },
+        avatar_name:          { type: "string", description: "Use one of the operator's saved avatars by label — pick a specific avatar other than the default" },
+        avatar_id:            { type: "string", description: "Override with a raw HeyGen avatar ID instead of avatar_name" },
+        voice_id:             { type: "string", description: "Override with a raw HeyGen voice ID instead of avatar_name" },
+        caption:              { type: "string", description: "Post text for facebook/linkedin/instagram/twitter/threads" },
         tiktok_caption:       { type: "string", description: "TikTok caption text" },
         youtube_title:        { type: "string", description: "YouTube title (max 100 chars)" },
         youtube_description:  { type: "string", description: "YouTube description" },

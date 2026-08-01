@@ -7,10 +7,16 @@
 // POST {
 //   userId?, action: "generate_and_post" | "post_existing",
 //   script?, video_url?, avatar_id?, voice_id?,
-//   platforms: ("tiktok"|"youtube")[],
+//   platforms: ("tiktok"|"youtube"|"facebook"|"linkedin"|"instagram"|"twitter"|"threads")[],
+//   caption?,   // generic post text for facebook/linkedin/instagram/twitter/threads
 //   tiktok_caption?, youtube_title?, youtube_description?, privacy_status?,
 //   queue_id?,   // optional -- if set, progress is written into mavis_social_queue
 // }
+//
+// tiktok/youtube go through their own dedicated, more capable posting
+// functions (mavis-nora-tiktok, mavis-youtube-publish). Every other
+// platform routes through mavis-blotato, which already accepts a generic
+// video_url per platform -- previously only ever used for images/text.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -18,6 +24,10 @@ import { isServiceRoleCaller, resolveAuthedUid } from "../_shared/auth.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+const NATIVE_PLATFORMS  = new Set(["tiktok", "youtube"]);
+const BLOTATO_PLATFORMS = new Set(["facebook", "linkedin", "instagram", "twitter", "threads"]);
+const ALL_PLATFORMS     = new Set([...NATIVE_PLATFORMS, ...BLOTATO_PLATFORMS]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -59,10 +69,21 @@ serve(async (req) => {
       return json({ error: 'action must be "generate_and_post" or "post_existing"' }, 400);
     }
 
-    const platforms = Array.isArray(body.platforms)
-      ? (body.platforms as unknown[]).map(String).filter((p) => p === "tiktok" || p === "youtube")
+    // Accepts either a real array (direct API callers) or a comma-separated
+    // string (the LLM tool-calling schemas only support flat string params,
+    // not arrays -- toolDispatch.ts/mavis-agent's tool defs describe this
+    // field as "tiktok,youtube" for exactly that reason).
+    const rawPlatforms = body.platforms;
+    const requestedPlatforms = Array.isArray(rawPlatforms)
+      ? (rawPlatforms as unknown[]).map(String)
+      : typeof rawPlatforms === "string"
+      ? rawPlatforms.split(",").map((p) => p.trim()).filter(Boolean)
       : [];
-    if (!platforms.length) return json({ error: "platforms required (tiktok, youtube)" }, 400);
+    const platforms = requestedPlatforms.filter((p) => ALL_PLATFORMS.has(p));
+    const invalidPlatforms = requestedPlatforms.filter((p) => !ALL_PLATFORMS.has(p));
+    if (!platforms.length) {
+      return json({ error: `platforms required — one or more of: ${[...ALL_PLATFORMS].join(", ")}` }, 400);
+    }
 
     const queueId = body.queue_id ? String(body.queue_id) : null;
 
@@ -78,21 +99,42 @@ serve(async (req) => {
       const script = body.script ? String(body.script) : "";
       if (!script.trim()) return json({ error: "script required for generate_and_post" }, 400);
 
-      // Never a hardcoded fallback -- explicit param, else the user's saved
-      // default, else a clear error asking them to configure one.
+      // Resolution order, never a hardcoded fallback:
+      //   1. Explicit avatar_id/voice_id
+      //   2. avatar_name matched against the operator's saved roster
+      //      (profiles.saved_heygen_avatars -- any of their avatars, not
+      //      just "the" default)
+      //   3. The operator's default_heygen_avatar_id/voice_id
+      //   4. Clear error asking them to configure one
       let avatarId = body.avatar_id ? String(body.avatar_id) : "";
       let voiceId  = body.voice_id  ? String(body.voice_id)  : "";
+      const avatarName = body.avatar_name ? String(body.avatar_name).trim().toLowerCase() : "";
+
       if (!avatarId || !voiceId) {
         const { data: profile } = await adminSb
           .from("profiles")
-          .select("default_heygen_avatar_id, default_heygen_voice_id")
+          .select("default_heygen_avatar_id, default_heygen_voice_id, saved_heygen_avatars")
           .eq("id", userId)
           .single();
-        avatarId = avatarId || (profile as Record<string, unknown> | null)?.default_heygen_avatar_id as string || "";
-        voiceId  = voiceId  || (profile as Record<string, unknown> | null)?.default_heygen_voice_id  as string || "";
+        const p = profile as Record<string, unknown> | null;
+
+        if (avatarName && Array.isArray(p?.saved_heygen_avatars)) {
+          const match = (p!.saved_heygen_avatars as Array<Record<string, unknown>>)
+            .find((a) => String(a.label ?? "").trim().toLowerCase() === avatarName);
+          if (match) {
+            avatarId = avatarId || String(match.avatar_id ?? "");
+            voiceId  = voiceId  || String(match.voice_id ?? "");
+          }
+        }
+        avatarId = avatarId || (p?.default_heygen_avatar_id as string) || "";
+        voiceId  = voiceId  || (p?.default_heygen_voice_id as string) || "";
       }
       if (!avatarId || !voiceId) {
-        return json({ error: "No HeyGen avatar configured -- set one in Avatar Studio or pass avatar_id/voice_id" }, 400);
+        return json({
+          error: avatarName
+            ? `No saved avatar named "${body.avatar_name}" -- save it in Avatar Studio first, or pass avatar_id/voice_id directly`
+            : "No HeyGen avatar configured -- set one in Avatar Studio or pass avatar_id/voice_id",
+        }, 400);
       }
       avatarIdUsed = avatarId;
       voiceIdUsed = voiceId;
@@ -125,14 +167,25 @@ serve(async (req) => {
 
     // ── Publish to each requested platform in parallel ────────────────────
     const results: Record<string, unknown> = {};
-    await Promise.all(platforms.map(async (platform) => {
-      if (platform === "tiktok") {
+    const blotatoPlatforms = platforms.filter((p) => BLOTATO_PLATFORMS.has(p));
+    // Generic caption for the Blotato-routed platforms -- falls back to
+    // whatever caption-shaped text was already supplied for the native
+    // platforms rather than requiring it be repeated.
+    const genericCaption = body.caption ? String(body.caption)
+      : body.tiktok_caption ? String(body.tiktok_caption)
+      : body.youtube_description ? String(body.youtube_description)
+      : "";
+
+    await Promise.all([
+      platforms.includes("tiktok") ? (async () => {
         results.tiktok = await callFunction("mavis-nora-tiktok", {
           user_id: userId,
           content: body.tiktok_caption ? String(body.tiktok_caption) : undefined,
           video_url: videoUrl,
         });
-      } else if (platform === "youtube") {
+      })() : Promise.resolve(),
+
+      platforms.includes("youtube") ? (async () => {
         results.youtube = await callFunction("mavis-youtube-publish", {
           userId,
           video_url: videoUrl,
@@ -140,8 +193,25 @@ serve(async (req) => {
           description: body.youtube_description ? String(body.youtube_description) : "",
           privacy_status: body.privacy_status ? String(body.privacy_status) : "private",
         });
-      }
-    }));
+      })() : Promise.resolve(),
+
+      blotatoPlatforms.length ? (async () => {
+        if (!genericCaption.trim()) {
+          const err = { error: "caption required to post to " + blotatoPlatforms.join(", ") };
+          for (const p of blotatoPlatforms) results[p] = err;
+          return;
+        }
+        const blRes = await callFunction("mavis-blotato", {
+          platforms: blotatoPlatforms,
+          content: genericCaption,
+          video_url: videoUrl,
+        });
+        const perPlatform = Array.isArray(blRes.results) ? blRes.results as Array<Record<string, unknown>> : null;
+        for (const p of blotatoPlatforms) {
+          results[p] = perPlatform?.find((r) => r.platform === p) ?? blRes;
+        }
+      })() : Promise.resolve(),
+    ]);
 
     if (queueId) {
       const youtubeResult = results.youtube as Record<string, unknown> | undefined;
@@ -157,7 +227,11 @@ serve(async (req) => {
         .eq("id", queueId);
     }
 
-    return json({ video_url: videoUrl, results });
+    return json({
+      video_url: videoUrl,
+      results,
+      ...(invalidPlatforms.length ? { invalid_platforms: invalidPlatforms } : {}),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("mavis-avatar-publish error:", msg);
