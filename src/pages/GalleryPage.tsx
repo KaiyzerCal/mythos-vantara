@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/SharedUI";
 import { LoadingState } from "@/components/LoadingState";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2 } from "lucide-react";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2, X, Maximize2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 
@@ -35,6 +35,53 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// Full-size preview. Several providers (PromptChan, ModelsLab, Imagen4,
+// Lovable) return `data:image/...;base64,...` URIs instead of hosted URLs
+// -- modern browsers block top-level navigation to data: URIs opened via
+// `<a target="_blank">` as an anti-phishing measure, so that "Open"
+// affordance silently does nothing for a large share of generated images.
+// An <img> tag isn't subject to that restriction, so an in-app overlay is
+// the only reliable way to show a full-size preview regardless of URL type.
+function Lightbox({ item, onClose }: { item: { url: string; type: "image" | "video"; title?: string } | null; onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      {item && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-6"
+          onClick={onClose}
+        >
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+            title="Close"
+          >
+            <X size={16} />
+          </button>
+          {item.type === "video" ? (
+            <video
+              src={item.url}
+              controls
+              autoPlay
+              className="max-w-full max-h-full rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={item.url}
+              alt={item.title ?? "Preview"}
+              className="max-w-full max-h-full object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 type FilterType = "all" | "image" | "audio" | "video" | "poster";
 
 const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
@@ -45,8 +92,9 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   poster: <Globe size={12} />,
 };
 
-function MediaCard({ item, onSendToVideo, onDelete }: { item: MediaItem; onSendToVideo?: (url: string) => void; onDelete?: (item: MediaItem) => void }) {
+function MediaCard({ item, onSendToVideo, onDelete, onPreview }: { item: MediaItem; onSendToVideo?: (url: string) => void; onDelete?: (item: MediaItem) => void; onPreview?: (item: MediaItem) => void }) {
   const [imgError, setImgError] = useState(false);
+  const previewable = onPreview && (item.type === "image" || item.type === "video");
 
   return (
     <motion.div
@@ -57,7 +105,10 @@ function MediaCard({ item, onSendToVideo, onDelete }: { item: MediaItem; onSendT
       className="group relative rounded-lg border border-border overflow-hidden bg-card hover:border-primary/50 hover:shadow-[0_8px_30px_-8px_hsl(var(--primary)/0.35)] transition-all"
     >
       {/* Preview area */}
-      <div className="relative bg-muted/20 aspect-square overflow-hidden">
+      <div
+        className={`relative bg-muted/20 aspect-square overflow-hidden ${previewable ? "cursor-zoom-in" : ""}`}
+        onClick={previewable ? () => onPreview!(item) : undefined}
+      >
         {item.type === "image" && !imgError && (
           <img
             src={item.url}
@@ -96,18 +147,31 @@ function MediaCard({ item, onSendToVideo, onDelete }: { item: MediaItem; onSendT
 
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-          <a
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
-            title="Open"
-          >
-            <ExternalLink size={13} />
-          </a>
+          {previewable ? (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPreview!(item); }}
+              className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+              title="Preview full size"
+            >
+              <Maximize2 size={13} />
+            </button>
+          ) : (
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+              title="Open"
+            >
+              <ExternalLink size={13} />
+            </a>
+          )}
           <a
             href={item.url}
             download
+            onClick={(e) => e.stopPropagation()}
             className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
             title="Download"
           >
@@ -174,7 +238,7 @@ const IMAGE_PROVIDERS = [
   { key: "promptchan",       label: "PromptChan",   hint: "NSFW-capable" },
 ] as const;
 
-function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void }) {
+function ImageGenPanel({ onGenerated, onPreview }: { onGenerated: (item: MediaItem) => void; onPreview?: (url: string) => void }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState<typeof SIZE_OPTIONS[number]["key"]>("square");
@@ -316,14 +380,16 @@ function ImageGenPanel({ onGenerated }: { onGenerated: (item: MediaItem) => void
       {/* Preview of last result */}
       {lastUrl && (
         <div className="flex gap-3 items-start mt-1">
-          <img src={lastUrl} alt="Generated" className="w-20 h-20 rounded-lg object-cover border border-border shrink-0" />
+          <button onClick={() => onPreview?.(lastUrl)} className="shrink-0 cursor-zoom-in" title="Preview full size">
+            <img src={lastUrl} alt="Generated" className="w-20 h-20 rounded-lg object-cover border border-border" />
+          </button>
           <div className="flex flex-col gap-1.5 min-w-0">
             <p className="text-[10px] font-mono text-muted-foreground truncate">{prompt}</p>
             <div className="flex gap-1.5">
-              <a href={lastUrl} target="_blank" rel="noopener noreferrer"
+              <button onClick={() => onPreview?.(lastUrl)}
                 className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
-                <ExternalLink size={9} /> Open
-              </a>
+                <Maximize2 size={9} /> Preview
+              </button>
               <a href={lastUrl} download className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
                 <Download size={9} /> Download
               </a>
@@ -368,7 +434,7 @@ const VIDEO_PROVIDERS = [
   { key: "promptchan", label: "PromptChan",  hint: "NSFW, text-only — cannot animate a reference image" },
 ] as const;
 
-function VideoGenPanel({ onGenerated, seedImageUrl }: { onGenerated: (item: MediaItem) => void; seedImageUrl?: string | null }) {
+function VideoGenPanel({ onGenerated, seedImageUrl, onPreview }: { onGenerated: (item: MediaItem) => void; seedImageUrl?: string | null; onPreview?: (url: string) => void }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [imageUrl, setImageUrl] = useState("");
@@ -606,14 +672,16 @@ function VideoGenPanel({ onGenerated, seedImageUrl }: { onGenerated: (item: Medi
 
       {lastUrl && (
         <div className="flex gap-3 items-start mt-1">
-          <video src={lastUrl} className="w-24 h-24 rounded-lg object-cover border border-border shrink-0" muted autoPlay loop playsInline />
+          <button onClick={() => onPreview?.(lastUrl)} className="shrink-0 cursor-zoom-in" title="Preview full size">
+            <video src={lastUrl} className="w-24 h-24 rounded-lg object-cover border border-border" muted autoPlay loop playsInline />
+          </button>
           <div className="flex flex-col gap-1.5 min-w-0">
             <p className="text-[10px] font-mono text-muted-foreground truncate">{prompt}</p>
             <div className="flex gap-1.5">
-              <a href={lastUrl} target="_blank" rel="noopener noreferrer"
+              <button onClick={() => onPreview?.(lastUrl)}
                 className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
-                <ExternalLink size={9} /> Open
-              </a>
+                <Maximize2 size={9} /> Preview
+              </button>
               <a href={lastUrl} download className="text-[10px] font-mono px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors flex items-center gap-1">
                 <Download size={9} /> Download
               </a>
@@ -633,6 +701,7 @@ export function GalleryPage() {
   const [genMode, setGenMode] = useState<"image" | "video">("image");
   const [seedImageUrl, setSeedImageUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [previewItem, setPreviewItem] = useState<{ url: string; type: "image" | "video"; title?: string } | null>(null);
 
   const handleSendToVideo = useCallback((url: string) => {
     setSeedImageUrl(url);
@@ -844,8 +913,8 @@ export function GalleryPage() {
       </div>
 
       {genMode === "image"
-        ? <ImageGenPanel onGenerated={prependItem} />
-        : <VideoGenPanel onGenerated={prependItem} seedImageUrl={seedImageUrl} />}
+        ? <ImageGenPanel onGenerated={prependItem} onPreview={(url) => setPreviewItem({ url, type: "image" })} />
+        : <VideoGenPanel onGenerated={prependItem} seedImageUrl={seedImageUrl} onPreview={(url) => setPreviewItem({ url, type: "video" })} />}
 
 
 
@@ -885,11 +954,19 @@ export function GalleryPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           <AnimatePresence>
             {visible.map((item) => (
-              <MediaCard key={item.id} item={item} onSendToVideo={handleSendToVideo} onDelete={item.source === "vault" ? handleDelete : undefined} />
+              <MediaCard
+                key={item.id}
+                item={item}
+                onSendToVideo={handleSendToVideo}
+                onDelete={item.source === "vault" ? handleDelete : undefined}
+                onPreview={(i) => setPreviewItem({ url: i.url, type: i.type === "video" ? "video" : "image", title: i.title })}
+              />
             ))}
           </AnimatePresence>
         </div>
       )}
+
+      <Lightbox item={previewItem} onClose={() => setPreviewItem(null)} />
     </div>
   );
 }
