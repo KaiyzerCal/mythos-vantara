@@ -877,10 +877,11 @@ export const VideoStatusSchema = z.object({
   operation_name: z.string().optional(),
 });
 
-// AVATAR SOCIAL POST — script → trained HeyGen avatar video → TikTok/YouTube,
-// via mavis-avatar-publish. Uses the operator's saved default_heygen_avatar_id/
-// voice_id (set in Avatar Studio) unless avatar_id/voice_id are given — never
-// assumes a stock avatar; errors if neither the params nor the profile have one.
+// AVATAR SOCIAL POST — script → trained HeyGen avatar video → any social
+// platform, via mavis-avatar-publish. Uses the operator's saved default
+// avatar (or a named one from their saved roster — see profiles.
+// saved_heygen_avatars) unless avatar_id/voice_id are given explicitly —
+// never assumes a stock avatar; errors if none is configured.
 export const AvatarSocialPostSchema = z.object({
   type: z.literal("avatar_social_post"),
   action: z.enum(["generate_and_post", "post_existing"]),
@@ -888,7 +889,9 @@ export const AvatarSocialPostSchema = z.object({
   video_url: z.string().optional(),
   avatar_id: z.string().optional(),
   voice_id: z.string().optional(),
-  platforms: z.string().min(1), // comma-separated: "tiktok,youtube"
+  avatar_name: z.string().optional(), // pick from the operator's saved roster by label instead of a raw ID
+  platforms: z.string().min(1), // comma-separated: any of tiktok, youtube, facebook, linkedin, instagram, twitter, threads
+  caption: z.string().optional(), // used for facebook/linkedin/instagram/twitter/threads
   tiktok_caption: z.string().optional(),
   youtube_title: z.string().optional(),
   youtube_description: z.string().optional(),

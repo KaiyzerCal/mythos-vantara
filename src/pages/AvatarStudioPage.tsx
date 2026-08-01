@@ -76,11 +76,41 @@ export function AvatarStudioPage() {
   // HeyGen avatar mode
   const [avatarId, setAvatarId] = useState("");
   const [heygenVoiceId, setHeygenVoiceId] = useState("");
+  const [avatarLabel, setAvatarLabel] = useState("");
   const [saveAsDefault, setSaveAsDefault] = useState(true);
   const [avatarOptions, setAvatarOptions] = useState<HeyGenOption[]>([]);
   const [heygenVoiceOptions, setHeygenVoiceOptions] = useState<HeyGenOption[]>([]);
   const [fetchingAvatars, setFetchingAvatars] = useState(false);
   const [fetchingVoices, setFetchingVoices] = useState(false);
+
+  const savedAvatars = profile.saved_heygen_avatars ?? [];
+
+  function loadSavedAvatar(label: string) {
+    const found = savedAvatars.find((a) => a.label === label);
+    if (!found) return;
+    setAvatarId(found.avatar_id);
+    setHeygenVoiceId(found.voice_id);
+    setAvatarLabel(found.label);
+  }
+
+  function saveCurrentAvatarToRoster() {
+    if (!avatarId.trim() || !heygenVoiceId.trim()) {
+      toast.error("Set an avatar ID and voice ID first");
+      return;
+    }
+    const label = avatarLabel.trim() || `Avatar ${savedAvatars.length + 1}`;
+    const next = [
+      ...savedAvatars.filter((a) => a.label !== label),
+      { label, avatar_id: avatarId.trim(), voice_id: heygenVoiceId.trim() },
+    ];
+    updateProfile({ saved_heygen_avatars: next });
+    setAvatarLabel(label);
+    toast.success(`Saved "${label}" to your avatars`);
+  }
+
+  function removeSavedAvatar(label: string) {
+    updateProfile({ saved_heygen_avatars: savedAvatars.filter((a) => a.label !== label) });
+  }
 
   // Prefill from the saved default once the profile loads
   useEffect(() => {
@@ -396,6 +426,27 @@ export function AvatarStudioPage() {
               <User size={12} /> HeyGen Avatar
             </h3>
 
+            {savedAvatars.length > 0 && (
+              <div className="mb-3">
+                <label className="text-xs font-mono text-muted-foreground block mb-1">My Avatars</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {savedAvatars.map((a) => (
+                    <div
+                      key={a.label}
+                      className={`flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+                        avatarLabel === a.label && avatarId === a.avatar_id
+                          ? "border-primary/50 bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+                      }`}
+                    >
+                      <button onClick={() => loadSavedAvatar(a.label)}>{a.label}</button>
+                      <button onClick={() => removeSavedAvatar(a.label)} className="hover:text-red-400"><X size={9} /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <label className="text-xs font-mono text-muted-foreground block mb-1">Avatar ID</label>
             <input
               type="text"
@@ -425,7 +476,24 @@ export function AvatarStudioPage() {
               Fetch my avatars
             </button>
 
-            <label className="flex items-center gap-2 cursor-pointer group mt-3">
+            <label className="text-xs font-mono text-muted-foreground block mb-1 mt-3">Save this avatar as…</label>
+            <div className="flex gap-1.5 mb-2">
+              <input
+                type="text"
+                value={avatarLabel}
+                onChange={(e) => setAvatarLabel(e.target.value)}
+                placeholder="e.g. bioneerx"
+                className="flex-1 bg-zinc-900 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/50"
+              />
+              <button
+                onClick={saveCurrentAvatarToRoster}
+                className="text-[10px] font-mono px-3 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+              >
+                Save
+              </button>
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer group mt-1">
               <input
                 type="checkbox"
                 checked={saveAsDefault}
@@ -433,12 +501,12 @@ export function AvatarStudioPage() {
                 className="accent-primary"
               />
               <span className="text-xs font-mono text-muted-foreground group-hover:text-foreground transition-colors">
-                Save as my default avatar/voice
+                Also use as my hands-free default (MAVIS uses this when no avatar is named)
               </span>
             </label>
 
             <p className="text-xs text-muted-foreground mt-3 font-mono leading-relaxed">
-              Uses HeyGen's API directly — no photo needed, no lip-sync generation step. Fetch your avatars once, then it's remembered.
+              Uses HeyGen's API directly — no photo needed, no lip-sync generation step. Save any number of avatars here — MAVIS can post as any of them by name ("post as bioneerx…").
             </p>
           </HudCard>
         ) : (
