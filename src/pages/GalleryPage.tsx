@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/SharedUI";
 import { LoadingState } from "@/components/LoadingState";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2, X, Maximize2 } from "lucide-react";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2, X, Maximize2, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 
@@ -238,6 +238,55 @@ const IMAGE_PROVIDERS = [
   { key: "promptchan",       label: "PromptChan",   hint: "NSFW-capable" },
 ] as const;
 
+// Small per-browser prompt history so a generator's last few prompts can be
+// clicked back into the box instead of retyped. Deliberately localStorage,
+// not a table — this is a personal recency list, not data the app needs
+// elsewhere.
+function useRecentPrompts(key: string, max = 8) {
+  const storageKey = `mavis:gallery:${key}`;
+  const [items, setItems] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const add = useCallback((prompt: string) => {
+    const trimmed = prompt.trim();
+    if (!trimmed) return;
+    setItems(prev => {
+      const next = [trimmed, ...prev.filter(p => p !== trimmed)].slice(0, max);
+      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* ignore quota errors */ }
+      return next;
+    });
+  }, [storageKey, max]);
+
+  return [items, add] as const;
+}
+
+function RecentPrompts({ items, onPick }: { items: string[]; onPick: (prompt: string) => void }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="flex items-center gap-1 text-[9px] font-mono text-muted-foreground uppercase tracking-wide">
+        <History size={10} /> Recent
+      </span>
+      {items.map(p => (
+        <button
+          key={p}
+          onClick={() => onPick(p)}
+          title={p}
+          className="text-[10px] font-mono px-2 py-1 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors max-w-[160px] truncate"
+        >
+          {p}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ImageGenPanel({ onGenerated, onPreview }: { onGenerated: (item: MediaItem) => void; onPreview?: (url: string) => void }) {
   const { session } = useAuth();
   const [prompt, setPrompt] = useState("");
@@ -245,6 +294,7 @@ function ImageGenPanel({ onGenerated, onPreview }: { onGenerated: (item: MediaIt
   const [imgProvider, setImgProvider] = useState<typeof IMAGE_PROVIDERS[number]["key"]>("auto");
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+  const [recentPrompts, addRecentPrompt] = useRecentPrompts("image-prompts");
 
   const generate = async () => {
     if (!prompt.trim() || generating) return;
@@ -274,6 +324,7 @@ function ImageGenPanel({ onGenerated, onPreview }: { onGenerated: (item: MediaIt
       if (error) throw error;
       if (!data?.url) throw new Error(data?.error ?? "No image URL returned");
       setLastUrl(data.url);
+      addRecentPrompt(prompt.trim());
 
       // Persist to vault_media so it shows up in the gallery on next load —
       // capture the row id back so the card can be deleted immediately
@@ -345,16 +396,21 @@ function ImageGenPanel({ onGenerated, onPreview }: { onGenerated: (item: MediaIt
             key={p.key}
             onClick={() => setImgProvider(p.key)}
             title={p.hint}
-            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors ${
+            className={`text-[10px] font-mono px-2 py-1 rounded border transition-colors flex items-center gap-1 ${
               imgProvider === p.key
                 ? "border-primary/50 bg-primary/10 text-primary"
                 : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
             }`}
           >
             {p.label}
+            {p.key === "pollinations" && (
+              <span className="text-[8px] px-1 rounded bg-green-900/40 text-green-400">free</span>
+            )}
           </button>
         ))}
       </div>
+
+      <RecentPrompts items={recentPrompts} onPick={setPrompt} />
 
       {/* Size selector — not used by PromptChan, but harmless to leave
           visible/selectable; mavis-image-gen ignores it for that provider. */}
@@ -445,6 +501,7 @@ function VideoGenPanel({ onGenerated, seedImageUrl, onPreview }: { onGenerated: 
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lastUrl, setLastUrl] = useState<string | null>(null);
+  const [recentPrompts, addRecentPrompt] = useRecentPrompts("video-prompts");
 
   useEffect(() => {
     if (seedImageUrl) setImageUrl(seedImageUrl);
@@ -513,6 +570,7 @@ function VideoGenPanel({ onGenerated, seedImageUrl, onPreview }: { onGenerated: 
 
       if (url) {
         setLastUrl(url);
+        addRecentPrompt(prompt.trim());
         let savedId: string | null = null;
         let savedCreatedAt: string | null = null;
         if (session?.user) {
@@ -574,6 +632,8 @@ function VideoGenPanel({ onGenerated, seedImageUrl, onPreview }: { onGenerated: 
           </button>
         ))}
       </div>
+
+      <RecentPrompts items={recentPrompts} onPick={setPrompt} />
 
       <div className="flex gap-2">
         <textarea
