@@ -139,6 +139,9 @@ export function AvatarStudioPage() {
   const [requestId, setRequestId] = useState("");
   const [resultUrl, setResultUrl] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Captured at generation start so a completed poll persists the script
+  // that was actually rendered, even if the textarea was edited meanwhile.
+  const generatingScriptRef = useRef("");
 
   const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
   const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -231,6 +234,27 @@ export function AvatarStudioPage() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   }, []);
 
+  // Save completed videos to vault_media — the same table the Gallery reads
+  // from — so a generated video survives navigating away instead of only
+  // existing as an in-page download link. Best-effort: the result is still
+  // shown and downloadable even if this insert fails.
+  const persistAvatarVideo = useCallback(async (url: string, provider: string) => {
+    if (!user) return;
+    const label = generatingScriptRef.current.slice(0, 80) || "avatar-video";
+    try {
+      await (supabase as any).from("vault_media").insert({
+        user_id: user.id,
+        file_name: label,
+        file_type: "video/mp4",
+        file_url: url,
+        description: generatingScriptRef.current,
+        tags: ["generated", "avatar-studio", provider],
+      });
+    } catch {
+      // non-fatal — see comment above
+    }
+  }, [user]);
+
   const doPoll = useCallback(async (rid: string, provider: PollProvider = "hallo2") => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -251,6 +275,7 @@ export function AvatarStudioPage() {
         setStatus("complete");
         setStatusMsg("");
         toast.success("Avatar video ready!");
+        persistAvatarVideo(data.url, provider);
       } else if (data.error) {
         stopPolling();
         setStatus("error");
@@ -261,7 +286,7 @@ export function AvatarStudioPage() {
     } catch {
       // network hiccup — keep polling silently
     }
-  }, [SUPABASE_URL, SUPABASE_KEY, stopPolling, user]);
+  }, [SUPABASE_URL, SUPABASE_KEY, stopPolling, user, persistAvatarVideo]);
 
   // ── Generate ──────────────────────────────────────────────
 
@@ -276,6 +301,7 @@ export function AvatarStudioPage() {
     setStatusMsg("Generating with HeyGen…");
     setResultUrl("");
     setRequestId("");
+    generatingScriptRef.current = script.trim();
 
     if (saveAsDefault) {
       updateProfile({ default_heygen_avatar_id: avatarId.trim(), default_heygen_voice_id: heygenVoiceId.trim() });
@@ -308,6 +334,7 @@ export function AvatarStudioPage() {
         setStatus("complete");
         setStatusMsg("");
         toast.success("Avatar video ready!");
+        persistAvatarVideo(data.url, "heygen");
         return;
       }
 
@@ -330,6 +357,7 @@ export function AvatarStudioPage() {
     setStatusMsg("Generating voice…");
     setResultUrl("");
     setRequestId("");
+    generatingScriptRef.current = script.trim();
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
