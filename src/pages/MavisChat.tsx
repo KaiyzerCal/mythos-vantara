@@ -166,6 +166,17 @@ export default function MavisChat() {
   // If true, MAVIS is free to auto-deactivate when a conversational message follows.
   const agentAutoActivated = useRef(false);
 
+  // Picks up a handoff from another page (e.g. Playbooks' "Activate in MAVIS")
+  // that stashed a pre-filled prompt for the user to review and send — not
+  // auto-sent, since the source page may still contain unfilled [brackets].
+  useEffect(() => {
+    const pending = sessionStorage.getItem("mavis:pendingInput");
+    if (!pending) return;
+    sessionStorage.removeItem("mavis:pendingInput");
+    setInput(pending);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
+
   // ── SuperContext scout (OpenHuman pattern) ──
   // Assembled at session start; injected as standing context in system prompt
   const [superContext, setSuperContext] = useState<string | null>(null);
@@ -340,6 +351,47 @@ export default function MavisChat() {
       });
       if (error) throw error;
       if (data?.successful === false) throw new Error(data?.error || "Composio action failed");
+    });
+
+    // spotify_* / terminal_exec — present in MavisDemo.tsx (the /mavis-ui
+    // alternate chat client) but missing here on the primary /mavis page,
+    // where MAVIS is actually used most: with no handler registered, these
+    // fell through to the defaultHandler above (mavis-actions), which has no
+    // case for them, so every Spotify control or terminal command always
+    // failed with "unknown action type" from this page specifically.
+    const callSpotify = async (action: string, extra?: Record<string, unknown>) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated");
+      const res = await supabase.functions.invoke("mavis-spotify-control", {
+        body: { action, ...extra },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.error) throw new Error(res.error.message ?? "Spotify control failed");
+      return res.data;
+    };
+
+    registerActionHandler("spotify_play", (p) => callSpotify("play", { query: p.query as string | undefined, type: p.type as string | undefined }));
+    registerActionHandler("spotify_pause", () => callSpotify("pause"));
+    registerActionHandler("spotify_skip", () => callSpotify("skip"));
+    registerActionHandler("spotify_previous", () => callSpotify("previous"));
+    registerActionHandler("spotify_volume", (p) => callSpotify("volume", { percent: p.percent }));
+    registerActionHandler("spotify_shuffle", (p) => callSpotify("shuffle", { enabled: p.enabled !== false }));
+    registerActionHandler("spotify_now_playing", () => callSpotify("now_playing"));
+
+    registerActionHandler("terminal_exec", async (payload) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not authenticated");
+      const res = await supabase.functions.invoke("mavis-terminal", {
+        body: {
+          action: "exec",
+          command: payload.command,
+          session_id: payload.session_id === "auto" ? undefined : payload.session_id,
+          timeout: payload.timeout ?? 30,
+        },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (res.error) throw new Error(res.error.message ?? "Terminal exec failed");
+      return res.data;
     });
 
     // mavis-plans / mavis-chain-builder / mavis-signal-watcher — three

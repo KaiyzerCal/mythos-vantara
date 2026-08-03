@@ -4,6 +4,7 @@
 // Inspired by Hermes optional-skills domain templates.
 // ============================================================
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, ChevronDown, ChevronRight, Play, Zap, Search,
@@ -198,6 +199,7 @@ const DOMAIN_FILTERS = ["all", "finance", "research", "creative", "health", "cus
 
 export function PlaybooksPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
@@ -249,13 +251,14 @@ export function PlaybooksPage() {
     supabase.from("mavis_playbooks").update({ usage_count: (playbook.usage_count ?? 0) + 1 }).eq("id", playbook.id).then(() => {});
   }
 
-  async function copyAndNavigate() {
+  function activateInMavis() {
     if (!activatingProc) return;
-    await navigator.clipboard.writeText(filledTemplate);
-    toast.success("Copied! Paste into MAVIS chat to activate this procedure.", { duration: 4000 });
+    // Real handoff — MavisChat reads this on mount and drops it straight into
+    // the message box for the user to review and send. Previously this only
+    // copied to the clipboard and hoped the user pasted it in the right place.
+    sessionStorage.setItem("mavis:pendingInput", filledTemplate);
     setActivatingProc(null);
-    // Navigate to MAVIS chat
-    window.location.href = "/mavis";
+    navigate("/mavis");
   }
 
   async function handleCreate() {
@@ -499,11 +502,11 @@ export function PlaybooksPage() {
                   Cancel
                 </button>
                 <button
-                  onClick={copyAndNavigate}
+                  onClick={activateInMavis}
                   className="flex items-center gap-1.5 text-xs text-black font-semibold bg-primary hover:bg-primary/80 px-4 py-2 rounded transition-colors"
                 >
                   <Play size={12} />
-                  Copy & Open MAVIS
+                  Activate in MAVIS
                 </button>
               </div>
             </motion.div>

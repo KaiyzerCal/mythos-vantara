@@ -841,17 +841,6 @@ export default function WidgetBuilderPage() {
 
                 <div className="pt-2 border-t border-border/30 space-y-1">
                   <div className="flex items-center justify-between">
-                    <span>Est. conversion lift</span>
-                    <span className="text-emerald-400 font-semibold">
-                      {selectedType === "chat" ? "+23%" :
-                       selectedType === "lead_capture" ? "+18%" :
-                       selectedType === "quote_calculator" ? "+31%" :
-                       selectedType === "roi_calculator" ? "+27%" :
-                       selectedType === "appointment_booker" ? "+35%" :
-                       "+15%"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
                     <span>Monthly price</span>
                     <span className="font-semibold text-foreground">
                       {pf(form.monthly_price_cents)}/mo

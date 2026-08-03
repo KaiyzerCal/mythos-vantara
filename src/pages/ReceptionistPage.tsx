@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -138,6 +139,7 @@ function BusinessCard({
   });
   const [areaCode, setAreaCode] = useState("415");
   const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const phoneNumber = biz.receptionist_phone_numbers?.[0];
   const callCount = biz.receptionist_calls?.[0]?.count ?? 0;
@@ -191,7 +193,6 @@ function BusinessCard({
   }
 
   async function deleteBusiness() {
-    if (!confirm(`Delete ${biz.name}? This cannot be undone.`)) return;
     await fetch(`${SB_URL}/functions/v1/mavis-receptionist-config/${biz.id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
@@ -236,7 +237,7 @@ function BusinessCard({
               <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg bg-zinc-700/50 text-zinc-400 hover:bg-zinc-700">
                 <Edit3 size={14} />
               </button>
-              <button onClick={deleteBusiness} className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20">
+              <button onClick={() => setConfirmDelete(true)} className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20">
                 <Trash2 size={14} />
               </button>
               <button onClick={() => setExpanded(e => !e)} className="p-1.5 rounded-lg bg-zinc-700/50 text-zinc-400 hover:bg-zinc-700">
@@ -337,6 +338,13 @@ function BusinessCard({
           </motion.div>
         )}
       </AnimatePresence>
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Delete "${biz.name}"?`}
+        description="This cannot be undone."
+        onConfirm={() => { setConfirmDelete(false); deleteBusiness(); }}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

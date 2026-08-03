@@ -5,9 +5,9 @@ import { useQuests, type Quest } from "@/hooks/useQuests";
 import { recordAutoMemory } from "@/mavis/autoMemory";
 import {
   useTasks, useJournal, useVault, useCouncils,
-  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useTransformations, useRankings, useRituals, useDomainEffects,
+  useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useCurrencies, useTransformations, useRankings, useRituals, useDomainEffects,
   type Task, type JournalEntry, type VaultEntry,
-  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Transformation, type RankingProfile, type Ritual, type DomainEffect,
+  type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Currency, type Transformation, type RankingProfile, type Ritual, type DomainEffect,
 } from "@/hooks/useDataHooks";
 
 export interface ChatMessage {
@@ -111,6 +111,14 @@ interface AppDataContextType {
   updateStoreItem: (id: string, input: any) => Promise<void>;
   deleteStoreItem: (id: string) => Promise<void>;
 
+  // Currencies (backs Store purchases)
+  currencies: Currency[];
+  currenciesLoading: boolean;
+  createCurrency: (input: { name: string; amount: number; icon?: string }) => Promise<Currency | null>;
+  setCurrencyAmount: (id: string, amount: number) => Promise<void>;
+  deleteCurrency: (id: string) => Promise<void>;
+  spendCurrency: (name: string, amount: number) => Promise<{ ok: boolean; balance: number }>;
+
   // Transformations (Forms)
   transformations: Transformation[];
   transformationsLoading: boolean;
@@ -197,6 +205,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { data: allies, loading: alliesLoading, create: createAlly, update: updateAlly, remove: deleteAlly, refetch: refetchAllies } = useAllies();
   const { data: bpmSessions, loading: bpmLoading, create: logBpmSession, refetch: refetchBpm } = useBpmSessions();
   const { data: storeItems, loading: storeLoading, create: createStoreItem, update: updateStoreItem, remove: deleteStoreItem, refetch: refetchStore } = useStoreItems();
+  const { data: currencies, loading: currenciesLoading, create: createCurrency, setAmount: setCurrencyAmount, remove: deleteCurrency, spend: spendCurrency, refetch: refetchCurrencies } = useCurrencies();
   const { data: transformations, loading: transformationsLoading, create: createTransformation, update: updateTransformation, remove: deleteTransformation, refetch: refetchTransformations } = useTransformations();
   const { data: rankings, loading: rankingsLoading, create: createRanking, update: updateRanking, remove: deleteRanking, refetch: refetchRankings } = useRankings();
   const { data: domainEffects, loading: domainEffectsLoading, create: createDomainEffect, update: updateDomainEffect, remove: deleteDomainEffect, refetch: refetchDomainEffects } = useDomainEffects();
@@ -206,10 +215,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     await Promise.all([
       refetchProfile(), refetchQuests(), refetchTasks(),
       refetchJournal(), refetchVault(), refetchCouncils(), refetchSkills(),
-      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchTransformations(), refetchRankings(), refetchRituals(), refetchDomainEffects(),
+      refetchEnergy(), refetchInventory(), refetchAllies(), refetchBpm(), refetchStore(), refetchCurrencies(), refetchTransformations(), refetchRankings(), refetchRituals(), refetchDomainEffects(),
     ]);
     setLastActionTs(Date.now());
-  }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchTransformations, refetchRankings, refetchRituals, refetchDomainEffects]);
+  }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchCurrencies, refetchTransformations, refetchRankings, refetchRituals, refetchDomainEffects]);
 
   // Supabase Realtime — live sync for core tables
   const realtimeRef = useRef<any>(null);
@@ -229,12 +238,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "mavis_domain_effects" }, () => { refetchDomainEffects().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "vault_entries" }, () => { refetchVault().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "store_items" }, () => { refetchStore().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "currencies" }, () => { refetchCurrencies().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { refetchProfile().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "rankings_profiles" }, () => { refetchRankings().catch(() => {}); })
       .subscribe();
     realtimeRef.current = channel;
     return () => { (supabase as any).removeChannel(channel); };
-  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals, refetchDomainEffects, refetchVault, refetchStore, refetchProfile, refetchRankings]);
+  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals, refetchDomainEffects, refetchVault, refetchStore, refetchCurrencies, refetchProfile, refetchRankings]);
 
   const [lastActionTs, setLastActionTs] = useState(0);
 
@@ -259,6 +269,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         allies, alliesLoading, createAlly, updateAlly, deleteAlly,
         bpmSessions, bpmLoading, logBpmSession,
         storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
+        currencies, currenciesLoading, createCurrency, setCurrencyAmount, deleteCurrency, spendCurrency,
         transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation, refetchTransformations,
         rankings, rankingsLoading, createRanking, updateRanking, deleteRanking,
         domainEffects, domainEffectsLoading, createDomainEffect, updateDomainEffect, deleteDomainEffect, refetchDomainEffects,

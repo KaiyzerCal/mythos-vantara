@@ -235,6 +235,7 @@ export default function AirtablePage() {
 
   const [selectedBase, setSelectedBase] = useState<AirtableBase | null>(null);
   const [tables, setTables] = useState<string[]>([]);
+  const [tablesLoading, setTablesLoading] = useState(false);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
 
   const [records, setRecords] = useState<AirtableRecord[]>([]);
@@ -271,14 +272,20 @@ export default function AirtablePage() {
     }
   }, []);
 
-  // Derive table list from first record's fields (Airtable meta API isn't in our function)
   async function selectBase(base: AirtableBase) {
     setSelectedBase(base);
     setSelectedTable(null);
     setRecords([]);
     setTables([]);
-    // Probe common table names — user can type a custom one
-    setTables(["Tasks", "Projects", "Contacts", "Content", "Ideas", "Leads", "CRM"]);
+    setTablesLoading(true);
+    try {
+      const d = await callAirtable("list_tables", { base_id: base.id });
+      setTables((d.tables ?? []).map((t: any) => t.name));
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setTablesLoading(false);
+    }
   }
 
   function selectTable(table: string) {
@@ -386,6 +393,7 @@ export default function AirtablePage() {
           {selectedBase && (
             <div className="mt-3">
               <p className="text-[10px] font-mono text-zinc-600 uppercase tracking-wider px-2 mb-1">Tables</p>
+              {tablesLoading && <Loader2 size={12} className="animate-spin text-zinc-600 mx-2" />}
               {tables.map(t => (
                 <button
                   key={t}

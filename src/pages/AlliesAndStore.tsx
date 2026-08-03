@@ -3,7 +3,8 @@
 // ============================================================
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Shield, Plus, Trash2, Heart, Loader2, Edit2, ShoppingBag, Lock, CheckCircle2 } from "lucide-react";
+import { Shield, Plus, Trash2, Heart, Loader2, Edit2, ShoppingBag, Lock, CheckCircle2, Coins, X } from "lucide-react";
+import { toast } from "sonner";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, RarityBadge } from "@/components/SharedUI";
 import { AvatarUploader } from "@/components/AvatarUploader";
@@ -187,14 +188,28 @@ export function AlliesPage() {
 const CATEGORY_FILTERS = ["all", "consumable", "material", "upgrade", "artifact"] as const;
 const EMPTY_STORE_FORM = { name: "", description: "", price: 100, currency: "Codex Points", rarity: "common", category: "consumable", effect: "", reqLevel: "", reqRank: "" };
 
+// Store's `category` values don't line up 1:1 with inventory's `type` enum
+// (consumable/equipment/material/artifact/weapon) — "upgrade" has no direct
+// equivalent, so it lands as equipment, the closest fit.
+function categoryToInventoryType(category: string): "consumable" | "equipment" | "material" | "artifact" | "weapon" {
+  if (category === "consumable" || category === "material" || category === "artifact") return category;
+  return "equipment";
+}
+
 export function StorePage() {
-  const { profile, storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem } = useAppData();
+  const {
+    profile, storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
+    currencies, currenciesLoading, createCurrency, setCurrencyAmount, deleteCurrency, spendCurrency,
+    inventory, createInventoryItem,
+  } = useAppData();
   const [catFilter, setCatFilter] = useState("all");
-  const [purchased, setPurchased] = useState<Set<string>>(new Set());
+  const [buyingId, setBuyingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_STORE_FORM });
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string; type: 'ally' | 'store_item' } | null>(null);
+  const [newCurrency, setNewCurrency] = useState({ name: "", amount: 0, icon: "💰" });
+  const [showAddCurrency, setShowAddCurrency] = useState(false);
 
   const filtered = storeItems.filter((i) => catFilter === "all" || i.category === catFilter);
 
@@ -236,7 +251,45 @@ export function StorePage() {
     return true;
   };
 
-  const handleBuy = (id: string) => setPurchased((prev) => new Set([...prev, id]));
+  // Owned state is derived from real inventory rows (best-effort match on
+  // name), not local UI state — so it survives a refresh and actually means
+  // something. Previously "Buy" only ever touched a local Set that reset on
+  // navigation, with no currency deducted and no purchase persisted anywhere.
+  const isOwned = (item: any) => inventory.some((i) => i.name === item.name);
+
+  async function handleBuy(item: any) {
+    if (buyingId) return;
+    setBuyingId(item.id);
+    try {
+      const result = await spendCurrency(item.currency, item.price);
+      if (!result.ok) {
+        toast.error(`Not enough ${item.currency} — you have ${result.balance}, need ${item.price}.`);
+        return;
+      }
+      await createInventoryItem({
+        name: item.name,
+        description: item.description,
+        type: categoryToInventoryType(item.category),
+        rarity: item.rarity,
+        quantity: 1,
+        effect: item.effect || null,
+        slot: null,
+        tier: null,
+        stat_effects: [],
+        is_equipped: false,
+      });
+      toast.success(`Purchased "${item.name}" for ${item.price} ${item.currency} — added to Inventory.`);
+    } finally {
+      setBuyingId(null);
+    }
+  }
+
+  async function handleAddCurrency() {
+    if (!newCurrency.name.trim()) return;
+    await createCurrency({ name: newCurrency.name.trim(), amount: Number(newCurrency.amount) || 0, icon: newCurrency.icon || "💰" });
+    setNewCurrency({ name: "", amount: 0, icon: "💰" });
+    setShowAddCurrency(false);
+  }
 
   if (storeLoading) return <div className="flex items-center justify-center h-40"><Loader2 className="animate-spin text-primary" size={24} /></div>;
 
@@ -245,6 +298,66 @@ export function StorePage() {
       <PageHeader title="Store" subtitle="Exchange currencies for items, upgrades & artifacts" icon={<ShoppingBag size={18} />}
         actions={<button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-all"><Plus size={12} /> Add Item</button>}
       />
+
+      <HudCard>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-mono text-primary uppercase tracking-widest flex items-center gap-1.5"><Coins size={12} /> My Currencies</p>
+          <button onClick={() => setShowAddCurrency((v) => !v)} className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-1">
+            <Plus size={11} /> Add currency
+          </button>
+        </div>
+
+        {currenciesLoading ? (
+          <Loader2 size={14} className="animate-spin text-muted-foreground" />
+        ) : currencies.length === 0 && !showAddCurrency ? (
+          <p className="text-xs font-mono text-muted-foreground">
+            No currencies yet — add one below so purchases have something to spend.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {currencies.map((c) => (
+              <div key={c.id} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border bg-muted/20">
+                <span>{c.icon}</span>
+                <span className="text-xs font-mono">{c.name}</span>
+                <input
+                  type="number"
+                  value={c.amount}
+                  onChange={(e) => setCurrencyAmount(c.id, Number(e.target.value) || 0)}
+                  className="w-16 bg-transparent text-xs font-mono font-bold text-primary text-right focus:outline-none"
+                />
+                <button onClick={() => deleteCurrency(c.id)} className="text-muted-foreground hover:text-destructive transition-colors">
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showAddCurrency && (
+          <div className="flex gap-1.5 mt-2">
+            <input
+              value={newCurrency.icon}
+              onChange={(e) => setNewCurrency((f) => ({ ...f, icon: e.target.value }))}
+              className="w-10 bg-muted/30 border border-border rounded px-2 py-1.5 text-sm text-center focus:outline-none"
+              maxLength={2}
+            />
+            <input
+              value={newCurrency.name}
+              onChange={(e) => setNewCurrency((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Currency name (e.g. Codex Points)"
+              className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+            />
+            <input
+              type="number"
+              value={newCurrency.amount}
+              onChange={(e) => setNewCurrency((f) => ({ ...f, amount: Number(e.target.value) }))}
+              placeholder="Starting amount"
+              className="w-28 bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+            />
+            <button onClick={handleAddCurrency} className="px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded">Add</button>
+          </div>
+        )}
+      </HudCard>
 
       {showCreate && !editingId && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
@@ -288,7 +401,8 @@ export function StorePage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {filtered.map((item) => {
           const locked = !canPurchase(item);
-          const bought = purchased.has(item.id);
+          const bought = isOwned(item);
+          const buying = buyingId === item.id;
 
           if (editingId === item.id) {
             return (
@@ -344,9 +458,16 @@ export function StorePage() {
                   {locked ? (
                     <Lock size={14} className="text-muted-foreground" />
                   ) : bought ? (
-                    <CheckCircle2 size={14} className="text-green-400" />
+                    <span title="Owned — see Inventory"><CheckCircle2 size={14} className="text-green-400" /></span>
                   ) : (
-                    <button onClick={() => handleBuy(item.id)} className="px-2 py-1 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 transition-all">Buy</button>
+                    <button
+                      onClick={() => handleBuy(item)}
+                      disabled={buying}
+                      className="px-2 py-1 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 transition-all disabled:opacity-50 flex items-center gap-1"
+                    >
+                      {buying ? <Loader2 size={10} className="animate-spin" /> : null}
+                      Buy
+                    </button>
                   )}
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
                   <button onClick={() => setConfirmDelete({ id: item.id, label: item.name, type: 'store_item' })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>

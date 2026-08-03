@@ -267,7 +267,8 @@ export function IntegrationsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, "ok" | "fail" | "testing">>({});
+  const [testResults, setTestResults] = useState<Record<string, "ok" | "fail" | "unverified" | "testing">>({});
+  const [testNotes, setTestNotes] = useState<Record<string, string>>({});
 
   // ── Google OAuth state ────────────────────────────────────
   const [googleStatus, setGoogleStatus] = useState<{
@@ -459,18 +460,27 @@ export function IntegrationsPage() {
   }
 
   // ── Test Connection ───────────────────────────────────────
+  // Calls mavis-integration-test, which pings the provider's real API with
+  // the saved key rather than just checking a row exists — a dead/rotated
+  // key used to still show as "connected". Providers without a live check
+  // implemented come back "unverified" (key is saved, but not confirmed
+  // live) rather than being reported as working.
   async function testConnection(providerId: string) {
     setTestResults((prev) => ({ ...prev, [providerId]: "testing" }));
     try {
-      const { error } = await supabase
-        .from("mavis_user_integrations" as any)
-        .select("id")
-        .eq("provider", providerId)
-        .limit(1);
-
-      setTestResults((prev) => ({ ...prev, [providerId]: error ? "fail" : "ok" }));
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-integration-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ provider: providerId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const status = data.verified === true ? "ok" : data.verified === false ? "fail" : "unverified";
+      setTestResults((prev) => ({ ...prev, [providerId]: status }));
+      setTestNotes((prev) => ({ ...prev, [providerId]: data.note ?? data.error ?? "" }));
     } catch {
       setTestResults((prev) => ({ ...prev, [providerId]: "fail" }));
+      setTestNotes((prev) => ({ ...prev, [providerId]: "Request failed" }));
     }
   }
 
@@ -649,15 +659,20 @@ export function IntegrationsPage() {
 
                               {/* Test result badge (non-OAuth providers) */}
                               {!provider.oauthEnabled && testResult === "ok" && (
-                                <span className="flex items-center gap-1 text-xs font-mono text-green-400">
+                                <span className="flex items-center gap-1 text-xs font-mono text-green-400" title={testNotes[provider.id]}>
                                   <CheckCircle2 size={11} />
-                                  Connected
+                                  Verified live
                                 </span>
                               )}
                               {!provider.oauthEnabled && testResult === "fail" && (
-                                <span className="flex items-center gap-1 text-xs font-mono text-red-400">
+                                <span className="flex items-center gap-1 text-xs font-mono text-red-400" title={testNotes[provider.id]}>
                                   <XCircle size={11} />
-                                  Failed
+                                  {testNotes[provider.id] || "Failed"}
+                                </span>
+                              )}
+                              {!provider.oauthEnabled && testResult === "unverified" && (
+                                <span className="flex items-center gap-1 text-xs font-mono text-muted-foreground" title={testNotes[provider.id]}>
+                                  Saved — not live-verified
                                 </span>
                               )}
                             </div>
