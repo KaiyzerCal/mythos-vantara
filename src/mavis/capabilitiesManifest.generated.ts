@@ -109,10 +109,10 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": "Primary action router — reads `body.actions[]` array, executes create/update/delete across all CODEXOS tables",
     "status": "ACTIVE",
     "calledFromFrontend": [
+      "src/mavis/useMavisActionHandlers.ts",
       "src/pages/GoalsPage.tsx",
       "src/pages/Inbox.tsx",
-      "src/pages/MavisChat.tsx",
-      "src/pages/MavisDemo.tsx"
+      "src/pages/MavisChat.tsx"
     ],
     "calledFromBackend": [
       "mavis-a2a",
@@ -827,8 +827,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": null,
     "status": "ACTIVE",
     "calledFromFrontend": [
-      "src/pages/MavisChat.tsx",
-      "src/pages/MavisDemo.tsx"
+      "src/mavis/useMavisActionHandlers.ts"
     ],
     "calledFromBackend": [],
     "isCronTarget": false,
@@ -3492,8 +3491,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "calledFromFrontend": [
       "src/components/SpotifyWidget.tsx",
       "src/mavis/skills/spotify-control/index.ts",
-      "src/pages/MavisChat.tsx",
-      "src/pages/MavisDemo.tsx"
+      "src/mavis/useMavisActionHandlers.ts"
     ],
     "calledFromBackend": [],
     "isCronTarget": false,
@@ -3663,8 +3661,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "status": "ACTIVE",
     "calledFromFrontend": [
       "src/mavis/skills/terminal/index.ts",
-      "src/pages/MavisChat.tsx",
-      "src/pages/MavisDemo.tsx"
+      "src/mavis/useMavisActionHandlers.ts"
     ],
     "calledFromBackend": [],
     "isCronTarget": false,
