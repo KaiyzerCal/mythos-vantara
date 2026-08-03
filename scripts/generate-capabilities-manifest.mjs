@@ -11,8 +11,12 @@
 //             differ from what's currently on disk (the CI drift gate).
 
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// Converts an OS-native path (backslash-separated on Windows) to the
+// forward-slash form used throughout this file's string matching/output.
+const toPosix = (p) => p.split(sep).join("/");
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FUNCTIONS_DIR = join(ROOT, "supabase/functions");
@@ -23,7 +27,12 @@ const JSON_OUT_PATH = join(ROOT, "src/mavis/capabilitiesManifest.generated.json"
 const CHECK_ONLY = process.argv.includes("--check");
 
 function walk(dir, exts, out = []) {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  // Sorted explicitly — readdirSync's OS-native order isn't guaranteed
+  // consistent across platforms/filesystems, which previously made the
+  // calledFromFrontend/calledFromBackend arrays' element order (and thus
+  // this script's output) non-reproducible depending on where it ran.
+  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "_archive") continue;
@@ -47,7 +56,10 @@ const shardPath = join(ROOT, "SHARD.md");
 const categoryByFn = {};
 const purposeByFn = {};
 if (existsSync(shardPath)) {
-  const shard = readFileSync(shardPath, "utf8");
+  // Normalize CRLF → LF before splitting: on a Windows checkout SHARD.md's
+  // lines carry a trailing \r, which breaks the row regex's `$` anchor below
+  // and silently drops every category/purpose mapping.
+  const shard = readFileSync(shardPath, "utf8").replace(/\r\n/g, "\n");
   let currentCategory = null;
   for (const line of shard.split("\n")) {
     const catMatch = line.match(/^### (.+)$/);
@@ -100,14 +112,18 @@ for (const name of functionNames) {
   for (const f of srcFiles) {
     const content = readFileSync(f, "utf8");
     if (re.test(content)) {
-      (frontendCallers[name] ??= []).push(f.replace(ROOT + "/", ""));
+      // Was f.replace(ROOT + "/", "") — a forward-slash string replace
+      // against a path.join() result, which uses backslashes on Windows,
+      // so it silently no-oped and left absolute Windows paths in the
+      // output instead of repo-relative ones.
+      (frontendCallers[name] ??= []).push(toPosix(f).replace(toPosix(ROOT) + "/", ""));
     }
   }
   for (const f of fnFiles) {
     if (f.startsWith(join(FUNCTIONS_DIR, name) + "/")) continue; // skip self
     const content = readFileSync(f, "utf8");
     if (re.test(content)) {
-      const callerFn = f.replace(FUNCTIONS_DIR + "/", "").split("/")[0];
+      const callerFn = toPosix(f).replace(toPosix(FUNCTIONS_DIR) + "/", "").split("/")[0];
       if (callerFn !== name) (backendCallers[name] ??= []).push(callerFn);
     }
   }
