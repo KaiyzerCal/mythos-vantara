@@ -3492,6 +3492,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "calledFromFrontend": [
       "src/components/SpotifyWidget.tsx",
       "src/mavis/skills/spotify-control/index.ts",
+      "src/pages/MavisChat.tsx",
       "src/pages/MavisDemo.tsx"
     ],
     "calledFromBackend": [],
@@ -3662,6 +3663,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "status": "ACTIVE",
     "calledFromFrontend": [
       "src/mavis/skills/terminal/index.ts",
+      "src/pages/MavisChat.tsx",
       "src/pages/MavisDemo.tsx"
     ],
     "calledFromBackend": [],
