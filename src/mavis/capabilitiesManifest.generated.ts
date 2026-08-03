@@ -1914,6 +1914,19 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-integration-test",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/IntegrationsPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-khanmigo",
     "category": "Learning & Tutoring",
     "purpose": "Socratic tutoring engine",
