@@ -69,10 +69,10 @@ const PhoneCallsPage = lazy(() => import("@/pages/PhoneCallsPage"));
 const ReceptionistPage = lazy(() => import("@/pages/ReceptionistPage"));
 const SMSPage = lazy(() => import("@/pages/SMSPage"));
 const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage").then(m => ({ default: m.AnalyticsPage })));
-const RepurposePage = lazy(() => import("@/pages/RepurposePage").then(m => ({ default: m.RepurposePage })));
+const ContentStationPage = lazy(() => import("@/pages/ContentStationPage").then(m => ({ default: m.ContentStationPage })));
 const HealthPage = lazy(() => import("@/pages/HealthPage").then(m => ({ default: m.HealthPage })));
 const FinancePage = lazy(() => import("@/pages/FinancePage").then(m => ({ default: m.FinancePage })));
-const SchedulerPage = lazy(() => import("@/pages/SchedulerPage").then(m => ({ default: m.SchedulerPage })));
+const CalendarPage = lazy(() => import("@/pages/CalendarPage").then(m => ({ default: m.CalendarPage })));
 const GoalsPage = lazy(() => import("@/pages/GoalsPage").then(m => ({ default: m.GoalsPage })));
 const MemoryPage = lazy(() => import("@/pages/MemoryPage"));
 const PlaybooksPage = lazy(() => import("@/pages/PlaybooksPage").then(m => ({ default: m.PlaybooksPage })));
@@ -229,10 +229,10 @@ function AppContent() {
               <Route path="/receptionist" element={<ReceptionistPage />} />
               <Route path="/sms" element={<SMSPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
-              <Route path="/repurpose" element={<RepurposePage />} />
+              <Route path="/content-station" element={<ContentStationPage />} />
               <Route path="/health" element={<HealthPage />} />
               <Route path="/finance" element={<FinancePage />} />
-              <Route path="/scheduler" element={<SchedulerPage />} />
+              <Route path="/calendar" element={<CalendarPage />} />
               <Route path="/goals" element={<GoalsPage />} />
               <Route path="/memory" element={<MemoryPage />} />
               <Route path="/playbooks" element={<PlaybooksPage />} />

@@ -3,11 +3,13 @@
 //
 // Actions: find_free_time | create_event | reschedule_event | cancel_event | list_events
 //
-// Requires: GOOGLE_ACCESS_TOKEN or a valid OAuth token from the user's linked Google account.
-// The token is fetched from user_integrations table (provider = 'google_calendar').
+// Requires a valid OAuth token from the user's linked Google account, connected
+// via mavis-google-oauth, stored in mavis_user_integrations (provider =
+// 'google_calendar', token fields inside the config jsonb column).
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { getGoogleToken } from "../_shared/googleAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,19 +19,6 @@ const corsHeaders = {
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GC_API = "https://www.googleapis.com/calendar/v3";
-
-async function getGoogleToken(sb: any, userId: string): Promise<string | null> {
-  const { data } = await sb
-    .from("user_integrations")
-    .select("access_token, refresh_token, token_expires_at")
-    .eq("user_id", userId)
-    .eq("provider", "google_calendar")
-    .single();
-  if (!data?.access_token) return null;
-  // If token expires within 5 minutes, we'd need to refresh — but that requires client_id/secret
-  // Caller handles refresh via their OAuth flow
-  return data.access_token;
-}
 
 async function gcRequest(token: string, path: string, method = "GET", body?: object): Promise<any> {
   const res = await fetch(`${GC_API}${path}`, {
@@ -68,8 +57,10 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action ?? "list_events");
 
-    const token = await getGoogleToken(sb, user.id);
-    if (!token) {
+    let token: string;
+    try {
+      token = await getGoogleToken(sb, user.id, "google_calendar");
+    } catch {
       return new Response(
         JSON.stringify({ error: "Google Calendar not connected. Connect it in Integrations → Google Calendar." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -151,13 +142,15 @@ serve(async (req) => {
         result = await gcRequest(token, `/calendars/${calId}/events`, "POST", event);
 
         // Store in MAVIS memory
-        await sb.from("mavis_memory").insert({
+        const { error: memErr } = await sb.from("mavis_memory").insert({
           user_id: user.id,
+          session_id: "mavis-calendar-manage",
           role: "assistant",
           content: `[CALENDAR EVENT CREATED] "${event.summary}" on ${event.start.dateTime ?? event.start.date}${event.location ? ` at ${event.location}` : ""}`,
+          timestamp: Date.now(),
           importance_score: 6,
-          tags: ["calendar", "event_created"],
         });
+        if (memErr) console.error("mavis-calendar-manage: mavis_memory insert failed:", memErr.message);
         break;
       }
 

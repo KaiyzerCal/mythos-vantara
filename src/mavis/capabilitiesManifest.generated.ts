@@ -582,7 +582,9 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "category": "Calendar",
     "purpose": "CRUD for calendar events",
     "status": "ACTIVE",
-    "calledFromFrontend": [],
+    "calledFromFrontend": [
+      "src/pages/CalendarPage.tsx"
+    ],
     "calledFromBackend": [
       "mavis-director"
     ],
@@ -597,6 +599,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "status": "ACTIVE",
     "calledFromFrontend": [
       "src/mavis/skills/calendar-sync/index.ts",
+      "src/pages/CalendarPage.tsx",
       "src/pages/HealthPage.tsx"
     ],
     "calledFromBackend": [],
@@ -1638,6 +1641,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": "OAuth flow for Google services",
     "status": "ACTIVE",
     "calledFromFrontend": [
+      "src/pages/CalendarPage.tsx",
       "src/pages/IntegrationsPage.tsx"
     ],
     "calledFromBackend": [],
@@ -3083,7 +3087,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "status": "ACTIVE",
     "calledFromFrontend": [
       "src/mavis/skills/repurpose-content/index.ts",
-      "src/pages/RepurposePage.tsx"
+      "src/pages/ContentStationPage.tsx"
     ],
     "calledFromBackend": [],
     "isCronTarget": false,
