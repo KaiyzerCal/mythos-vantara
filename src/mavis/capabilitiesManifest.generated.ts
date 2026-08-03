@@ -1914,6 +1914,19 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-integration-test",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/pages/IntegrationsPage.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-khanmigo",
     "category": "Learning & Tutoring",
     "purpose": "Socratic tutoring engine",
@@ -3479,6 +3492,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "calledFromFrontend": [
       "src/components/SpotifyWidget.tsx",
       "src/mavis/skills/spotify-control/index.ts",
+      "src/pages/MavisChat.tsx",
       "src/pages/MavisDemo.tsx"
     ],
     "calledFromBackend": [],
@@ -3649,6 +3663,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "status": "ACTIVE",
     "calledFromFrontend": [
       "src/mavis/skills/terminal/index.ts",
+      "src/pages/MavisChat.tsx",
       "src/pages/MavisDemo.tsx"
     ],
     "calledFromBackend": [],
