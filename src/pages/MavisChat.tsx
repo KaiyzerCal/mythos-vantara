@@ -25,7 +25,7 @@ import { useMediaPoller } from "@/hooks/useMediaPoller";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot, buildSystemPromptCached, invalidateSystemPromptCache } from "@/mavis/buildSystemPrompt";
-import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
+import { useMavisActionHandlers } from "@/mavis/useMavisActionHandlers";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage, invokeAI } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
@@ -279,157 +279,9 @@ export default function MavisChat() {
   });
 
   // ── Register the mavis-actions edge function as default action handler ──
-  useEffect(() => {
-    setDefaultHandler(async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated — please sign in again");
-      const { data: actionData, error: actionError } = await supabase.functions.invoke("mavis-actions", {
-        body: { actions: [payload] },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (actionError) throw actionError;
-      const failed = Array.isArray(actionData?.results)
-        ? actionData.results.filter((r: any) => r?.success === false)
-        : [];
-      if (failed.length > 0) {
-        throw new Error(failed.map((r: any) => `${r.type}: ${r.error || "Unknown error"}`).join(" | "));
-      }
-    });
-
-    // propose_product — queues create_product task for operator approval in Inbox
-    registerActionHandler("propose_product", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error("Not authenticated");
-      const { error } = await supabase.from("mavis_tasks").insert({
-        user_id: session.user.id,
-        type: "create_product",
-        description: `Product proposal: "${payload.title}" — $${((Number(payload.price_cents) || 2900) / 100).toFixed(2)}`,
-        payload: payload as any,
-        status: "requires_confirmation",
-      } as any);
-      if (error) throw error;
-    });
-
-    // nora_tweet — queues a tweet for Nora Vale for operator approval
-    registerActionHandler("nora_tweet", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error("Not authenticated");
-      const { error } = await supabase.from("mavis_tasks").insert({
-        user_id: session.user.id,
-        type: "nora_tweet",
-        description: `Nora tweet: "${String(payload.content).slice(0, 60)}…"`,
-        payload: payload as any,
-        status: "requires_confirmation",
-      } as any);
-      if (error) throw error;
-    });
-
-    // create_skill_definition — MAVIS writes a new runtime skill to the DB
-    registerActionHandler("create_skill_definition", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error("Not authenticated");
-      const { error } = await supabase.from("mavis_skill_definitions").upsert({
-        user_id: session.user.id,
-        name: payload.name,
-        description: payload.description,
-        keywords: payload.keywords,
-        prompt_template: payload.prompt_template,
-        is_active: true,
-        updated_at: new Date().toISOString(),
-      } as any, { onConflict: "user_id,name" });
-      if (error) throw error;
-    });
-
-    // composio_action — any third-party integration routed through Composio
-    // (Execution Blueprint Stage G), not mavis-actions' own switch dispatcher.
-    registerActionHandler("composio_action", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated — please sign in again");
-      const { data, error } = await supabase.functions.invoke("mavis-composio-agent", {
-        body: { tool_slug: payload.tool_slug, params: payload.params ?? {} },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (error) throw error;
-      if (data?.successful === false) throw new Error(data?.error || "Composio action failed");
-    });
-
-    // spotify_* / terminal_exec — present in MavisDemo.tsx (the /mavis-ui
-    // alternate chat client) but missing here on the primary /mavis page,
-    // where MAVIS is actually used most: with no handler registered, these
-    // fell through to the defaultHandler above (mavis-actions), which has no
-    // case for them, so every Spotify control or terminal command always
-    // failed with "unknown action type" from this page specifically.
-    const callSpotify = async (action: string, extra?: Record<string, unknown>) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
-      const res = await supabase.functions.invoke("mavis-spotify-control", {
-        body: { action, ...extra },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (res.error) throw new Error(res.error.message ?? "Spotify control failed");
-      return res.data;
-    };
-
-    registerActionHandler("spotify_play", (p) => callSpotify("play", { query: p.query as string | undefined, type: p.type as string | undefined }));
-    registerActionHandler("spotify_pause", () => callSpotify("pause"));
-    registerActionHandler("spotify_skip", () => callSpotify("skip"));
-    registerActionHandler("spotify_previous", () => callSpotify("previous"));
-    registerActionHandler("spotify_volume", (p) => callSpotify("volume", { percent: p.percent }));
-    registerActionHandler("spotify_shuffle", (p) => callSpotify("shuffle", { enabled: p.enabled !== false }));
-    registerActionHandler("spotify_now_playing", () => callSpotify("now_playing"));
-
-    registerActionHandler("terminal_exec", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
-      const res = await supabase.functions.invoke("mavis-terminal", {
-        body: {
-          action: "exec",
-          command: payload.command,
-          session_id: payload.session_id === "auto" ? undefined : payload.session_id,
-          timeout: payload.timeout ?? 30,
-        },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (res.error) throw new Error(res.error.message ?? "Terminal exec failed");
-      return res.data;
-    });
-
-    // mavis-plans / mavis-chain-builder / mavis-signal-watcher — three
-    // fully-built edge functions that were completely unreachable from chat
-    // until now: the generic mavis-actions defaultHandler above has no
-    // cases for any of these action types, so every real call always failed
-    // with "unknown action type". Each of these functions expects
-    // {userId, action, ...params} rather than mavis-actions' {actions: [...]}
-    // shape, so they need their own routing — same pattern as composio_action
-    // above, just applied to a whole family of types at once instead of one.
-    const registerEdgeFunctionProxy = (edgeFunction: string, actionTypes: string[]) => {
-      for (const actionType of actionTypes) {
-        registerActionHandler(actionType, async (payload) => {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session?.user) throw new Error("Not authenticated — please sign in again");
-          const { type: _type, ...params } = payload;
-          const { data, error } = await supabase.functions.invoke(edgeFunction, {
-            body: { userId: session.user.id, action: actionType, ...params },
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          if (error) throw error;
-          if (data?.error) throw new Error(data.error);
-        });
-      }
-    };
-    registerEdgeFunctionProxy("mavis-plans", [
-      "generate_plan", "create_plan", "get_plans", "get_plan", "update_plan",
-      "advance_step", "update_session", "complete_plan", "delete_plan",
-    ]);
-    registerEdgeFunctionProxy("mavis-chain-builder", [
-      "auto_link_quest_chains", "auto_link_skill_chains", "get_quest_chains", "get_skill_chains",
-      "create_quest_chain", "create_skill_chain", "update_quest_chain", "update_skill_chain",
-      "delete_quest_chain", "delete_skill_chain", "add_quest_to_chain", "add_skill_to_chain", "remove_from_chain",
-    ]);
-    registerEdgeFunctionProxy("mavis-signal-watcher", [
-      "get_signal_configs", "upsert_signal_config", "delete_signal_config",
-    ]);
-  }, []);
+  // Shared with MavisDemo.tsx — see useMavisActionHandlers for why this
+  // isn't inlined here anymore.
+  useMavisActionHandlers();
 
   // Persist voice preference in localStorage so it survives reloads
   useEffect(() => {

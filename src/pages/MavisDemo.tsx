@@ -12,7 +12,7 @@ import { loadRuntimeSkills } from "@/mavis/skills/_registry";
 import { gatherProviderContext } from "@/mavis/contextProviders";
 import { buildRecallContext } from "@/mavis/proactiveRecall";
 import { captureProceduralMemory } from "@/mavis/proceduralMemory";
-import { setDefaultHandler, registerActionHandler } from "@/mavis/actionExecutor";
+import { useMavisActionHandlers } from "@/mavis/useMavisActionHandlers";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import "@/mavis/skills/_loader";
 
@@ -378,125 +378,9 @@ export default function MavisDemo() {
     if (messagesRef.current) messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
   }, [chatMessages]);
 
-  // ── Register action handlers (same as MavisChat) ──────────
-  useEffect(() => {
-    setDefaultHandler(async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
-      const { data: actionData, error } = await supabase.functions.invoke("mavis-actions", {
-        body: { actions: [payload] },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (error) throw error;
-      const failed = Array.isArray(actionData?.results) ? actionData.results.filter((r: any) => r?.success === false) : [];
-      if (failed.length > 0) throw new Error(failed.map((r: any) => `${r.type}: ${r.error}`).join(" | "));
-    });
-
-    registerActionHandler("propose_product", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error("Not authenticated");
-      await supabase.from("mavis_tasks").insert({ user_id: session.user.id, type: "create_product", description: `Product proposal: "${payload.title}"`, payload: payload as any, status: "requires_confirmation" } as any);
-    });
-
-    registerActionHandler("nora_tweet", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error("Not authenticated");
-      await supabase.from("mavis_tasks").insert({ user_id: session.user.id, type: "nora_tweet", description: `Nora tweet: "${String(payload.content).slice(0, 60)}…"`, payload: payload as any, status: "requires_confirmation" } as any);
-    });
-
-    // composio_action — was missing here despite MavisChat.tsx having it;
-    // without a registered handler this always fell through to the
-    // defaultHandler above (mavis-actions), which has no case for it, so
-    // every composio_action on this page always failed with "unknown
-    // action type".
-    registerActionHandler("composio_action", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated — please sign in again");
-      const { data, error } = await supabase.functions.invoke("mavis-composio-agent", {
-        body: { tool_slug: payload.tool_slug, params: payload.params ?? {} },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (error) throw error;
-      if (data?.successful === false) throw new Error(data?.error || "Composio action failed");
-    });
-
-    // ── Spotify playback control ───────────────────────────────
-    const callSpotify = async (action: string, extra?: Record<string, unknown>) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
-      const res = await supabase.functions.invoke("mavis-spotify-control", {
-        body: { action, ...extra },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (res.error) throw new Error(res.error.message ?? "Spotify control failed");
-      return res.data;
-    };
-
-    registerActionHandler("spotify_play", (p) => callSpotify("play", { query: p.query as string | undefined, type: p.type as string | undefined }));
-    registerActionHandler("spotify_pause", () => callSpotify("pause"));
-    registerActionHandler("spotify_skip", () => callSpotify("skip"));
-    registerActionHandler("spotify_previous", () => callSpotify("previous"));
-    registerActionHandler("spotify_volume", (p) => callSpotify("volume", { percent: p.percent }));
-    registerActionHandler("spotify_shuffle", (p) => callSpotify("shuffle", { enabled: p.enabled !== false }));
-    registerActionHandler("spotify_now_playing", () => callSpotify("now_playing"));
-
-    // ── Terminal / persistent shell ────────────────────────────────────────
-    registerActionHandler("terminal_exec", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
-      const res = await supabase.functions.invoke("mavis-terminal", {
-        body: {
-          action: "exec",
-          command: payload.command,
-          session_id: payload.session_id === "auto" ? undefined : payload.session_id,
-          timeout: payload.timeout ?? 30,
-        },
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (res.error) throw new Error(res.error.message ?? "Terminal exec failed");
-      return res.data;
-    });
-
-    registerActionHandler("create_skill_definition", async (payload) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) throw new Error("Not authenticated");
-      await supabase.from("mavis_skill_definitions").upsert({ user_id: session.user.id, name: payload.name, description: payload.description, keywords: payload.keywords, prompt_template: payload.prompt_template, is_active: true, updated_at: new Date().toISOString() } as any, { onConflict: "user_id,name" });
-    });
-
-    // mavis-plans / mavis-chain-builder / mavis-signal-watcher — same fix as
-    // MavisChat.tsx: these edge functions expect {userId, action, ...params}
-    // rather than mavis-actions' {actions: [...]} shape, so the generic
-    // defaultHandler above can never reach them. Without this, every
-    // create_plan/create_quest_chain/upsert_signal_config (etc.) action
-    // fails with "unknown action type" on this page too.
-    const registerEdgeFunctionProxy = (edgeFunction: string, actionTypes: string[]) => {
-      for (const actionType of actionTypes) {
-        registerActionHandler(actionType, async (payload) => {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session?.user) throw new Error("Not authenticated — please sign in again");
-          const { type: _type, ...params } = payload;
-          const { data, error } = await supabase.functions.invoke(edgeFunction, {
-            body: { userId: session.user.id, action: actionType, ...params },
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          if (error) throw error;
-          if (data?.error) throw new Error(data.error);
-        });
-      }
-    };
-    registerEdgeFunctionProxy("mavis-plans", [
-      "generate_plan", "create_plan", "get_plans", "get_plan", "update_plan",
-      "advance_step", "update_session", "complete_plan", "delete_plan",
-    ]);
-    registerEdgeFunctionProxy("mavis-chain-builder", [
-      "auto_link_quest_chains", "auto_link_skill_chains", "get_quest_chains", "get_skill_chains",
-      "create_quest_chain", "create_skill_chain", "update_quest_chain", "update_skill_chain",
-      "delete_quest_chain", "delete_skill_chain", "add_quest_to_chain", "add_skill_to_chain", "remove_from_chain",
-    ]);
-    registerEdgeFunctionProxy("mavis-signal-watcher", [
-      "get_signal_configs", "upsert_signal_config", "delete_signal_config",
-    ]);
-  }, []);
+  // Shared with MavisChat.tsx — see useMavisActionHandlers for why this
+  // isn't inlined here anymore.
+  useMavisActionHandlers();
 
   // ── Init session + load conversation from DB ──────────────
   useEffect(() => {
