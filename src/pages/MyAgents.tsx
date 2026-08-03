@@ -5,6 +5,12 @@ import { motion } from "framer-motion";
 import { Bot, Mail, Share2, Cpu } from "lucide-react";
 import AgentWidget from "@/components/AgentWidget";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
+
+// The header comment below claims this page is operator-only, but nothing
+// previously enforced that — any signed-in account could load it. This is
+// the actual gate.
+const BOUND_OPERATOR_EMAILS = ["caljohnathon@gmail.com"];
 
 const AGENTS = [
   {
@@ -31,8 +37,20 @@ const AGENTS = [
 ];
 
 export default function MyAgents() {
+  const { user } = useAuth();
   const [active, setActive] = useState<"google" | "social" | "general">("google");
   const agent = AGENTS.find((a) => a.id === active)!;
+
+  const isBoundOperator = !!user?.email && BOUND_OPERATOR_EMAILS.includes(user.email.toLowerCase());
+
+  if (!isBoundOperator) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full bg-[#060810] text-white/40 gap-3">
+        <Bot size={28} className="text-white/20" />
+        <p className="text-sm font-mono">This page isn't available on your account.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#060810] text-white overflow-hidden">

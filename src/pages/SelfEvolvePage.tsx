@@ -176,6 +176,9 @@ export default function SelfEvolvePage() {
           <p className="text-xs font-mono text-muted-foreground">
             Claude Opus · Extended Thinking · Confidence-Weighted Rule Updates
           </p>
+          <p className="text-xs text-muted-foreground/70">
+            Tunes MAVIS's personalization rules and confidence weights from your memory and outcome history — it does not modify VANTARA's application code.
+          </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <button

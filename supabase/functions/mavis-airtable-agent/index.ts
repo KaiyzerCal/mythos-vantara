@@ -4,7 +4,7 @@
 //           ANTHROPIC_API_KEY (for enrich_record AI enrichment)
 //
 // Actions: list_records | get_record | create_record | update_record | delete_record
-//          search_records | list_bases | enrich_record
+//          search_records | list_bases | list_tables | enrich_record
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -89,6 +89,14 @@ serve(async (req) => {
         const result = await atMetaReq("/bases");
         return json({
           bases: (result.bases as any[]).map(b => ({ id: b.id, name: b.name, permission: b.permissionLevel })),
+        });
+      }
+
+      case "list_tables": {
+        if (!baseId) return json({ error: "base_id required" }, 400);
+        const result = await atMetaReq(`/bases/${baseId}/tables`);
+        return json({
+          tables: (result.tables as any[]).map(t => ({ id: t.id, name: t.name, primaryFieldId: t.primaryFieldId })),
         });
       }
 

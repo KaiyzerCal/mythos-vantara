@@ -349,6 +349,84 @@ export interface StoreItem {
 }
 export const useStoreItems = makeHook<StoreItem>("store_items");
 
+// ─── CURRENCIES ────────────────────────────────────────────
+// Backs the Store's purchase flow. The `currencies` table predates this hook
+// (see migrations) but was never wired to the frontend, which is why "Buy"
+// used to just flip local UI state. It has no updated_at column, so it can't
+// use the shared makeHook() above (that unconditionally sets updated_at).
+export interface Currency {
+  id: string;
+  user_id: string;
+  name: string;
+  amount: number;
+  icon: string;
+  created_at: string;
+}
+
+export function useCurrencies() {
+  const { user } = useAuth();
+  const [data, setData] = useState<Currency[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetch = useCallback(async () => {
+    if (!user) return;
+    const { data: rows, error } = await (supabase as any)
+      .from("currencies").select("*").eq("user_id", user.id).order("name", { ascending: true });
+    if (error) console.error("[useDataHooks] Error fetching currencies:", error);
+    if (rows) setData(rows as unknown as Currency[]);
+    setLoading(false);
+  }, [user]);
+
+  useEffect(() => { fetch(); }, [fetch]);
+
+  const create = useCallback(async (input: { name: string; amount: number; icon?: string }): Promise<Currency | null> => {
+    if (!user) return null;
+    const { data: row, error } = await (supabase as any)
+      .from("currencies")
+      .insert({ name: input.name, amount: input.amount, icon: input.icon ?? "💰", user_id: user.id })
+      .select().single();
+    if (error || !row) return null;
+    setData((prev) => [...prev, row as unknown as Currency].sort((a, b) => a.name.localeCompare(b.name)));
+    return row as unknown as Currency;
+  }, [user]);
+
+  const setAmount = useCallback(async (id: string, amount: number) => {
+    setData((prev) => prev.map((c) => (c.id === id ? { ...c, amount } : c)));
+    const { error } = await (supabase as any).from("currencies").update({ amount }).eq("id", id);
+    if (error) {
+      console.error("[useDataHooks] Error updating currency:", error);
+      toast.error("Failed to save — reverting");
+      await fetch();
+    }
+  }, [fetch]);
+
+  const remove = useCallback(async (id: string) => {
+    setData((prev) => prev.filter((c) => c.id !== id));
+    const { error } = await (supabase as any).from("currencies").delete().eq("id", id);
+    if (error) {
+      console.error("[useDataHooks] Error deleting currency:", error);
+      await fetch();
+    }
+  }, [fetch]);
+
+  // Re-checks the live balance rather than trusting client state — this is
+  // the actual gate a Store purchase goes through.
+  const spend = useCallback(async (name: string, amount: number): Promise<{ ok: boolean; balance: number }> => {
+    if (!user) return { ok: false, balance: 0 };
+    const { data: row } = await (supabase as any)
+      .from("currencies").select("id, amount").eq("user_id", user.id).ilike("name", name).maybeSingle();
+    const balance = row?.amount ?? 0;
+    if (!row || balance < amount) return { ok: false, balance };
+    const nextAmount = balance - amount;
+    const { error } = await (supabase as any).from("currencies").update({ amount: nextAmount }).eq("id", row.id);
+    if (error) return { ok: false, balance };
+    setData((prev) => prev.map((c) => (c.id === row.id ? { ...c, amount: nextAmount } : c)));
+    return { ok: true, balance: nextAmount };
+  }, [user]);
+
+  return { data, loading, create, setAmount, remove, spend, refetch: fetch };
+}
+
 // ─── TRANSFORMATIONS (Forms) ──────────────────────────────
 export interface Transformation {
   id: string;

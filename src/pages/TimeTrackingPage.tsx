@@ -76,6 +76,22 @@ function weekStart(): Date {
   return d;
 }
 
+// The running timer previously lived only in React state — a refresh or
+// navigating away silently dropped the elapsed time. Persisting it here
+// means it survives both.
+const ACTIVE_TIMER_KEY = "mavis:activeTimer";
+
+function loadPersistedTimer(): ActiveTimer | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_TIMER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return { ...parsed, startedAt: new Date(parsed.startedAt) };
+  } catch {
+    return null;
+  }
+}
+
 // ─── TimeTrackingPage ───────────────────────────────────────
 export function TimeTrackingPage() {
   const { user } = useAuth();
@@ -83,7 +99,7 @@ export function TimeTrackingPage() {
 
   const [logs, setLogs] = useState<TimeLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTimer, setActiveTimer] = useState<ActiveTimer | null>(null);
+  const [activeTimer, setActiveTimer] = useState<ActiveTimer | null>(loadPersistedTimer);
   const [timerDisplay, setTimerDisplay] = useState("00:00:00");
   const [newForm, setNewForm] = useState<NewForm>({ description: "", project: "", tags: "" });
   const [stopping, setStopping] = useState(false);
@@ -138,11 +154,13 @@ export function TimeTrackingPage() {
       toast.error("Enter a description before starting");
       return;
     }
-    setActiveTimer({
+    const timer: ActiveTimer = {
       description: newForm.description.trim(),
       project: newForm.project.trim(),
       startedAt: new Date(),
-    });
+    };
+    setActiveTimer(timer);
+    localStorage.setItem(ACTIVE_TIMER_KEY, JSON.stringify(timer));
     toast.success("Timer started");
   }
 
@@ -170,6 +188,7 @@ export function TimeTrackingPage() {
     } else {
       toast.success("Time logged");
       setActiveTimer(null);
+      localStorage.removeItem(ACTIVE_TIMER_KEY);
       setNewForm({ description: "", project: "", tags: "" });
       await loadLogs();
     }
