@@ -14,6 +14,7 @@ const corsHeaders = {
 // ── Env ───────────────────────────────────────────────────────────────────────
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SB_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 // OPENAI_API is a fallback env var name matching the rest of the codebase
 const OPENAI_KEY = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
@@ -235,13 +236,19 @@ async function getUserId(req: Request): Promise<string | null> {
     }
 
     // Fallback: ask Supabase to validate the token (covers ES256 and any
-    // other case the manual path above didn't handle). Must use SB_KEY (the
-    // project's real service-role key) as the client's own key — passing
-    // the user's JWT there instead fails at the gateway with "Invalid API
-    // key" before auth.getUser() is ever reached (confirmed live, and this
-    // was the actual reason the alg-check fix alone didn't restore auth).
-    const userSb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
-    const { data } = await userSb.auth.getUser(token);
+    // other case the manual path above didn't handle). Mirrors
+    // mavis-agent-builder's proven-working pattern: anon key as the
+    // client's own key, the caller's token set as the Authorization
+    // header, getUser() called with no argument — confirmed live against
+    // this exact project after createClient(SB_URL, SB_KEY,
+    // ...).auth.getUser(token) still 401'd for reasons not fully
+    // root-caused (SB_KEY-as-client-key didn't behave the same as this
+    // pattern despite both looking equivalent on paper).
+    const userSb = createClient(SB_URL, SB_ANON_KEY, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    });
+    const { data } = await userSb.auth.getUser();
     return data?.user?.id ?? null;
   } catch {
     return null;
