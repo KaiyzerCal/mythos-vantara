@@ -76,10 +76,46 @@ serve(async (req) => {
       const deviceId = String(body.device_id ?? "");
       if (!deviceId) throw new Error("queue_command requires device_id");
 
+      // Ownership check: this insert runs on the service-role client
+      // (bypasses mavis_devices' own RLS), and previously had no check that
+      // deviceId actually belongs to the caller — any authenticated user
+      // who obtained another user's device_id could queue commands against
+      // a device they don't own.
+      const { data: device, error: deviceErr } = await sb
+        .from("mavis_devices")
+        .select("id")
+        .eq("id", deviceId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (deviceErr) throw deviceErr;
+      if (!device) {
+        return new Response(JSON.stringify({ error: "Device not found or not owned by caller" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const commandType = String(body.command_type ?? "");
+
+      // Basic queue-depth rate limit: block a stolen-token attacker from
+      // flooding a device with commands faster than it can execute them.
+      const { count: pendingCount, error: countErr } = await sb
+        .from("mavis_device_commands")
+        .select("id", { count: "exact", head: true })
+        .eq("device_id", deviceId)
+        .in("status", ["pending", "executing"]);
+      if (countErr) throw countErr;
+      if ((pendingCount ?? 0) >= 10) {
+        return new Response(JSON.stringify({ error: "Too many pending commands for this device — wait for them to complete" }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const { data, error } = await sb.from("mavis_device_commands").insert({
         user_id: userId,
         device_id: deviceId,
-        command_type: String(body.command_type ?? ""),
+        command_type: commandType,
         params: body.params ?? {},
         status: "pending",
       }).select("id").single();
