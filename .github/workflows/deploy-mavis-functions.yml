@@ -71,10 +71,30 @@ jobs:
             mavis-google-oauth
             mavis-push-notify
           )
+          # This account's function-count ceiling makes individual `functions
+          # deploy` calls non-deterministic: the CLI's create-vs-update check
+          # occasionally 402s ("Max number of functions reached for project")
+          # even for a function that already exists and is only being
+          # updated — confirmed live (a solo, isolated redeploy of an
+          # existing function still hit it). A short retry gives it another
+          # chance to land within the same window rather than failing the
+          # whole workflow on what's usually a transient race, not a real
+          # capacity problem.
+          deploy_with_retry() {
+            local fn="$1" attempt
+            for attempt in 1 2 3; do
+              if supabase functions deploy "$fn" --project-ref "$PROJECT_REF"; then
+                return 0
+              fi
+              echo "  retry $attempt/3 failed for $fn, waiting..."
+              sleep $((attempt * 5))
+            done
+            return 1
+          }
           for fn in "${CORE[@]}"; do
             if [ -d "supabase/functions/$fn" ]; then
               echo "→ $fn"
-              supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+              deploy_with_retry "$fn"
             else
               echo "::warning::Core function '$fn' directory not found — skipping"
             fi
@@ -125,15 +145,22 @@ jobs:
           > "$FAILURES"
 
           deploy_fn() {
-            local fn="$1"
-            if supabase functions deploy "$fn" --project-ref "$PROJECT_REF" 2>&1; then
-              echo "✓ $fn"
-            else
-              echo "$fn" >> /tmp/deploy-failures.txt
-              echo "✗ $fn (non-critical)"
-            fi
+            local fn="$1" attempt
+            # See the retry comment on deploy_with_retry in the core-functions
+            # step above — same non-deterministic 402 applies here.
+            for attempt in 1 2 3; do
+              if supabase functions deploy "$fn" --project-ref "$PROJECT_REF" 2>&1; then
+                echo "✓ $fn"
+                return 0
+              fi
+              echo "  retry $attempt/3 failed for $fn, waiting..."
+              sleep $((attempt * 5))
+            done
+            echo "$fn" >> /tmp/deploy-failures.txt
+            echo "✗ $fn (non-critical)"
           }
           export -f deploy_fn
+          export PROJECT_REF
 
           printf '%s\n' "${REMAINING[@]}" | xargs -P 8 -I{} bash -c 'deploy_fn "$@"' _ {}
 
