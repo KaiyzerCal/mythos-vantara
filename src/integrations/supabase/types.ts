@@ -8292,10 +8292,6 @@ export type Database = {
       }
     }
     Functions: {
-      __store_cron_vault_secret: {
-        Args: { p_name: string; p_value: string }
-        Returns: string
-      }
       bump_memory_access: { Args: { memory_id: string }; Returns: undefined }
       consume_notification_slot: {
         Args: { p_user_id: string }
