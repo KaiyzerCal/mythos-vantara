@@ -43,6 +43,7 @@ type TermSession = {
   entries: TermEntry[];
   running: boolean;
   cwd: string;
+  armed: boolean;        // requires one explicit opt-in click before commands can run
 };
 
 type TermEntry = {
@@ -104,6 +105,7 @@ function TerminalPanel({
   onRun,
   onClear,
   onClose,
+  onArm,
   isActive,
   onActivate,
 }: {
@@ -111,6 +113,7 @@ function TerminalPanel({
   onRun: (code: string) => void;
   onClear: () => void;
   onClose: () => void;
+  onArm: () => void;
   isActive: boolean;
   onActivate: () => void;
 }) {
@@ -123,7 +126,7 @@ function TerminalPanel({
   }, [session.entries]);
 
   const run = () => {
-    if (!input.trim() || session.running) return;
+    if (!input.trim() || session.running || !session.armed) return;
     onRun(input.trim());
     setInput("");
   };
@@ -160,20 +163,32 @@ function TerminalPanel({
         ))}
         {session.running && <div className="text-zinc-500 flex items-center gap-1"><Loader2 size={9} className="animate-spin"/> running...</div>}
       </div>
-      <div className="flex items-center gap-1 px-2 py-1.5 bg-zinc-900 border-t border-zinc-800 shrink-0">
-        <span className="text-zinc-500 font-mono text-xs">$</span>
-        <textarea
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); run(); }}}
-          placeholder="bash command... (Enter to run)"
-          className="flex-1 bg-transparent text-xs font-mono text-zinc-200 resize-none outline-none placeholder:text-zinc-600 min-h-[18px] max-h-[60px]"
-          rows={1}
-        />
-        <button onClick={run} disabled={session.running || !input.trim()} className="p-1 text-zinc-500 hover:text-primary disabled:opacity-30">
-          {session.running ? <Loader2 size={11} className="animate-spin"/> : <Send size={11}/>}
-        </button>
-      </div>
+      {!session.armed ? (
+        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-amber-500/10 border-t border-amber-500/30 shrink-0">
+          <span className="text-[10px] text-amber-400/90">Commands here run for real in a live cloud sandbox.</span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onArm(); }}
+            className="text-[10px] font-mono px-2 py-1 rounded border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-colors shrink-0"
+          >
+            Enable shell
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1 px-2 py-1.5 bg-zinc-900 border-t border-zinc-800 shrink-0">
+          <span className="text-zinc-500 font-mono text-xs">$</span>
+          <textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); run(); }}}
+            placeholder="bash command... (Enter to run)"
+            className="flex-1 bg-transparent text-xs font-mono text-zinc-200 resize-none outline-none placeholder:text-zinc-600 min-h-[18px] max-h-[60px]"
+            rows={1}
+          />
+          <button onClick={run} disabled={session.running || !input.trim()} className="p-1 text-zinc-500 hover:text-primary disabled:opacity-30">
+            {session.running ? <Loader2 size={11} className="animate-spin"/> : <Send size={11}/>}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -233,7 +248,7 @@ export function AgentConsole() {
 
   // Terminals
   const [terminals, setTerminals] = useState<TermSession[]>([
-    { id: "t1", label: "Shell 1", entries: [], running: false, cwd: "~" },
+    { id: "t1", label: "Shell 1", entries: [], running: false, cwd: "~", armed: false },
   ]);
   const [activeTerminal, setActiveTerminal] = useState("t1");
 
@@ -294,23 +309,46 @@ export function AgentConsole() {
           ts: new Date(),
         });
         const t0 = Date.now();
-        const body: Record<string, any> = { goal: task, max_agents: 5 };
+
+        // Generate the run_id client-side and open the Realtime subscription
+        // BEFORE calling the orchestrator, so live per-agent progress
+        // (already streamed server-side to mavis_crew_progress) shows up as
+        // it happens instead of the UI sitting on a generic spinner until
+        // the whole swarm finishes.
+        const runId = crypto.randomUUID();
+        const channel = supabase
+          .channel(`crew-progress-${runId}`)
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "mavis_crew_progress", filter: `run_id=eq.${runId}` },
+            (payload: any) => {
+              const row = payload.new;
+              if (!row) return;
+              if (row.event_type === "start") {
+                addStep({ type: "agent", role: row.agent_role, label: row.agent_role, detail: row.content, ts: new Date() });
+              } else if (row.event_type === "complete") {
+                addStep({ type: "agent", role: row.agent_role, label: row.agent_role, output: row.content, success: true, ts: new Date() });
+              } else if (row.event_type === "error") {
+                addStep({ type: "error", role: row.agent_role, label: row.agent_role, detail: row.content, success: false, ts: new Date() });
+              } else if (row.event_type === "synthesis") {
+                addStep({ type: "result", role: "synthesizer", label: "SYNTHESIZER — combining specialist outputs", ts: new Date() });
+              }
+            }
+          )
+          .subscribe();
+
+        const body: Record<string, any> = { goal: task, max_agents: 5, run_id: runId };
         if (hasPreset) { body.task_type = swarmPreset; body.input = { _goal: task }; }
-        const data = await invoke("mavis-crew-orchestrator", body);
-        const agents: any[] = data.agents ?? [];
-        agents.forEach(a => {
-          addStep({
-            type: a.success ? "agent" : "error",
-            role: a.role,
-            label: a.role ?? "agent",
-            detail: a.task,
-            output: a.output,
-            success: a.success,
-            duration_ms: a.duration_ms,
-            ts: new Date(),
-          });
-        });
-        // Show validator result
+
+        let data: any;
+        try {
+          data = await invoke("mavis-crew-orchestrator", body);
+        } finally {
+          supabase.removeChannel(channel);
+        }
+
+        // Validator result isn't part of the per-agent live stream — show
+        // it once the full response is back.
         const v = data.validation;
         if (v) {
           addStep({
@@ -323,6 +361,7 @@ export function AgentConsole() {
             ts: new Date(),
           });
         }
+        const agents: any[] = data.agents ?? [];
         addStep({
           type: "result",
           label: `Swarm complete`,
@@ -421,8 +460,12 @@ export function AgentConsole() {
   // ── Add terminal ─────────────────────────────────────────────
   const addTerminal = () => {
     const id = `t-${Date.now()}`;
-    setTerminals(prev => [...prev, { id, label: `Shell ${prev.length + 1}`, entries: [], running: false, cwd: "~" }]);
+    setTerminals(prev => [...prev, { id, label: `Shell ${prev.length + 1}`, entries: [], running: false, cwd: "~", armed: false }]);
     setActiveTerminal(id);
+  };
+
+  const armTerminal = (termId: string) => {
+    setTerminals(prev => prev.map(t => t.id === termId ? { ...t, armed: true } : t));
   };
 
   // ── Self-evolve trigger ──────────────────────────────────────
@@ -690,6 +733,7 @@ export function AgentConsole() {
                       <TerminalPanel
                         session={t}
                         onRun={cmd => runInTerminal(t.id, cmd)}
+                        onArm={() => armTerminal(t.id)}
                         onClear={() => setTerminals(prev => prev.map(s => s.id === t.id ? { ...s, entries: [] } : s))}
                         onClose={() => {
                           setTerminals(prev => prev.filter(s => s.id !== t.id));

@@ -3365,6 +3365,8 @@ export type Database = {
           duration_ms: number | null
           goal: string
           id: string
+          run_id: string | null
+          status: string | null
           synthesis: string | null
           user_id: string
         }
@@ -3375,6 +3377,8 @@ export type Database = {
           duration_ms?: number | null
           goal: string
           id?: string
+          run_id?: string | null
+          status?: string | null
           synthesis?: string | null
           user_id: string
         }
@@ -3385,6 +3389,8 @@ export type Database = {
           duration_ms?: number | null
           goal?: string
           id?: string
+          run_id?: string | null
+          status?: string | null
           synthesis?: string | null
           user_id?: string
         }
@@ -12537,6 +12543,10 @@ export type Database = {
       }
     }
     Functions: {
+      append_crew_agent_result: {
+        Args: { p_result: Json; p_run_id: string; p_user_id: string }
+        Returns: undefined
+      }
       bump_memory_access: { Args: { memory_id: string }; Returns: undefined }
       consume_notification_slot: {
         Args: { p_user_id: string }
