@@ -410,10 +410,49 @@ HANDLERS: dict = {
 
 # ── Core executor ──────────────────────────────────────────────────────────────
 
+# A stolen/leaked Supabase session token was previously sufficient for full
+# remote code execution on this machine — queue_command had no allowlist and
+# this bridge auto-executed anything with status='pending' on a 2s poll, no
+# local confirmation step at all. These four types get a local approval
+# prompt (with a fail-*closed* timeout — no answer means deny) before
+# running. Set require_confirmation: false in bridge_config.json to disable
+# for unattended/headless setups where you've accepted that risk explicitly.
+CONFIRM_REQUIRED = {"shell", "file_write", "kill_process", "launch_app"}
+CONFIRM_TIMEOUT_S = 30
+_require_confirmation = True  # set from config in main()
+
+def _prompt_confirm(command_type: str, params: dict) -> bool:
+    result = {"answered": False, "approved": False}
+
+    def _ask():
+        try:
+            resp = input(
+                f"\n[MAVIS BRIDGE] Approve '{command_type}' command? params={params}\n"
+                f"  Type 'y' within {CONFIRM_TIMEOUT_S}s to approve, anything else denies: "
+            )
+            result["approved"] = resp.strip().lower() == "y"
+        except Exception:
+            pass
+        finally:
+            result["answered"] = True
+
+    t = threading.Thread(target=_ask, daemon=True)
+    t.start()
+    t.join(timeout=CONFIRM_TIMEOUT_S)
+    if not result["answered"]:
+        log.warning("No confirmation response within %ss — denying %s", CONFIRM_TIMEOUT_S, command_type)
+        return False
+    if not result["approved"]:
+        log.info("Denied by operator: %s", command_type)
+    return result["approved"]
+
 def run_command(command_type: str, params: dict) -> dict:
     handler = HANDLERS.get(command_type)
     if not handler:
         raise ValueError(f"Unknown command_type: {command_type!r}")
+    if _require_confirmation and command_type in CONFIRM_REQUIRED:
+        if not _prompt_confirm(command_type, params):
+            raise PermissionError(f"'{command_type}' command was not approved")
     return handler(params)
 
 def execute_db_command(supabase: Client, command: dict) -> None:
@@ -489,6 +528,11 @@ class _BridgeHandler(BaseHTTPRequestHandler):
         if self.path != "/command":
             self._send_json(404, {"error": "Not found"})
             return
+        # If a shared secret is configured (required whenever bound beyond
+        # localhost — see start_http_server), require it on every command.
+        if _http_shared_secret and self.headers.get("X-Bridge-Secret") != _http_shared_secret:
+            self._send_json(401, {"error": "Unauthorized"})
+            return
         length = int(self.headers.get("Content-Length", 0))
         body_bytes = self.rfile.read(length)
         try:
@@ -504,9 +548,24 @@ class _BridgeHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
-def start_http_server(port: int) -> None:
-    server = HTTPServer(("0.0.0.0", port), _BridgeHandler)
-    log.info("HTTP server on http://0.0.0.0:%d  (GET /status  POST /command)", port)
+_http_shared_secret: str = ""
+
+def start_http_server(port: int, allow_lan: bool, shared_secret: str) -> None:
+    global _http_shared_secret
+    # Previously always bound 0.0.0.0 with zero authentication — README said
+    # "run on a trusted LAN only" but nothing enforced that. Now localhost-
+    # only by default; LAN exposure is an explicit opt-in (allow_lan: true
+    # in bridge_config.json) and requires a shared secret, checked above.
+    if allow_lan:
+        if not shared_secret:
+            log.error("allow_lan is true but no http_shared_secret is set in bridge_config.json — refusing to bind 0.0.0.0 unauthenticated.")
+            sys.exit(1)
+        _http_shared_secret = shared_secret
+        host = "0.0.0.0"
+    else:
+        host = "127.0.0.1"
+    server = HTTPServer((host, port), _BridgeHandler)
+    log.info("HTTP server on http://%s:%d  (GET /status  POST /command)", host, port)
     server.serve_forever()
 
 # ── Heartbeat ──────────────────────────────────────────────────────────────────
@@ -542,7 +601,7 @@ def poll_loop(supabase: Client, device_id: str, stop_event: threading.Event) -> 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    global _http_device_id
+    global _http_device_id, _require_confirmation
 
     config = load_config()
     supabase_url  = config.get("supabase_url", "")
@@ -551,6 +610,9 @@ def main() -> None:
     user_email    = config.get("user_email", "")
     user_password = config.get("user_password", "")
     http_port     = int(config.get("http_port", 7791))
+    allow_lan     = bool(config.get("allow_lan", False))
+    http_secret   = str(config.get("http_shared_secret", ""))
+    _require_confirmation = bool(config.get("require_confirmation", True))
 
     if not supabase_url or not supabase_key:
         log.error("supabase_url and supabase_key are required in bridge_config.json")
@@ -592,7 +654,7 @@ def main() -> None:
 
     # Local HTTP server thread
     threading.Thread(
-        target=start_http_server, args=(http_port,),
+        target=start_http_server, args=(http_port, allow_lan, http_secret),
         daemon=True, name="http-server",
     ).start()
 
