@@ -295,9 +295,13 @@ async function getUserId(req: Request): Promise<string | null> {
       }
     }
 
-    // Fallback: ask Supabase to validate the token
-    const userSb = createClient(SB_URL, token, { auth: { persistSession: false } });
-    const { data } = await userSb.auth.getUser();
+    // Fallback: ask Supabase to validate the token. Must use SB_KEY (the
+    // project's real service-role key) as the client's own key — passing
+    // the user's JWT there instead fails at the gateway with "Invalid API
+    // key" before auth.getUser() is ever reached (confirmed live). The
+    // user's token is passed explicitly to getUser() instead.
+    const userSb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
+    const { data } = await userSb.auth.getUser(token);
     return data?.user?.id ?? null;
   } catch {
     return null;
