@@ -124,9 +124,21 @@ export class MCPClient {
       const proxyBase = cfg.tunnelEnabled && cfg.tunnelUrl ? cfg.tunnelUrl : cfg.endpoint;
       const proxyUrl = `${proxyBase}/mcp-proxy`;
 
+      // /mcp-proxy spawns an arbitrary local process on the operator's machine —
+      // once tunnelEnabled exposes it off-machine (ngrok/Tailscale), reaching it
+      // with no credential is remote code execution for anyone who finds the URL.
+      // Require a shared secret in that case; always send it when configured.
+      if (cfg.tunnelEnabled && cfg.tunnelUrl && !cfg.proxySecret) {
+        throw new Error(
+          "MCP stdio-proxy is tunnel-exposed but no proxySecret is configured — set one in Local Mesh settings before using stdio-proxy MCP servers over a tunnel."
+        );
+      }
+      const proxyHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      if (cfg.proxySecret) proxyHeaders["X-Mesh-Secret"] = cfg.proxySecret;
+
       const res = await fetch(proxyUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: proxyHeaders,
         body: JSON.stringify({
           command: this.config.command,
           args: this.config.args ?? [],

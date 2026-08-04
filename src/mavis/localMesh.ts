@@ -23,6 +23,10 @@ export interface LocalMeshConfig {
   preferLocalForModes: string[]; // e.g. ["CHAT", "PRIME"] — avoid for ARCH
   tunnelEnabled: boolean;
   tunnelUrl: string;          // ngrok / Tailscale address for remote-to-local
+  proxySecret: string;        // shared secret sent as X-Mesh-Secret to the local
+                               // MCP stdio-proxy companion — required once tunnelEnabled
+                               // is on, since that's when the proxy becomes reachable
+                               // off-machine (see mcpClient.ts's stdio-proxy transport)
 }
 
 export interface LocalMeshMessage {
@@ -50,6 +54,7 @@ const DEFAULT_CONFIG: LocalMeshConfig = {
   preferLocalForModes: ["CHAT", "PRIME"],
   tunnelEnabled: false,
   tunnelUrl: "",
+  proxySecret: "",
 };
 
 // ── Config persistence ────────────────────────────────────────

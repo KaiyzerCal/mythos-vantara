@@ -67,6 +67,40 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // ── SSRF guard ──────────────────────────────────────────────
+    // tunnel_url is fully attacker-controlled (any authenticated caller can set
+    // it to anything). Legitimate values are Tailscale/LAN addresses or ngrok
+    // domains, which span arbitrary hostnames and private ranges — so this
+    // can't be a strict allowlist without breaking the real use case. Instead,
+    // deny the specific targets that turn this into an internal-network pivot:
+    // cloud metadata endpoints and loopback (which would hit this very edge
+    // function's own runtime).
+    let tunnelHost: string;
+    try {
+      const parsed = new URL(String(tunnel_url));
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("tunnel_url must be http or https");
+      }
+      tunnelHost = parsed.hostname;
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid tunnel_url" }), {
+        status: 400,
+        headers: { ...CORS, "Content-Type": "application/json" },
+      });
+    }
+    const DENIED_HOSTS = new Set([
+      "169.254.169.254", // AWS/GCP/Azure/DigitalOcean cloud metadata
+      "metadata.google.internal",
+      "fd00:ec2::254", // AWS IPv6 metadata
+      "localhost", "127.0.0.1", "0.0.0.0", "::1",
+    ]);
+    if (DENIED_HOSTS.has(tunnelHost.toLowerCase()) || tunnelHost.startsWith("169.254.")) {
+      return new Response(JSON.stringify({ error: "tunnel_url host is not allowed" }), {
+        status: 400,
+        headers: { ...CORS, "Content-Type": "application/json" },
+      });
+    }
+
     // ── Proxy to Ollama ───────────────────────────────────────
     const ollamaRes = await fetch(`${tunnel_url}/api/chat`, {
       method: "POST",
