@@ -145,20 +145,36 @@ serve(async (req) => {
     }
 
     if (action === "update") {
-      const { agent_id, ...updates } = body;
+      const { agent_id, ...rawUpdates } = body;
       const sbAdmin = createClient(SUPABASE_URL, SERVICE_KEY);
+
+      // Explicit allowlist — plan_tier, monthly_price_cents, status,
+      // total_conversations, total_messages, embed_token, and
+      // deploy_slug must never be settable from this request body
+      // (billing/stats/identity fields; see
+      // 20260804050000_fix_customer_agents_privilege_escalation.sql
+      // for the matching DB-level guard on direct PostgREST access).
+      const updatable = [
+        "customer_name", "customer_email", "business_name", "business_type",
+        "agent_name", "capabilities", "knowledge_base", "tone",
+        "brand_color", "brand_name", "logo_url",
+      ] as const;
+      const updates: Record<string, unknown> = {};
+      for (const key of updatable) {
+        if (rawUpdates[key] !== undefined) updates[key] = rawUpdates[key];
+      }
 
       // If knowledge_base or capabilities changed, regenerate persona
       if (updates.knowledge_base !== undefined || updates.capabilities !== undefined || updates.tone !== undefined) {
         const { data: existing } = await sbAdmin.from("customer_agents").select("*").eq("id", agent_id).single();
         if (existing) {
           updates.agent_persona = await generatePersona({
-            business_name:  updates.business_name  ?? existing.business_name,
-            business_type:  updates.business_type  ?? existing.business_type,
-            agent_name:     updates.agent_name     ?? existing.agent_name,
-            capabilities:   updates.capabilities   ?? existing.capabilities,
-            knowledge_base: updates.knowledge_base ?? existing.knowledge_base,
-            tone:           updates.tone           ?? existing.tone,
+            business_name:  (updates.business_name  ?? existing.business_name) as string,
+            business_type:  (updates.business_type  ?? existing.business_type) as string,
+            agent_name:     (updates.agent_name     ?? existing.agent_name) as string,
+            capabilities:   (updates.capabilities   ?? existing.capabilities) as string[],
+            knowledge_base: (updates.knowledge_base ?? existing.knowledge_base) as string,
+            tone:           (updates.tone           ?? existing.tone) as string,
           });
         }
       }
