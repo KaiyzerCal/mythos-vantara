@@ -1,6 +1,9 @@
 /**
  * local-mesh-proxy — Edge function that proxies AI requests to a local Ollama
  * instance reachable via a configured tunnel (Tailscale / ngrok).
+ * (redeploy trigger: the SSRF-guard fix in this file 402'd on the prior CI
+ * run due to the function-count cap bug fixed in deploy-mavis-functions.yml;
+ * this touch re-triggers a scoped, isolated deploy of just this function.)
  *
  * This is an OPTIONAL path. Direct browser→Ollama also works when:
  *   - MAVIS is accessed from the local machine (localhost)
