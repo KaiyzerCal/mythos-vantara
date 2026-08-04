@@ -48,6 +48,8 @@ import {
   Zap,
   Calendar,
   Link2,
+  Power,
+  PowerOff,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -762,15 +764,20 @@ export function WorkflowsPage() {
       trigger_type: triggerType,
       trigger_config: triggerConfig,
       steps,
-      is_active: true,
     };
     try {
       if (editingWorkflow) {
+        // is_active is deliberately untouched here — editing a workflow's
+        // steps/trigger shouldn't silently flip its live/staged state.
         await (supabase as any).from("workflows").update(payload).eq("id", editingWorkflow.id);
         toast.success("Workflow updated");
       } else {
-        await (supabase as any).from("workflows").insert(payload);
-        toast.success("Workflow created");
+        // New workflows start staged (is_active: false) rather than firing
+        // on their trigger immediately — an untested automation going live
+        // the moment it's saved is a real footgun. Operator flips it on
+        // explicitly from the list view once they've verified it.
+        await (supabase as any).from("workflows").insert({ ...payload, is_active: false });
+        toast.success("Workflow created (staged — activate it from the list to go live)");
       }
       setView("list");
       setEditingWorkflow(null);
@@ -808,6 +815,14 @@ export function WorkflowsPage() {
     } finally {
       setRunning((prev) => ({ ...prev, [wf.id]: false }));
     }
+  }
+
+  async function toggleActive(wf: WorkflowRow) {
+    const next = !wf.is_active;
+    const { error } = await (supabase as any).from("workflows").update({ is_active: next }).eq("id", wf.id);
+    if (error) { toast.error(error.message ?? "Failed to update"); return; }
+    setWorkflows((prev) => prev.map((w) => (w.id === wf.id ? { ...w, is_active: next } : w)));
+    toast.success(next ? `${wf.name} activated` : `${wf.name} paused`);
   }
 
   async function deleteWorkflow(wf: WorkflowRow) {
@@ -874,6 +889,18 @@ export function WorkflowsPage() {
                       <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700 uppercase tracking-wide">
                         {wf.trigger_type}
                       </span>
+                      <button
+                        onClick={() => toggleActive(wf)}
+                        title={wf.is_active ? "Active — click to pause" : "Staged — click to activate"}
+                        className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border uppercase tracking-wide transition-colors ${
+                          wf.is_active
+                            ? "bg-green-900/30 text-green-400 border-green-800 hover:bg-green-900/50"
+                            : "bg-amber-900/20 text-amber-400 border-amber-800 hover:bg-amber-900/40"
+                        }`}
+                      >
+                        {wf.is_active ? <Power size={10} /> : <PowerOff size={10} />}
+                        {wf.is_active ? "Active" : "Staged"}
+                      </button>
                       {wf.last_run_status && <RunStatusBadge status={wf.last_run_status} />}
                     </div>
                     {wf.description && (

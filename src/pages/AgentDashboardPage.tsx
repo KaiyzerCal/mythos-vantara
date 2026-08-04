@@ -638,10 +638,20 @@ function AutonomousTasksTab({ userId }: { userId: string }) {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 15000); // auto-refresh every 15s
-    return () => clearInterval(interval);
+    // Realtime replaces the previous 15s poll — mavis_autonomous_tasks rows
+    // change status frequently while a task runs, so this notices updates
+    // immediately instead of up to 15s late.
+    const channel = (supabase as any)
+      .channel(`autonomous-tasks-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "mavis_autonomous_tasks", filter: `user_id=eq.${userId}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => { (supabase as any).removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  }, [filter, userId]);
 
   async function load() {
     const statusFilter = filter === "active"
@@ -864,10 +874,18 @@ function A2ATasksTab({ userId }: { userId: string }) {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 20000);
-    return () => clearInterval(interval);
+    // Realtime replaces the previous 20s poll.
+    const channel = (supabase as any)
+      .channel(`a2a-tasks-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "mavis_a2a_tasks", filter: `user_id=eq.${userId}` },
+        () => load(),
+      )
+      .subscribe();
+    return () => { (supabase as any).removeChannel(channel); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [userId]);
 
   async function load() {
     const { data } = await (supabase as any)
