@@ -1930,6 +1930,17 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-key-fingerprint",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-khanmigo",
     "category": "Learning & Tutoring",
     "purpose": "Socratic tutoring engine",
@@ -3798,6 +3809,17 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     ],
     "isCronTarget": false,
     "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-vault-sync",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
     "autonomyPathway": null
   },
   {

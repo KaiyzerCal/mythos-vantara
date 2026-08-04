@@ -26,7 +26,7 @@ export function SpotifyWidget() {
 
       // Check if Spotify is connected
       const { data: tokens } = await (supabase as any)
-        .from("oauth_tokens")
+        .from("mavis_oauth_tokens")
         .select("provider")
         .eq("user_id", session.user.id)
         .eq("provider", "spotify")
