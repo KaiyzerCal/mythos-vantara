@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS public.__store_cron_vault_secret(text, text);
