@@ -261,13 +261,21 @@ function keyId(providerId: string, keyName: string): string {
 export function IntegrationsPage() {
   const { user } = useAuth();
 
-  const [savedKeys, setSavedKeys] = useState<Record<string, Record<string, string>>>({});
+  // Whether each key is set — never the raw value. mavis_user_integrations
+  // stores these in plaintext with no server-side masking (RLS lets an
+  // owner read their own row back in full), and this page used to select
+  // key_value directly and re-serve every saved secret (Stripe keys,
+  // Telegram bot tokens, etc.) to the client on every page load. Follows
+  // the pattern mavis_api_keys already uses correctly elsewhere: never
+  // re-serve a secret after it's been saved once.
+  const [savedKeys, setSavedKeys] = useState<Record<string, Record<string, boolean>>>({});
   const [editingValues, setEditingValues] = useState<Record<string, Record<string, string>>>({});
   const [showValues, setShowValues] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, "ok" | "fail" | "testing">>({});
+  const [testResults, setTestResults] = useState<Record<string, "ok" | "fail" | "unverified" | "testing">>({});
+  const [testNotes, setTestNotes] = useState<Record<string, string>>({});
 
   // ── Google OAuth state ────────────────────────────────────
   const [googleStatus, setGoogleStatus] = useState<{
@@ -329,8 +337,11 @@ export function IntegrationsPage() {
 
   async function connectGoogle(providerId: string) {
     if (!user) return;
-    const clientId = editingValues[providerId]?.["Client ID"] ?? savedKeys[providerId]?.["Client ID"] ?? "";
-    if (!clientId) {
+    // mavis-google-oauth reads the saved Client ID server-side (it's never
+    // sent in this request) — this is purely a client-side "did you save it
+    // yet" guard, so a boolean is-set check is all that's needed here.
+    const hasClientId = !!(editingValues[providerId]?.["Client ID"] || savedKeys[providerId]?.["Client ID"]);
+    if (!hasClientId) {
       toast.error("Save your Google Client ID first, then click Connect");
       return;
     }
@@ -380,7 +391,7 @@ export function IntegrationsPage() {
       setLoading(true);
       const { data, error } = await supabase
         .from("mavis_user_integrations" as any)
-        .select("provider, key_name, key_value")
+        .select("provider, key_name")
         .eq("user_id", user!.id);
 
       if (error) {
@@ -389,10 +400,10 @@ export function IntegrationsPage() {
         return;
       }
 
-      const grouped: Record<string, Record<string, string>> = {};
-      for (const row of ((data ?? []) as unknown) as { provider: string; key_name: string; key_value: string }[]) {
+      const grouped: Record<string, Record<string, boolean>> = {};
+      for (const row of ((data ?? []) as unknown) as { provider: string; key_name: string }[]) {
         if (!grouped[row.provider]) grouped[row.provider] = {};
-        grouped[row.provider][row.key_name] = row.key_value;
+        grouped[row.provider][row.key_name] = true;
       }
 
       setSavedKeys(grouped);
@@ -445,7 +456,7 @@ export function IntegrationsPage() {
         const updated = { ...prev, [providerId]: { ...(prev[providerId] ?? {}) } };
         for (const keyName of keys) {
           const v = editingValues[providerId]?.[keyName] ?? "";
-          if (v) updated[providerId][keyName] = v;
+          if (v) updated[providerId][keyName] = true;
         }
         return updated;
       });
@@ -459,18 +470,27 @@ export function IntegrationsPage() {
   }
 
   // ── Test Connection ───────────────────────────────────────
+  // Calls mavis-integration-test, which pings the provider's real API with
+  // the saved key rather than just checking a row exists — a dead/rotated
+  // key used to still show as "connected". Providers without a live check
+  // implemented come back "unverified" (key is saved, but not confirmed
+  // live) rather than being reported as working.
   async function testConnection(providerId: string) {
     setTestResults((prev) => ({ ...prev, [providerId]: "testing" }));
     try {
-      const { error } = await supabase
-        .from("mavis_user_integrations" as any)
-        .select("id")
-        .eq("provider", providerId)
-        .limit(1);
-
-      setTestResults((prev) => ({ ...prev, [providerId]: error ? "fail" : "ok" }));
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-integration-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ provider: providerId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const status = data.verified === true ? "ok" : data.verified === false ? "fail" : "unverified";
+      setTestResults((prev) => ({ ...prev, [providerId]: status }));
+      setTestNotes((prev) => ({ ...prev, [providerId]: data.note ?? data.error ?? "" }));
     } catch {
       setTestResults((prev) => ({ ...prev, [providerId]: "fail" }));
+      setTestNotes((prev) => ({ ...prev, [providerId]: "Request failed" }));
     }
   }
 
@@ -578,7 +598,7 @@ export function IntegrationsPage() {
                                 const kid = keyId(provider.id, keyName);
                                 const revealed = showKey(kid, showValues);
                                 const currentEdit = editingValues[provider.id]?.[keyName] ?? "";
-                                const savedVal = savedKeys[provider.id]?.[keyName] ?? "";
+                                const savedVal = !!savedKeys[provider.id]?.[keyName];
                                 const displayValue = revealed
                                   ? currentEdit
                                   : currentEdit
@@ -649,15 +669,20 @@ export function IntegrationsPage() {
 
                               {/* Test result badge (non-OAuth providers) */}
                               {!provider.oauthEnabled && testResult === "ok" && (
-                                <span className="flex items-center gap-1 text-xs font-mono text-green-400">
+                                <span className="flex items-center gap-1 text-xs font-mono text-green-400" title={testNotes[provider.id]}>
                                   <CheckCircle2 size={11} />
-                                  Connected
+                                  Verified live
                                 </span>
                               )}
                               {!provider.oauthEnabled && testResult === "fail" && (
-                                <span className="flex items-center gap-1 text-xs font-mono text-red-400">
+                                <span className="flex items-center gap-1 text-xs font-mono text-red-400" title={testNotes[provider.id]}>
                                   <XCircle size={11} />
-                                  Failed
+                                  {testNotes[provider.id] || "Failed"}
+                                </span>
+                              )}
+                              {!provider.oauthEnabled && testResult === "unverified" && (
+                                <span className="flex items-center gap-1 text-xs font-mono text-muted-foreground" title={testNotes[provider.id]}>
+                                  Saved — not live-verified
                                 </span>
                               )}
                             </div>
