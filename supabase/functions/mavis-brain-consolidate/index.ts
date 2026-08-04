@@ -39,7 +39,7 @@ async function gatherTodayActivity(sb: ReturnType<typeof createClient>, userId: 
     sb.from("quests").select("title,description,status,updated_at").eq("user_id", userId).gte("updated_at", iso).limit(20),
     sb.from("meeting_notes").select("title,summary,attendees,action_items,created_at").eq("user_id", userId).gte("created_at", iso).limit(10),
     sb.from("mavis_agent_memories").select("content,summary,tags,entity_type,importance").eq("user_id", userId).gte("created_at", iso).limit(30),
-    sb.from("goals").select("title,description,status,progress,updated_at").eq("user_id", userId).gte("updated_at", iso).limit(10),
+    sb.from("mavis_goals").select("objective,context,status,updated_at").eq("user_id", userId).gte("updated_at", iso).limit(10),
     sb.from("contacts").select("name,company,relationship_type,notes,updated_at").eq("user_id", userId).gte("updated_at", iso).limit(15),
     sb.from("mavis_notion_sync_log").select("page_title,page_url,synced_at").eq("user_id", userId).gte("synced_at", iso).limit(20),
   ]);
@@ -66,7 +66,7 @@ async function gatherTodayActivity(sb: ReturnType<typeof createClient>, userId: 
 
   if (goals.data?.length) {
     sections.push(`GOALS TOUCHED TODAY:\n${goals.data.map((g: any) =>
-      `- [${g.status}] ${g.title} (${g.progress ?? 0}% complete): ${String(g.description ?? "").slice(0, 150)}`
+      `- [${g.status}] ${g.objective}: ${String(g.context ?? "").slice(0, 150)}`
     ).join("\n")}`);
   }
 

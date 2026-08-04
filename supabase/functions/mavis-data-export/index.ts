@@ -19,7 +19,7 @@ const KEEP_DAYS = 30;
 const EXPORT_TABLES: Array<{ table: string; userCol: string; limit: number }> = [
   { table: "mavis_memory",       userCol: "user_id", limit: 5000  },
   { table: "mavis_knowledge",    userCol: "user_id", limit: 2000  },
-  { table: "goals",              userCol: "user_id", limit: 1000  },
+  { table: "mavis_goals",        userCol: "user_id", limit: 1000  },
   { table: "contacts",           userCol: "user_id", limit: 2000  },
   { table: "workflows",          userCol: "user_id", limit: 500   },
   { table: "mavis_inbound_emails", userCol: "user_id", limit: 1000 },
