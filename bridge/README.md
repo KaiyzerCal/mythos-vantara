@@ -140,5 +140,15 @@ curl -X POST http://localhost:7791/command \
 ## Security Notes
 
 - `bridge_config.json` contains credentials — **never commit it** (it's in `.gitignore`)
-- The local HTTP server has no authentication — run it on a trusted LAN only, or add your own auth layer
+- The local HTTP server binds `127.0.0.1` by default — it isn't reachable from
+  your LAN or the internet unless you set `"allow_lan": true` and
+  `"http_shared_secret": "<random string>"` in `bridge_config.json`, in which
+  case every request must include that secret as an `X-Bridge-Secret` header
+- `shell`, `file_write`, `kill_process`, and `launch_app` commands prompt for
+  local approval before running (30s timeout, no answer = denied) — this is
+  the only thing standing between a leaked Supabase session token and remote
+  code execution on this machine, since `queue_command` accepts any command
+  type for any device you own with no other gate. Set
+  `"require_confirmation": false` only for unattended setups where you've
+  accepted that risk explicitly
 - For remote access, use a VPN or ngrok rather than opening the port to the internet
