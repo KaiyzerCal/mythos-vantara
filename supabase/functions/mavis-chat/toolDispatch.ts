@@ -32,6 +32,32 @@ export function parseActionBlocks(text: string): Array<{ type: string; params: R
   return blocks;
 }
 
+// Mirrors src/mavis/actionExecutor.ts's ALWAYS_CONFIRM (destructive/
+// hard-to-reverse/publicly-visible actions), scoped to the types reachable
+// from this server-side executor. That client-side gate only covers the
+// client-parsed action pipeline — MAVIS's own ReAct loop (both the native
+// tool-calling path below and the :::ACTION::: block path in index.ts)
+// shares this function as its single execution chokepoint but had no
+// confirmation gate at all: the model could delete emails/contacts/
+// calendar events or post publicly on its own initiative with zero
+// friction. Gating here protects both callers at once.
+// The native tool-calling path only ever passes canonical MAVIS_TOOL_DEFS
+// names, but the :::ACTION::: block path (index.ts) lets the model emit any
+// string, and mavis-actions/index.ts normalizes aliases itself after this
+// gate runs — so the delete_* aliases it recognizes are listed here too,
+// otherwise "delete_task" would sail through unconfirmed while
+// "delete_quest" is blocked.
+const ALWAYS_CONFIRM_SERVER = new Set([
+  "delete_email", "delete_calendar_event", "delete_contact",
+  "send_email", "avatar_social_post", "respond_to_review", "create_gbp_post",
+  "delete_quest", "delete_task", "remove_quest", "remove_task",
+  "delete_skill", "remove_skill",
+  "delete_journal", "remove_journal", "delete_journal_entry",
+  "delete_vault", "remove_vault", "delete_vault_entry",
+  "delete_council_member", "remove_council", "remove_council_member",
+  "delete_ally", "remove_ally",
+]);
+
 export async function executeAgentAction(
   supabaseUrl: string,
   serviceKey: string,
@@ -39,6 +65,15 @@ export async function executeAgentAction(
   type: string,
   params: Record<string, unknown>,
 ): Promise<{ ok: boolean; result: unknown }> {
+  if (ALWAYS_CONFIRM_SERVER.has(type)) {
+    return {
+      ok: false,
+      result: {
+        requires_confirmation: true,
+        error: `"${type}" is destructive or externally-visible and requires explicit operator confirmation. Tell the operator exactly what you're about to do and ask them to confirm — only call this tool again after they explicitly say yes.`,
+      },
+    };
+  }
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
       method: "POST",
