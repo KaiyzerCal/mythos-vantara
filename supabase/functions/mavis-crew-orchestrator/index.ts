@@ -184,6 +184,16 @@ function buildDefaultTasks(goal: string): SubTask[] {
 }
 
 // ── JWT auth (mirrors mavis-deep-research pattern) ───────────────────────────
+// The manual HMAC path below only applies to HS256-signed tokens (this
+// project's legacy signing mode). Supabase projects can be migrated to
+// asymmetric (ES256) signing keys, which this project now uses — a token's
+// header alg reveals which mode is live. Previously this code assumed
+// SUPABASE_JWT_SECRET being set meant HS256 and never checked alg, so once
+// the project moved to ES256 every real request failed HMAC verification
+// and got silently treated as unauthenticated (confirmed live: a freshly
+// issued, valid, non-expired token was rejected). Now only attempts HMAC
+// verification for actual HS256 tokens; everything else (including any
+// HMAC failure) falls back to asking Supabase to validate it directly.
 async function getUserId(req: Request): Promise<string | null> {
   try {
     const auth = req.headers.get("Authorization") ?? "";
@@ -191,9 +201,14 @@ async function getUserId(req: Request): Promise<string | null> {
     if (!token) return null;
 
     const jwtSecret = Deno.env.get("SUPABASE_JWT_SECRET");
-    if (jwtSecret) {
-      const parts = token.split(".");
-      if (parts.length !== 3) return null;
+    const parts = token.split(".");
+    let alg: string | undefined;
+    try {
+      const headerB64 = parts[0]?.replace(/-/g, "+").replace(/_/g, "/") ?? "";
+      alg = JSON.parse(atob(headerB64 + "=".repeat((4 - (headerB64.length % 4)) % 4))).alg;
+    } catch { /* fall through to the Supabase-validated path below */ }
+
+    if (jwtSecret && alg === "HS256" && parts.length === 3) {
       const key = await crypto.subtle.importKey(
         "raw",
         new TextEncoder().encode(jwtSecret),
@@ -206,16 +221,21 @@ async function getUserId(req: Request): Promise<string | null> {
       const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
       const sig = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
       const valid = await crypto.subtle.verify("HMAC", key, sig, signedPart);
-      if (!valid) return null;
-      const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-      const payload = JSON.parse(
-        atob(payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4)),
-      );
-      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
-      return payload.sub ?? null;
+      if (valid) {
+        const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(
+          atob(payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4)),
+        );
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+        return payload.sub ?? null;
+      }
+      // HMAC verification failed under our own assumption of HS256 — don't
+      // trust the token, but also don't assume it's outright invalid;
+      // fall through to ask Supabase directly.
     }
 
-    // Fallback: ask Supabase to validate the token
+    // Fallback: ask Supabase to validate the token (covers ES256 and any
+    // other case the manual path above didn't handle)
     const userSb = createClient(SB_URL, token, { auth: { persistSession: false } });
     const { data } = await userSb.auth.getUser();
     return data?.user?.id ?? null;

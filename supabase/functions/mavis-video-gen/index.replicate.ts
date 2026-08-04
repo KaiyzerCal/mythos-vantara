@@ -123,9 +123,18 @@ async function getUserId(req: Request): Promise<string | null> {
     if (!token) return null;
 
     const jwtSecret = Deno.env.get("SUPABASE_JWT_SECRET");
-    if (jwtSecret) {
-      const parts = token.split(".");
-      if (parts.length !== 3) return null;
+    const parts = token.split(".");
+    // Manual HMAC verification only applies to HS256-signed tokens. Projects
+    // migrated to asymmetric (ES256) signing keys silently failed this check
+    // forever (jwtSecret being set was wrongly treated as "this is HS256") —
+    // now only attempted when the token's own header says HS256; anything
+    // else (including an HMAC failure) falls through to Supabase directly.
+    let alg: string | undefined;
+    try {
+      const headerB64 = parts[0]?.replace(/-/g, "+").replace(/_/g, "/") ?? "";
+      alg = JSON.parse(atob(headerB64 + "=".repeat((4 - (headerB64.length % 4)) % 4))).alg;
+    } catch { /* fall through */ }
+    if (jwtSecret && alg === "HS256" && parts.length === 3) {
       const key = await crypto.subtle.importKey(
         "raw",
         new TextEncoder().encode(jwtSecret),
@@ -138,13 +147,14 @@ async function getUserId(req: Request): Promise<string | null> {
       const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
       const sig = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
       const valid = await crypto.subtle.verify("HMAC", key, sig, signedPart);
-      if (!valid) return null;
-      const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-      const payload = JSON.parse(
-        atob(payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4)),
-      );
-      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
-      return payload.sub ?? null;
+      if (valid) {
+        const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(
+          atob(payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4)),
+        );
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+        return payload.sub ?? null;
+      }
     }
 
     // Fallback: ask Supabase to validate the token
