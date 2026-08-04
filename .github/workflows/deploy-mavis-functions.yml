@@ -23,6 +23,14 @@ jobs:
       PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Default fetch-depth:1 leaves no prior commit to diff against, so
+          # the "changed functions" step below silently found 0 files
+          # changed on every run — confirmed live (a run that genuinely
+          # touched local-mesh-proxy/index.ts logged "Deploying 0 changed
+          # non-core functions"). fetch-depth:0 (full history) guarantees
+          # github.event.before is always resolvable.
+          fetch-depth: 0
       - uses: supabase/setup-cli@v1
 
       - name: Report target environment
