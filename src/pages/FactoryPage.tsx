@@ -847,7 +847,7 @@ export default function FactoryPage() {
         supabase.from("mavis_notes").select("*", { count: "exact", head: true }),
         supabase.from("journal_entries").select("*", { count: "exact", head: true }),
         supabase.from("quests").select("*", { count: "exact", head: true }),
-        supabase.from("standup_order_templates").select("*", { count: "exact", head: true }),
+        supabase.from("standing_order_templates").select("*", { count: "exact", head: true }),
       ]);
 
       const personas = persRes.status === "fulfilled" ? (persRes.value.data ?? []) : [];
