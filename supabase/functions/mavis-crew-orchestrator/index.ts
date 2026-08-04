@@ -245,10 +245,11 @@ async function getUserId(req: Request): Promise<string | null> {
     // root-caused (SB_KEY-as-client-key didn't behave the same as this
     // pattern despite both looking equivalent on paper).
     const userSb = createClient(SB_URL, SB_ANON_KEY, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
+      global: { headers: { Authorization: auth } },
       auth: { persistSession: false },
     });
-    const { data } = await userSb.auth.getUser();
+    const { data, error } = await userSb.auth.getUser();
+    if (error) console.error("[crew-orchestrator] getUser fallback error:", error.message, "anonKeySet:", Boolean(SB_ANON_KEY));
     return data?.user?.id ?? null;
   } catch {
     return null;
