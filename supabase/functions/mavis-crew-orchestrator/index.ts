@@ -642,8 +642,14 @@ serve(async (req: Request): Promise<Response> => {
     : {};
 
   const overallStart = Date.now();
-  // Stable run ID for progress streaming — clients subscribe by run_id
-  const runId = crypto.randomUUID();
+  // Stable run ID for progress streaming — clients subscribe by run_id.
+  // Accept a client-supplied one so the caller can open its Realtime
+  // subscription BEFORE this request even starts (otherwise the earliest
+  // progress events would already have fired by the time the client learns
+  // the run_id from the final response).
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const clientRunId = String(body.run_id ?? "");
+  const runId = UUID_RE.test(clientRunId) ? clientRunId : crypto.randomUUID();
 
   // ── Step 1: Decompose (or use preset) ──────────────────────────────────────
   let subTasks: SubTask[];

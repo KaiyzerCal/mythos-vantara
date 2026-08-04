@@ -309,23 +309,46 @@ export function AgentConsole() {
           ts: new Date(),
         });
         const t0 = Date.now();
-        const body: Record<string, any> = { goal: task, max_agents: 5 };
+
+        // Generate the run_id client-side and open the Realtime subscription
+        // BEFORE calling the orchestrator, so live per-agent progress
+        // (already streamed server-side to mavis_crew_progress) shows up as
+        // it happens instead of the UI sitting on a generic spinner until
+        // the whole swarm finishes.
+        const runId = crypto.randomUUID();
+        const channel = supabase
+          .channel(`crew-progress-${runId}`)
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "mavis_crew_progress", filter: `run_id=eq.${runId}` },
+            (payload: any) => {
+              const row = payload.new;
+              if (!row) return;
+              if (row.event_type === "start") {
+                addStep({ type: "agent", role: row.agent_role, label: row.agent_role, detail: row.content, ts: new Date() });
+              } else if (row.event_type === "complete") {
+                addStep({ type: "agent", role: row.agent_role, label: row.agent_role, output: row.content, success: true, ts: new Date() });
+              } else if (row.event_type === "error") {
+                addStep({ type: "error", role: row.agent_role, label: row.agent_role, detail: row.content, success: false, ts: new Date() });
+              } else if (row.event_type === "synthesis") {
+                addStep({ type: "result", role: "synthesizer", label: "SYNTHESIZER — combining specialist outputs", ts: new Date() });
+              }
+            }
+          )
+          .subscribe();
+
+        const body: Record<string, any> = { goal: task, max_agents: 5, run_id: runId };
         if (hasPreset) { body.task_type = swarmPreset; body.input = { _goal: task }; }
-        const data = await invoke("mavis-crew-orchestrator", body);
-        const agents: any[] = data.agents ?? [];
-        agents.forEach(a => {
-          addStep({
-            type: a.success ? "agent" : "error",
-            role: a.role,
-            label: a.role ?? "agent",
-            detail: a.task,
-            output: a.output,
-            success: a.success,
-            duration_ms: a.duration_ms,
-            ts: new Date(),
-          });
-        });
-        // Show validator result
+
+        let data: any;
+        try {
+          data = await invoke("mavis-crew-orchestrator", body);
+        } finally {
+          supabase.removeChannel(channel);
+        }
+
+        // Validator result isn't part of the per-agent live stream — show
+        // it once the full response is back.
         const v = data.validation;
         if (v) {
           addStep({
@@ -338,6 +361,7 @@ export function AgentConsole() {
             ts: new Date(),
           });
         }
+        const agents: any[] = data.agents ?? [];
         addStep({
           type: "result",
           label: `Swarm complete`,
