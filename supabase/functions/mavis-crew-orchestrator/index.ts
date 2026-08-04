@@ -235,9 +235,13 @@ async function getUserId(req: Request): Promise<string | null> {
     }
 
     // Fallback: ask Supabase to validate the token (covers ES256 and any
-    // other case the manual path above didn't handle)
-    const userSb = createClient(SB_URL, token, { auth: { persistSession: false } });
-    const { data } = await userSb.auth.getUser();
+    // other case the manual path above didn't handle). Must use SB_KEY (the
+    // project's real service-role key) as the client's own key — passing
+    // the user's JWT there instead fails at the gateway with "Invalid API
+    // key" before auth.getUser() is ever reached (confirmed live, and this
+    // was the actual reason the alg-check fix alone didn't restore auth).
+    const userSb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
+    const { data } = await userSb.auth.getUser(token);
     return data?.user?.id ?? null;
   } catch {
     return null;

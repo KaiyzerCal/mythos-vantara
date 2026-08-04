@@ -157,10 +157,15 @@ async function getUserId(req: Request): Promise<string | null> {
       }
     }
 
-    // Fallback: ask Supabase to validate the token
+    // Fallback: ask Supabase to validate the token. Must use the project's
+    // real service-role key as the client's own key — passing the user's
+    // JWT there instead fails at the gateway with "Invalid API key" before
+    // auth.getUser() is ever reached (confirmed live). The user's token is
+    // passed explicitly to getUser() instead.
     const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.49.4");
-    const userSb = createClient(SB_URL, token, { auth: { persistSession: false } });
-    const { data } = await userSb.auth.getUser();
+    const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const userSb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
+    const { data } = await userSb.auth.getUser(token);
     return data?.user?.id ?? null;
   } catch {
     return null;
