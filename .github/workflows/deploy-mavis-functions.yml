@@ -72,10 +72,21 @@ jobs:
             fi
           done
 
-      # ── All remaining functions — 8 parallel workers, best-effort ────────────
+      # ── Remaining CHANGED functions — 8 parallel workers, best-effort ────────
       # Failures are logged as warnings but do not fail the workflow.
-      - name: Deploy all remaining functions (parallel)
+      #
+      # Used to sweep every non-core function on every push. This project is
+      # at (or right at) its Supabase plan's function-count cap, so that bulk
+      # "create" call 402s for most functions on almost every run — confirmed
+      # via a run where local-mesh-proxy failed to deploy a real security fix
+      # with "Max number of functions reached for project" despite already
+      # existing (an update, not a new function). Scoping to only the
+      # functions whose files actually changed in this push avoids tripping
+      # the cap for normal incremental changes — mirrors the same fix already
+      # applied to navi-exe's deploy workflow for the identical symptom.
+      - name: Deploy changed non-core functions (parallel)
         run: |
+          set -uo pipefail
           CORE=(
             mavis-chat mavis-actions mavis-agent mavis-action-executor
             mavis-telegram-bot telegram-webhook telegram-setup mavis-heartbeat
@@ -87,10 +98,20 @@ jobs:
           )
           printf '%s\n' "${CORE[@]}" > /tmp/core-fns.txt
 
-          # _archive/ holds retired functions (Execution Blueprint Stage D) — not
-          # a deployable function itself, exclude it from the sweep.
-          mapfile -t REMAINING < <(ls supabase/functions/ | grep -vxFf /tmp/core-fns.txt | grep -vx '_archive')
-          echo "Deploying ${#REMAINING[@]} non-core functions with 8 parallel workers..."
+          BEFORE_SHA="${{ github.event.before }}"
+          if [ -z "$BEFORE_SHA" ] || ! git cat-file -e "$BEFORE_SHA" 2>/dev/null; then
+            BEFORE_SHA="HEAD~1"
+          fi
+          mapfile -t REMAINING < <(
+            git diff --name-only "$BEFORE_SHA" HEAD -- 'supabase/functions/*/**' \
+              | cut -d/ -f3 | sort -u \
+              | grep -vxFf /tmp/core-fns.txt | grep -vx '_archive'
+          )
+          echo "Deploying ${#REMAINING[@]} changed non-core functions with 8 parallel workers..."
+          if [ "${#REMAINING[@]}" -eq 0 ]; then
+            echo "No non-core function files changed in this push."
+            exit 0
+          fi
 
           FAILURES=/tmp/deploy-failures.txt
           > "$FAILURES"
