@@ -230,6 +230,7 @@ async function claudeCall(
   userMessage: string,
   model: string,
   maxTokens: number,
+  timeoutMs = 60_000,
 ): Promise<string> {
   if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY is not configured");
 
@@ -246,6 +247,12 @@ async function claudeCall(
       system,
       messages: [{ role: "user", content: userMessage }],
     }),
+    // Previously unbounded — a single hung Claude request stalled this
+    // whole agent forever, which stalled Promise.all in the main handler
+    // forever, which meant nothing (not even already-finished sibling
+    // agents) ever reached persistence. See the 20260804060000 migration
+    // for the other half of this fix.
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!res.ok) {
@@ -367,6 +374,7 @@ async function runAgent(
     `EXPECTED OUTPUT: ${subTask.focus}\n\n` +
     "Provide a thorough, specific response in your specialist role. Be direct — no preamble.";
 
+  let result: AgentResult;
   try {
     const output = await claudeCall(
       systemPrompt,
@@ -375,7 +383,7 @@ async function runAgent(
       2048,
     );
     emitProgress(runId, userId, subTask.agent, "complete", output);
-    return {
+    result = {
       role: subTask.agent,
       task: subTask.task,
       focus: subTask.focus,
@@ -387,7 +395,7 @@ async function runAgent(
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[crew-orchestrator] Agent ${subTask.agent} failed:`, message);
     emitProgress(runId, userId, subTask.agent, "error", message);
-    return {
+    result = {
       role: subTask.agent,
       task: subTask.task,
       focus: subTask.focus,
@@ -397,6 +405,19 @@ async function runAgent(
       duration_ms: Date.now() - agentStart,
     };
   }
+
+  // Persist this agent's result the moment it's ready — don't wait for
+  // sibling agents or the synthesis/validation steps that follow, so a
+  // later hang or crash doesn't lose work that already completed.
+  supabase.rpc("append_crew_agent_result", {
+    p_run_id: runId,
+    p_user_id: userId,
+    p_result: result,
+  }).then(({ error }: { error: unknown }) => {
+    if (error) console.error("[crew-orchestrator] Failed to persist agent result:", error);
+  });
+
+  return result;
 }
 
 // ── Step 3: Synthesise all agent outputs ──────────────────────────────────────
@@ -430,31 +451,47 @@ async function synthesise(
     `SPECIALIST AGENT OUTPUTS:\n\n${agentSection}\n\n` +
     "Synthesize these into the definitive response:";
 
-  return claudeCall(system, userMsg, "claude-sonnet-4-6", 4096);
+  return claudeCall(system, userMsg, "claude-sonnet-4-6", 4096, 90_000);
 }
 
-// ── Fire-and-forget: persist run to mavis_crew_runs ──────────────────────────
-function persistRun(
-  userId: string,
-  goal: string,
-  agentResults: AgentResult[],
-  synthesis: string,
-  durationMs: number,
-): void {
-  // Intentionally non-blocking — errors here must never affect the response
+// ── Fire-and-forget: create the run row up front (status: running) ──────────
+// agent_results starts empty; runAgent's append_crew_agent_result RPC fills
+// it in as each agent finishes, independent of whether the run as a whole
+// ever reaches synthesis/validation.
+function createRunRecord(runId: string, userId: string, goal: string, agentCount: number): void {
   (async () => {
     try {
       await supabase.from("mavis_crew_runs").insert({
+        run_id: runId,
         user_id: userId,
         goal,
-        agent_count: agentResults.length,
-        agent_results: agentResults,
-        synthesis,
-        duration_ms: durationMs,
+        agent_count: agentCount,
+        agent_results: [],
+        status: "running",
       });
     } catch (err) {
-      // Non-fatal: log and move on
-      console.error("[crew-orchestrator] Failed to persist run:", err);
+      console.error("[crew-orchestrator] Failed to create run record:", err);
+    }
+  })();
+}
+
+// ── Fire-and-forget: finalize the run row with synthesis + duration ─────────
+function finalizeRun(
+  runId: string,
+  userId: string,
+  synthesis: string,
+  durationMs: number,
+  status: "complete" | "failed" = "complete",
+): void {
+  (async () => {
+    try {
+      await supabase.from("mavis_crew_runs").update({
+        synthesis,
+        duration_ms: durationMs,
+        status,
+      }).eq("run_id", runId).eq("user_id", userId);
+    } catch (err) {
+      console.error("[crew-orchestrator] Failed to finalize run:", err);
     }
   })();
 }
@@ -597,6 +634,10 @@ serve(async (req: Request): Promise<Response> => {
     }
   }
 
+  // Create the run row now — agent_results fills in incrementally as each
+  // agent finishes (see runAgent), independent of how far the run gets.
+  createRunRecord(runId, userId, goal, subTasks.length);
+
   // ── Step 2: Parallel agent execution ────────────────────────────────────────
   const agentResults: AgentResult[] = await Promise.all(
     subTasks.map((task) => runAgent(task, goal, context, runId, userId)),
@@ -606,6 +647,7 @@ serve(async (req: Request): Promise<Response> => {
   const successCount = agentResults.filter((r) => r.success).length;
   if (successCount === 0) {
     const errors = agentResults.map((r) => `${r.role}: ${r.error ?? "unknown"}`).join("; ");
+    finalizeRun(runId, userId, "", Date.now() - overallStart, "failed");
     return new Response(
       JSON.stringify({
         error: "All agents failed",
@@ -642,8 +684,8 @@ serve(async (req: Request): Promise<Response> => {
 
   const totalDurationMs = Date.now() - overallStart;
 
-  // ── Persist run (fire-and-forget) ────────────────────────────────────────────
-  persistRun(userId, goal, agentResults, validation.validated_output, totalDurationMs);
+  // ── Finalize run (fire-and-forget) ───────────────────────────────────────────
+  finalizeRun(runId, userId, validation.validated_output, totalDurationMs);
 
   // ── Build response ───────────────────────────────────────────────────────────
   const response: OrchestratorResponse & { run_id: string; task_type: string } = {
