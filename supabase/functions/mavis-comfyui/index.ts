@@ -32,6 +32,7 @@
 //   talking_head — Wan2.2 S2V lip-sync from reference image + audio; requires reference_image_url + audio_url
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const COMFYUI_URL   = Deno.env.get("COMFYUI_URL") ?? "";
 const COMFYUI_KEY   = Deno.env.get("COMFYUI_API_KEY") ?? "";
@@ -49,6 +50,24 @@ const WAN_VAE        = Deno.env.get("WAN_VAE")        ?? "wan_2.2_vae.safetensor
 const WAN_CLIP       = Deno.env.get("WAN_CLIP")       ?? "clip_vision_h.safetensors";
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY);
+
+// Previously had verify_jwt=false and no auth check of any kind — anyone
+// could trigger real (costly) ComfyUI generation, and the storage path
+// used an attacker-supplied user_id from the request body with no
+// validation. Both real callers (mavis-action-executor,
+// mavis-telegram-bot) already send the service-role key as Authorization,
+// which resolveAuthedUid correctly resolves to the operator uid; a rate
+// limit is added as a second layer since generation is expensive.
+const rateMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 10; // generations per minute
+function checkRate(uid: string): boolean {
+  const now = Date.now();
+  const e = rateMap.get(uid);
+  if (!e || now > e.resetAt) { rateMap.set(uid, { count: 1, resetAt: now + 60_000 }); return true; }
+  if (e.count >= RATE_LIMIT) return false;
+  e.count++;
+  return true;
+}
 
 const DEFAULT_NEGATIVE = "blurry, low quality, watermark, text, deformed, distorted, ugly, bad anatomy, extra limbs, clipped, jpeg artifacts, signature";
 
@@ -394,6 +413,18 @@ Deno.serve(async (req) => {
       );
     }
 
+    const uid = await resolveAuthedUid(req, sb);
+    if (!uid) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!checkRate(uid)) {
+      return new Response(JSON.stringify({ error: "Rate limit exceeded — too many generations this minute" }), {
+        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body: Record<string, unknown> = await req.json().catch(() => ({}));
     const prompt            = String(body.prompt ?? "").trim();
     const workflowType      = String(body.workflow_type ?? "txt2img");
@@ -402,7 +433,9 @@ Deno.serve(async (req) => {
     const height            = Number(body.height) || (workflowType === "portrait" ? 1024 : 512);
     const steps             = Number(body.steps)  || 20;
     const cfg               = Number(body.cfg)    || 7;
-    const userId            = String(body.user_id ?? "anonymous");
+    // Storage path now uses the resolved, authenticated identity —
+    // previously this was body.user_id, fully attacker-controlled.
+    const userId            = uid;
     const seed              = Number(body.seed)   || seedRandom();
     const referenceImageUrl = String(body.reference_image_url ?? "");
     const audioUrl          = String(body.audio_url ?? "");
