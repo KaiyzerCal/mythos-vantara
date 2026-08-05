@@ -2204,6 +2204,11 @@ async function handleCommand(command: string, chatId: string, fullText: string):
 // ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  // Retrigger: live testing found requests with a wrong/missing
+  // x-telegram-bot-api-secret-token still got 200 "OK" instead of 401,
+  // despite this exact fix (#154) showing as a successful CI deploy —
+  // forcing a fresh deploy to confirm whether it was a one-off platform
+  // propagation issue or something in the deploy pipeline itself.
   // Telegram sends POST for every update
   if (req.method !== "POST") return new Response("OK");
 
