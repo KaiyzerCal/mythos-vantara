@@ -2,6 +2,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveAuthedUid } from "../_shared/auth.ts";
 
+// Retrigger: live testing confirmed any authenticated (non-operator) user
+// could still execute arbitrary code against the real project despite this
+// operator-only check being merged — the deployed function was stale.
+// Forcing a fresh deploy via PR to confirm it actually takes effect.
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
