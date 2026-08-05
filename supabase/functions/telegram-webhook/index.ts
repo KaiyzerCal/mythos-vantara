@@ -2213,7 +2213,14 @@ Deno.serve(async (req) => {
   // Telegram echoes it back on every update via this header. Without checking
   // it, the identity gate below is just comparing fields in an attacker-
   // controlled body, which anyone who finds this URL can forge.
-  if (WEBHOOK_SECRET && req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) {
+  //
+  // Previously `if (WEBHOOK_SECRET && ...)` meant an unset secret disabled
+  // the check entirely (fail open) rather than refusing requests — a
+  // misconfiguration (or the secret never having been set) would silently
+  // let anyone forge Telegram updates and drive the pipeline as the
+  // operator. Fail closed instead: no secret configured means no requests
+  // are accepted until it's actually set.
+  if (!WEBHOOK_SECRET || req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) {
     return new Response("Unauthorized", { status: 401 });
   }
 
