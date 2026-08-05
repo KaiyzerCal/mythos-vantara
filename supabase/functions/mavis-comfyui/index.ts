@@ -34,6 +34,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveAuthedUid } from "../_shared/auth.ts";
 
+// Retrigger: forcing a fresh deploy alongside mavis-code-exec, whose
+// deployed version was confirmed stale via live testing despite the fix
+// being merged. Can't externally verify this function's own auth check the
+// same way (COMFYUI_URL being unset short-circuits before auth either way),
+// so redeploying defensively rather than assuming it's fine.
+
 const COMFYUI_URL   = Deno.env.get("COMFYUI_URL") ?? "";
 const COMFYUI_KEY   = Deno.env.get("COMFYUI_API_KEY") ?? "";
 const DEFAULT_MODEL = Deno.env.get("COMFYUI_DEFAULT_MODEL") ?? "v1-5-pruned-emaonly.safetensors";
