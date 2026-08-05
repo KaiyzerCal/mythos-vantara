@@ -1,9 +1,33 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// This function runs arbitrary code — the PYTHON_SANDBOX_URL path is real
+// remote code execution on the operator's own VPS, and the JS path's
+// new Function() "sandbox" is escapable (constructor-chain access to
+// globalThis is not actually blocked by curating which names are passed
+// as parameters — a real fix means real process isolation, e.g. via E2B
+// like mavis-e2b-sandbox already does correctly elsewhere in this repo;
+// out of scope for this patch). Previously had no auth check of any kind
+// beyond the platform gateway's verify_jwt=true — any authenticated user,
+// not just the operator, could reach it. Restricted to the operator only,
+// plus a simple per-minute rate limit as a second layer.
+const OPERATOR_USER_ID = Deno.env.get("TELEGRAM_OPERATOR_USER_ID") ?? "";
+const rateMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT = 20; // executions per minute
+function checkRate(uid: string): boolean {
+  const now = Date.now();
+  const e = rateMap.get(uid);
+  if (!e || now > e.resetAt) { rateMap.set(uid, { count: 1, resetAt: now + 60_000 }); return true; }
+  if (e.count >= RATE_LIMIT) return false;
+  e.count++;
+  return true;
+}
 
 // ── Self-hosted multi-language sandbox (optional) ─────────────────────────────
 // Set PYTHON_SANDBOX_URL in edge function secrets to enable execution.
@@ -58,6 +82,24 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const adminSb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const uid = await resolveAuthedUid(req, adminSb);
+    if (!uid) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!OPERATOR_USER_ID || uid !== OPERATOR_USER_ID) {
+      return new Response(JSON.stringify({ error: "Forbidden — code execution is operator-only" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!checkRate(uid)) {
+      return new Response(JSON.stringify({ error: "Rate limit exceeded — too many executions this minute" }), {
+        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { code, language } = await req.json();
     if (!code?.trim()) {
       return new Response(JSON.stringify({ error: "code required" }), {
