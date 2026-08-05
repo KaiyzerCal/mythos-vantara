@@ -2204,6 +2204,11 @@ async function handleCommand(command: string, chatId: string, fullText: string):
 // ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
+  // Retrigger: live testing found requests with a wrong/missing
+  // x-telegram-bot-api-secret-token still got 200 "OK" instead of 401,
+  // despite this exact fix (#154) showing as a successful CI deploy —
+  // forcing a fresh deploy to confirm whether it was a one-off platform
+  // propagation issue or something in the deploy pipeline itself.
   // Telegram sends POST for every update
   if (req.method !== "POST") return new Response("OK");
 
@@ -2213,7 +2218,14 @@ Deno.serve(async (req) => {
   // Telegram echoes it back on every update via this header. Without checking
   // it, the identity gate below is just comparing fields in an attacker-
   // controlled body, which anyone who finds this URL can forge.
-  if (WEBHOOK_SECRET && req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) {
+  //
+  // Previously `if (WEBHOOK_SECRET && ...)` meant an unset secret disabled
+  // the check entirely (fail open) rather than refusing requests — a
+  // misconfiguration (or the secret never having been set) would silently
+  // let anyone forge Telegram updates and drive the pipeline as the
+  // operator. Fail closed instead: no secret configured means no requests
+  // are accepted until it's actually set.
+  if (!WEBHOOK_SECRET || req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) {
     return new Response("Unauthorized", { status: 401 });
   }
 
