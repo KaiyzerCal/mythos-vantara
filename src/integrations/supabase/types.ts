@@ -1788,6 +1788,45 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_actions: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          mavis_response: Json | null
+          payload: Json | null
+          source: string
+          status: string
+          task_type: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          mavis_response?: Json | null
+          payload?: Json | null
+          source: string
+          status?: string
+          task_type: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          mavis_response?: Json | null
+          payload?: Json | null
+          source?: string
+          status?: string
+          task_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       mavis_active_agency_specialists: {
         Row: {
           activated_at: string | null
