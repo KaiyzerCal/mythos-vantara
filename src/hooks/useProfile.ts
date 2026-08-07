@@ -189,7 +189,7 @@ export function useProfile() {
   const refetchProfile = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-    if (data) setProfile(data as any);
+    if (data) setProfile({ ...(data as any), id: user.id });
   }, [user]);
 
   return { profile, loading, updateProfile, awardXP, refetchProfile };
