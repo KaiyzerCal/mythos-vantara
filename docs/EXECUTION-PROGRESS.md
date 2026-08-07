@@ -1,52 +1,94 @@
 # Vantara Execution Blueprint — Progress
 
-Last updated: 2026-07-28, session 1 (continued)
+Last updated: 2026-08-07 (reconciliation pass — see note below)
+
+**Reconciliation note (2026-08-07):** this doc was stale for ~10 days.
+Between 2026-07-28 and 2026-08-05, at least 6 other Claude Code sessions
+(PRs #117-122, plus #135, #148-157) did real, verified work continuing
+this exact blueprint — much of it with **live Supabase/production access
+this session has never had** — and none of it got recorded here. The
+stage checkboxes and "Where this leaves the blueprint" list below are
+rewritten to match actual current repo state as of today, verified
+directly (file contents, migrations, git history), not taken on faith
+from PR descriptions. Full detail in the findings log's 2026-08-07 entry.
 
 ## Stage status
-- [~] Stage A — Security cleanup (functionally done; 1 item still needs
-  live Supabase confirmation, see below)
-- [~] Stage B — Phase 0: Ground truth inventory (`docs/capability-inventory.md`
-  written, all 314 functions classified via static analysis; live
-  `cron.job`/secrets confirmation still blocked)
-- [~] Stage C — Phase 1: Fix what's broken. Everything statically fixable
-  is done (2 webhook security gaps, trigger-engine cron consolidation, 6
-  stranded cron jobs activated). The blueprint's own "9 broken cron jobs
-  from the original audit" premise didn't match what static reconciliation
-  found (0 dead/renamed targets) — the real issues were different ones,
-  documented above and in capability-inventory.md. Remaining items (env
-  var confirmation, live cron re-check) are blocked on Supabase MCP
-  access, not further static work.
-- [~] Stage D — Phase 2: Orphan triage. All 19 ORPHANED/WEBHOOK? functions
-  triaged (`mavis-yamete` excluded, hands-off): 3 more webhook auth gaps
-  fixed, 4 archived, 3 dispatcher gaps wired in, 5 flagged as real feature
-  work needing Calvin's decision (not built speculatively), 4 confirmed
-  correctly external-only. Orphan count is at zero for anything with a
-  clear disposition — the 5 flagged items are the only open loop, and
-  that's a "needs a product decision" state, not unfinished triage.
-- [x] Stage E — Phase 3: Capabilities Hub + drift-proofing. `/capabilities`
-  page live, generated manifest, CI drift check wired in and empirically
-  verified both directions (added a fake function → check failed;
-  removed it → check passed again, per the blueprint's own instruction).
-- [~] Stage F — Phase 4: Smoke tests. Scope note below — full "every ACTIVE
-  function" coverage exists but is deliberately opt-in, not blindly wired
-  into CI. See findings log for why.
-- [~] Stage G — Phase 5: Composio. Track A code built and wired through the
-  approval gate (items 2-4), but item 1 (create the account, get an API
-  key) is Calvin's to do — untested against a real account. Track B has a
-  shortlist, no cutovers done (needs per-item sign-off, per the
-  blueprint's own instruction).
+- [~] Stage A — Security cleanup. Substantially advanced past the 07-28
+  snapshot — real vulnerabilities found and fixed that weren't even in
+  the original Stage A scope (see findings log). **But there's a live,
+  unresolved concern more urgent than anything else in this doc**: a
+  later session found that fixes which were correctly merged and showed
+  a successful CI deploy were *still exploitable in production* against
+  a real non-operator account (`mavis-code-exec`, `telegram-webhook`) —
+  a gap between "GitHub says deployed" and "Supabase is actually running
+  this code." Force-redeploy PRs (#155, #157) were merged to address it,
+  but nothing in the repo confirms whether that actually closed the gap
+  — this session still can't test it live (Supabase MCP blocked, see
+  below). **Recommend Calvin (or a session with live access) re-verify
+  mavis-code-exec, mavis-comfyui, and telegram-webhook are actually
+  enforcing their fixes in production before trusting any of this.**
+- [~] Stage B — Phase 0: Ground truth inventory. `docs/capability-inventory.md`
+  is now confirmed stale (dated 2026-07-27, doesn't reflect any Aug 2-5
+  work) — needs regeneration, not done in this pass (see "what's left"
+  below). Live `cron.job`/secrets confirmation still blocked.
+- [~] Stage C — Phase 1: Fix what's broken. More cron fixes landed since
+  07-28 (4 more jobs moved off a broken GUC-based secret pattern). The
+  two 07-28 corrective migrations are still present in git; live
+  application to the actual database is still unconfirmed either way.
+- [~] Stage D — Phase 2: Orphan triage. Of the 5 items flagged 07-28 as
+  needing a product decision: 4 (`mavis-team`, `agent-telegram-gateway`,
+  `mavis-event-router`, `mavis-demo`) are genuinely untouched — still
+  open, still Calvin's call. **`local-mesh-proxy` got a real security fix**
+  (unauthenticated RCE + an SSRF pivot closed, PR #135) but that commit's
+  own message says there's still no settings UI to configure it — the
+  actual product question ("should the frontend route through this")
+  is still open. Security got better; the flagged decision didn't move.
+- [x] Stage E — Phase 3: Capabilities Hub + drift-proofing. Unchanged
+  functionally — the generator had a real Windows-only bug fixed since
+  (path separators, CRLF parsing, non-deterministic ordering, PR #120),
+  verified byte-identical output on Linux/CI before and after, so this
+  stage's actual deliverable isn't affected.
+- [~] Stage F — Phase 4: Smoke tests. A related drift bug got fixed and is
+  worth knowing about even though it's not literally this stage: MavisChat
+  and MavisDemo each carried their own ~150-line copy of the action-handler
+  registration and had already drifted twice (missing `composio_action` on
+  one, missing `spotify_*`/`terminal_exec` on the other) — deduped into
+  one shared hook (PR #121), with 15 new tests added for it (PR #122).
+  **Verified discrepancy worth flagging**: PR #122's own test plan reports
+  163 passing; this session's sandbox gets 148 passing + 2 test files that
+  fail to *load* (`@testing-library/react` is in `package.json`/`bun.lock`
+  but missing from this environment's `node_modules`) — looks like an
+  environment install gap specific to this sandbox, not a real code
+  regression, but flagging since it means those 15 tests aren't currently
+  running here.
+- [~] Stage G — Phase 5: Composio. No change since 07-28 — confirmed
+  `mavis-composio-agent` and `classifyComposioAction` are unmodified,
+  still correctly fail closed with no API key, still no evidence a real
+  Composio account/key exists anywhere in the repo. Exactly where it was
+  left; still blocked on Calvin creating the account.
 
 ## Currently in progress
-Calvin said to keep going and finish everything rather than stop at every
-checkpoint — proceeding continuously through the stages now, still
-flagging anything destructive or genuinely blocked rather than plowing
-through those. Stage B's static analysis is done (`docs/capability-
-inventory.md`); moving into Stage C fixes next. Live Supabase MCP access
-is still blocked (see below) — Stage B's live-verification items and
-Stage F's live smoke-test requirement will stay marked unverified until
-that's resolved; not stalling the rest of the work on it.
+Just completed a reconciliation pass (2026-08-07) — this doc had fallen
+~10 days behind real repo state. Not resuming a specific stage right now;
+reported findings and stopping per the blueprint's own checkpoint rule,
+since the most important open item (the deploy-propagation gap on
+security fixes) needs Calvin's/live access's attention before any more
+stage work is worth doing on top of it.
 
 ## Blocked / needs Calvin's decision
+
+0. **NEW, most urgent — confirm security fixes are actually live in
+   production**, not just merged to git. Live testing (from a session
+   with real access) found `mavis-code-exec` still executing arbitrary
+   code for a non-operator account, and `telegram-webhook` still
+   accepting forged requests with a wrong/missing secret, *after* their
+   fixes had merged and CI reported a successful deploy. Force-redeploy
+   PRs #155/#157 were merged as an attempted fix; nothing in the repo
+   confirms the outcome. This session cannot test this (Supabase MCP
+   still blocked, GitHub Actions logs viewable but don't prove runtime
+   behavior). Needs someone with real access to `mavis-code-exec`,
+   `mavis-comfyui`, and `telegram-webhook` to actually hit them and
+   confirm the auth/secret checks are enforced right now.
 
 1. ~~`.env` tracked again~~ — **RESOLVED 2026-07-27**: Calvin confirmed
    Lovable's build genuinely needs `.env` committed. Leaving it as-is,
@@ -390,28 +432,92 @@ that's resolved; not stalling the rest of the work on it.
   All verified: tsc --noEmit clean, vitest 75/75 (53 pre-existing + 22
   new), esbuild on the new function, capabilities manifest regenerated
   and drift-check passes, full `vite build` succeeds.
+- 2026-08-07: **Reconciliation pass.** This doc hadn't been touched since
+  07-28; real repo state had moved much further. Verified via git log,
+  PR history (with a caveat — see below), and direct file/migration
+  reads, not assumption. Key findings, fullest detail in the stage-status
+  section above:
+  - **PRs #117-122 (2026-08-02/03) continued this exact blueprint**,
+    apparently with live Supabase access this session doesn't have: RLS
+    enabled on the 9 originally-flagged tables (#119), 12 real audit
+    findings fixed across Store/Widget Builder/My Agents/Agent
+    Console/Airtable/Integrations/Playbooks/Time Tracking/Receptionist/
+    Self-Evolve (#118), a manifest-generator Windows bug fixed (#120),
+    MavisChat/MavisDemo action-handler drift deduped (#121), baseline
+    test coverage added (#122).
+  - **A second wave (Aug 2-5) found and fixed real security
+    vulnerabilities not in the original blueprint's scope at all**:
+    `mavis-code-exec` had no auth beyond the platform gateway (any
+    authenticated user could execute arbitrary code), `mavis-comfyui`
+    the same plus no rate limit and an attacker-controlled storage path,
+    `mavis_actions`' INSERT/UPDATE policies were `USING(true)` for every
+    role despite being named "Service role can...", `customer_agents`
+    let agent owners PATCH their own billing/plan columns directly,
+    `customer_agent_messages` had no DB-level rate limit on its public
+    insert policy, and `telegram-webhook` failed *open* (accepted
+    requests with zero secret verification) whenever
+    `TELEGRAM_WEBHOOK_SECRET` was unset. All confirmed present in
+    current code by direct read, not taken on faith.
+  - **The one thing that isn't resolved, and matters most**: a
+    deploy-propagation gap where merged fixes with green CI were still
+    not enforced in production when tested live. See "Blocked" item 0
+    above — this needs live re-verification, which this session
+    structurally cannot do.
+  - `local-mesh-proxy` (one of Stage D's 5 flagged items) got a real
+    security fix (unauthenticated RCE + SSRF closed, PR #135) but the
+    actual "should this be wired into frontend routing" product
+    question is still open per that commit's own admission.
+  - `docs/capability-inventory.md` (Stage B's deliverable) is confirmed
+    stale — dated 07-27, doesn't reflect any of the above. Not
+    regenerated in this pass (see below) — would need the same kind of
+    multi-agent static analysis Stage B originally used, done properly
+    rather than rushed.
+  - `mavis-yamete`: confirmed still completely untouched, single commit
+    in its history. Still needs Calvin's call.
+  - Composio (Stage G): confirmed byte-for-byte unchanged since 07-28.
+    No evidence anywhere in the repo that a real account/key exists.
+  - Note on methodology: GitHub's PR "merged" field is **not reliable**
+    in this repo — many PRs going back to #2 show `merged: false` while
+    their content is verifiably live on `main` (Lovable pushes directly
+    to `main` outside the PR flow regularly). Cross-checked every claim
+    in this entry against actual file/migration contents on `main`, not
+    PR metadata.
 
 ## Where this leaves the blueprint
 
-All 7 stages have real, verified work done. Nothing was faked or rubber-
-stamped closed — every `[~]` above means "did everything checkable without
-live Supabase/Composio access," not "fully done." What's left, all
-requiring Calvin directly (nothing here is more static analysis this
-session could do):
-- Grant Supabase MCP tool approval so Stage A/B/C/F's live-verification
-  items can actually happen (live `cron.job` table, live security
-  advisors, live secrets confirmation) — flagged repeatedly, never
-  resolved this session.
-- Apply the two Stage C corrective migrations
+Real, verified work has happened across every stage, much of it by
+sessions with live access this one doesn't have. Nothing here is faked or
+rubber-stamped — every `[~]` means "verified everything checkable from
+this session," not "fully done." What's left, roughly in priority order:
+
+- **Confirm live-in-production status of the security fixes** — highest
+  priority, see "Blocked" item 0. `mavis-code-exec`, `mavis-comfyui`, and
+  `telegram-webhook` specifically; the deploy-propagation gap that caused
+  this could affect other recently-"fixed" functions too, not just these
+  three.
+- Grant Supabase MCP tool approval so live verification (cron.job table,
+  security advisors, secrets, RLS confirmation post-migration) can happen
+  from this session going forward — flagged repeatedly since 07-27,
+  never resolved.
+- Regenerate `docs/capability-inventory.md` properly (Stage B redone) —
+  it's now materially out of date and shouldn't be trusted for current
+  function counts/status until refreshed.
+- Confirm the Stage C corrective migrations
   (`20260728000000_fix_trigger_engine_cron.sql`,
-  `20260728000001_activate_stranded_cron_jobs.sql`) to the live project.
-- Decide on the 5 Stage D items flagged as real feature work
-  (`mavis-team`, `agent-telegram-gateway`, `local-mesh-proxy`,
-  `mavis-event-router`, `mavis-demo`).
-- Decide on `mavis-yamete` (untouched all session, per ground rules).
+  `20260728000001_activate_stranded_cron_jobs.sql`) and the various
+  RLS-enabling migrations from Aug 2-5 have actually been applied to the
+  live database, not just committed to git.
+- Decide on the 4 still-fully-open Stage D items (`mavis-team`,
+  `agent-telegram-gateway`, `mavis-event-router`, `mavis-demo`), and
+  separately decide whether `local-mesh-proxy` should get a frontend
+  routing path now that its security gap is closed.
+- Decide on `mavis-yamete` (untouched since session 1, per ground rules).
 - Set up the staging GitHub Environment secrets so Stage F's smoke-test
   gate actually runs (documented in `DEPLOYMENT.md`).
+- Fix this sandbox's `node_modules`/`@testing-library/react` install gap
+  (likely just a fresh `bun install`) if full test-suite runs from a
+  Claude Code session matter going forward.
 - Create the Composio account / API key (Stage G Track A step 1), then
   smoke-test `mavis-composio-agent` for real before trusting it.
-- Review the Stage G Track B shortlist and decide per-integration,
-  one at a time.
+- Review the Stage G Track B shortlist and decide per-integration, one
+  at a time.
