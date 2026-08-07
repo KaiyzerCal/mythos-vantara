@@ -8931,6 +8931,7 @@ export type Database = {
           aura_power: string
           avatar_url: string | null
           codex_integrity: number
+          composio_enabled: boolean
           created_at: string
           current_bpm: number
           current_floor: number
@@ -8971,6 +8972,7 @@ export type Database = {
           aura_power?: string
           avatar_url?: string | null
           codex_integrity?: number
+          composio_enabled?: boolean
           created_at?: string
           current_bpm?: number
           current_floor?: number
@@ -9011,6 +9013,7 @@ export type Database = {
           aura_power?: string
           avatar_url?: string | null
           codex_integrity?: number
+          composio_enabled?: boolean
           created_at?: string
           current_bpm?: number
           current_floor?: number
@@ -11508,6 +11511,27 @@ export type Database = {
           duration_ms?: number | null
           id?: string
           overlay_type?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      web_push_subscriptions: {
+        Row: {
+          created_at: string
+          id: string
+          subscription: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          subscription: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          subscription?: Json
           user_id?: string
         }
         Relationships: []
