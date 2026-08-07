@@ -1164,6 +1164,139 @@ async function executeCreateGBPPost(p: Record<string, unknown>, uid: string, sb:
   return { post_name: data.name, topic_type, timestamp: new Date().toISOString() };
 }
 
+// ── MCP (Model Context Protocol) server ─────────────────────────────────────
+// Exposes the same action_types routeActionType() already handles as a real
+// MCP server (initialize / tools/list / tools/call over JSON-RPC 2.0), so
+// any MCP client — Claude Desktop, Claude Code, etc. — can call them
+// directly instead of only Mavis's own orchestrator. Reuses every
+// execute* implementation unchanged; this only adds a protocol shim.
+//
+// Schemas below are accurate for the actions with real required-field
+// validation in their handlers; the rest use a permissive object schema
+// since the underlying handler already validates and errors clearly on
+// missing fields — this isn't a second source of truth to keep in sync.
+
+const MCP_PROTOCOL_VERSION = "2026-07-28";
+
+interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+function permissiveSchema(hint: string): Record<string, unknown> {
+  return { type: "object", description: hint, additionalProperties: true };
+}
+
+const MCP_TOOLS: McpTool[] = [
+  // ── Gmail ──────────────────────────────────────────────────────────────
+  { name: "draft_email", description: "Send an email via Gmail (despite the name, this sends immediately).", inputSchema: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, cc: { type: "string" }, bcc: { type: "string" }, reply_to_message_id: { type: "string" } }, required: ["to", "subject", "body"] } },
+  { name: "get_emails", description: "Search/list Gmail messages.", inputSchema: { type: "object", properties: { query: { type: "string" }, max_results: { type: "number" } } } },
+  { name: "get_email_thread", description: "Get a full Gmail thread by ID.", inputSchema: { type: "object", properties: { thread_id: { type: "string" } }, required: ["thread_id"] } },
+  { name: "list_gmail_labels", description: "List all Gmail labels.", inputSchema: { type: "object", properties: {} } },
+  { name: "create_gmail_label", description: "Create a new Gmail label.", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  { name: "apply_gmail_label", description: "Apply a label to a Gmail thread.", inputSchema: permissiveSchema("thread_id, label_id") },
+  { name: "archive_email", description: "Archive a Gmail thread.", inputSchema: { type: "object", properties: { thread_id: { type: "string" } }, required: ["thread_id"] } },
+  { name: "delete_email", description: "Delete a Gmail message.", inputSchema: { type: "object", properties: { message_id: { type: "string" } }, required: ["message_id"] } },
+  { name: "mark_email", description: "Mark a Gmail thread read/unread.", inputSchema: { type: "object", properties: { thread_id: { type: "string" }, mark_read: { type: "boolean" } }, required: ["thread_id"] } },
+  // ── Calendar ───────────────────────────────────────────────────────────
+  { name: "schedule_event", description: "Create a Google Calendar event.", inputSchema: { type: "object", properties: { title: { type: "string" }, start: { type: "string", description: "ISO 8601" }, end: { type: "string", description: "ISO 8601" }, description: { type: "string" }, attendees: { type: "array", items: { type: "string" } }, location: { type: "string" } }, required: ["title", "start", "end"] } },
+  { name: "get_calendar_events", description: "List Google Calendar events in a time range.", inputSchema: { type: "object", properties: { time_min: { type: "string" }, time_max: { type: "string" }, max_results: { type: "number" } } } },
+  { name: "get_availability", description: "Check free/busy availability in a time range.", inputSchema: { type: "object", properties: { time_min: { type: "string" }, time_max: { type: "string" } }, required: ["time_min", "time_max"] } },
+  { name: "update_event", description: "Update an existing calendar event.", inputSchema: { type: "object", properties: { event_id: { type: "string" }, title: { type: "string" }, start: { type: "string" }, end: { type: "string" }, description: { type: "string" }, location: { type: "string" } }, required: ["event_id"] } },
+  { name: "delete_event", description: "Delete a calendar event.", inputSchema: { type: "object", properties: { event_id: { type: "string" } }, required: ["event_id"] } },
+  { name: "schedule_meet", description: "Create a calendar event with a Google Meet link.", inputSchema: permissiveSchema("title, start, end, entryPointType") },
+  // ── Google Tasks ───────────────────────────────────────────────────────
+  { name: "create_task", description: "Create a Google Task.", inputSchema: { type: "object", properties: { title: { type: "string" }, description: { type: "string" }, due_date: { type: "string" } }, required: ["title"] } },
+  { name: "list_google_tasks", description: "List Google Tasks.", inputSchema: { type: "object", properties: { tasklist_id: { type: "string" } } } },
+  { name: "complete_google_task", description: "Mark a Google Task complete.", inputSchema: { type: "object", properties: { task_id: { type: "string" }, tasklist_id: { type: "string" } }, required: ["task_id"] } },
+  { name: "update_google_task", description: "Update a Google Task.", inputSchema: { type: "object", properties: { task_id: { type: "string" }, tasklist_id: { type: "string" }, title: { type: "string" }, notes: { type: "string" }, due: { type: "string" } }, required: ["task_id"] } },
+  // ── Drive / Docs / Sheets / Slides ─────────────────────────────────────
+  { name: "list_drive_files", description: "List files in a Drive folder.", inputSchema: { type: "object", properties: { folder_id: { type: "string" }, max_results: { type: "number" } } } },
+  { name: "search_drive_files", description: "Search Drive files by name or content.", inputSchema: { type: "object", properties: { name: { type: "string" }, text: { type: "string" } } } },
+  { name: "get_file_info", description: "Get metadata for a Drive file.", inputSchema: { type: "object", properties: { file_id: { type: "string" } }, required: ["file_id"] } },
+  { name: "read_file", description: "Read a Drive file's content.", inputSchema: { type: "object", properties: { file_id: { type: "string" } }, required: ["file_id"] } },
+  { name: "create_drive_file", description: "Create a file in Drive.", inputSchema: { type: "object", properties: { title: { type: "string" }, name: { type: "string" }, content: { type: "string" }, mime_type: { type: "string" }, folder_id: { type: "string" } } } },
+  { name: "update_drive_file", description: "Update an existing Drive file's content.", inputSchema: permissiveSchema("file_id, content") },
+  { name: "create_drive_folder", description: "Create a folder in Drive.", inputSchema: { type: "object", properties: { name: { type: "string" }, parent_id: { type: "string" } }, required: ["name"] } },
+  { name: "move_file", description: "Move a Drive file to a new parent folder.", inputSchema: { type: "object", properties: { file_id: { type: "string" }, new_parent_id: { type: "string" } }, required: ["file_id", "new_parent_id"] } },
+  { name: "trash_file", description: "Delete (trash) a Drive file.", inputSchema: { type: "object", properties: { file_id: { type: "string" } }, required: ["file_id"] } },
+  { name: "rename_file", description: "Rename a Drive file.", inputSchema: { type: "object", properties: { file_id: { type: "string" }, new_name: { type: "string" } }, required: ["file_id", "new_name"] } },
+  { name: "share_file", description: "Share a Drive file with an email address.", inputSchema: { type: "object", properties: { file_id: { type: "string" }, email: { type: "string" }, role: { type: "string", description: "reader | writer | commenter, default reader" } }, required: ["file_id", "email"] } },
+  { name: "read_doc", description: "Read a Google Doc's content.", inputSchema: { type: "object", properties: { document_id: { type: "string" } }, required: ["document_id"] } },
+  { name: "delete_document", description: "Delete a Google Doc.", inputSchema: { type: "object", properties: { document_id: { type: "string" } }, required: ["document_id"] } },
+  { name: "create_spreadsheet", description: "Create a Google Sheet.", inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } },
+  { name: "read_sheet", description: "Read a range from a Google Sheet.", inputSchema: { type: "object", properties: { spreadsheet_id: { type: "string" }, range: { type: "string" } }, required: ["spreadsheet_id"] } },
+  { name: "update_sheet", description: "Write values into a Google Sheet range.", inputSchema: permissiveSchema("spreadsheet_id, range, values") },
+  { name: "create_slides", description: "Create a Google Slides presentation.", inputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] } },
+  { name: "read_presentation", description: "Read a Google Slides presentation's content.", inputSchema: { type: "object", properties: { presentation_id: { type: "string" } }, required: ["presentation_id"] } },
+  // ── Contacts ───────────────────────────────────────────────────────────
+  { name: "create_contact", description: "Create a Google Contact.", inputSchema: { type: "object", properties: { name: { type: "string" }, email: { type: "string" }, phone: { type: "string" }, company: { type: "string" }, notes: { type: "string" } }, required: ["name"] } },
+  { name: "list_contacts", description: "List Google Contacts.", inputSchema: { type: "object", properties: { max_results: { type: "number" } } } },
+  { name: "search_contacts", description: "Search Google Contacts.", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+  { name: "update_contact", description: "Update a Google Contact.", inputSchema: { type: "object", properties: { resource_name: { type: "string" }, name: { type: "string" }, email: { type: "string" }, phone: { type: "string" }, notes: { type: "string" } }, required: ["resource_name"] } },
+  { name: "delete_contact", description: "Delete a Google Contact.", inputSchema: { type: "object", properties: { resource_name: { type: "string" } }, required: ["resource_name"] } },
+  // ── Google Business Profile ────────────────────────────────────────────
+  { name: "get_reviews", description: "Get Google Business Profile reviews.", inputSchema: { type: "object", properties: { account_name: { type: "string" }, location_name: { type: "string" } } } },
+  { name: "respond_to_review", description: "Reply to a Google Business Profile review.", inputSchema: { type: "object", properties: { location_name: { type: "string" }, review_id: { type: "string" }, reply: { type: "string" } }, required: ["location_name", "review_id", "reply"] } },
+  { name: "create_business_post", description: "Create a Google Business Profile post.", inputSchema: { type: "object", properties: { location_name: { type: "string" }, content: { type: "string" }, topic_type: { type: "string" }, call_to_action_url: { type: "string" } }, required: ["location_name", "content"] } },
+  // ── Other ──────────────────────────────────────────────────────────────
+  { name: "post_social", description: "Post to a connected social platform (twitter, etc).", inputSchema: { type: "object", properties: { platform: { type: "string" }, body: { type: "string" } }, required: ["platform", "body"] } },
+  { name: "generate_image", description: "Generate an image.", inputSchema: permissiveSchema("prompt and generation options") },
+  { name: "generate_video", description: "Generate a video.", inputSchema: permissiveSchema("prompt and generation options") },
+  { name: "make_call", description: "Place a phone call.", inputSchema: permissiveSchema("to, script/purpose") },
+];
+
+function mcpError(id: unknown, code: number, message: string) {
+  return json({ jsonrpc: "2.0", id, error: { code, message } });
+}
+
+function mcpResult(id: unknown, result: unknown) {
+  return json({ jsonrpc: "2.0", id, result });
+}
+
+async function handleMcpRequest(
+  body: Record<string, unknown>,
+  userId: string,
+  adminSb: ReturnType<typeof createClient>,
+): Promise<Response> {
+  const { method, params, id } = body as { method: string; params?: Record<string, unknown>; id?: unknown };
+
+  if (method === "initialize") {
+    return mcpResult(id, {
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      capabilities: { tools: {} },
+      serverInfo: { name: "mavis-assistant", version: "1.0.0" },
+    });
+  }
+
+  if (method === "notifications/initialized") {
+    // Notifications have no response per the MCP spec.
+    return new Response(null, { status: 202, headers: corsHeaders });
+  }
+
+  if (method === "tools/list") {
+    return mcpResult(id, { tools: MCP_TOOLS });
+  }
+
+  if (method === "tools/call") {
+    const toolName = String(params?.name ?? "");
+    const args = (params?.arguments ?? {}) as Record<string, unknown>;
+    if (!MCP_TOOLS.some((t) => t.name === toolName)) {
+      return mcpError(id, -32602, `Unknown tool: ${toolName}`);
+    }
+    try {
+      const result = await routeActionType(toolName, args, userId, adminSb);
+      return mcpResult(id, { content: [{ type: "text", text: JSON.stringify(result) }] });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return mcpResult(id, { content: [{ type: "text", text: `Error: ${msg}` }], isError: true });
+    }
+  }
+
+  return mcpError(id, -32601, `Unknown method: ${method}`);
+}
+
 // ── Route action_type ─────────────────────────────────────────────────────────
 
 async function routeActionType(
@@ -1336,6 +1469,16 @@ serve(async (req) => {
       userId = String((body.userId ?? body.user_id) ?? "").trim();
     }
     if (!userId) return json({ ok: false, error: "x-user-id or user_id required for service role calls" }, 401);
+
+    // ── MCP (Model Context Protocol) requests ──────────────────────────────
+    // Any JSON-RPC 2.0 request is routed here instead of the existing
+    // action-queue dispatch below — auth (userId) is already resolved
+    // above, so this reuses the exact same trust boundary as every other
+    // call into this function.
+    if (body.jsonrpc === "2.0" && typeof body.method === "string") {
+      return await handleMcpRequest(body, userId, adminSb);
+    }
+
     const { action, queue_item_id, reason, status, limit } = body as {
       action: string;
       queue_item_id?: string;
