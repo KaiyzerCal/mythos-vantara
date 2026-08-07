@@ -8,7 +8,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Bell, CheckCircle2, Eye, Trash2, Loader2, RefreshCw, AlertTriangle, Info, Zap, Activity, Lightbulb, Smartphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { canRegisterForPush, getPushPermissionState, requestPushRegistration } from "@/mavis/pushNotifications";
+import {
+  canRegisterForPush, getPushPermissionState, requestPushRegistration,
+  isWebPushSupported, getWebPushSubscriptionState, subscribeWebPush, unsubscribeWebPush,
+} from "@/mavis/pushNotifications";
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
@@ -76,18 +79,33 @@ export function NotificationsPage() {
   // "appropriate point in onboarding" the brief asked for: the operator has
   // explicitly navigated to notification settings, showing real intent,
   // rather than the OS permission prompt firing cold on first app launch.
+  // Browser/PWA builds (not native) use the VAPID web-push path instead —
+  // same UI, different registration mechanism underneath.
+  const isWeb = isWebPushSupported();
   const [pushState, setPushState] = useState<"unsupported" | "granted" | "denied" | "prompt" | "checking">("checking");
   useEffect(() => {
+    if (isWeb) {
+      getWebPushSubscriptionState().then(setPushState).catch(() => setPushState("unsupported"));
+      return;
+    }
     if (!canRegisterForPush()) { setPushState("unsupported"); return; }
     getPushPermissionState().then(setPushState).catch(() => setPushState("unsupported"));
-  }, []);
+  }, [isWeb]);
   async function enablePush() {
     if (!session?.user?.id) return;
     setPushState("checking");
-    const result = await requestPushRegistration(session.user.id);
+    const result = isWeb
+      ? await subscribeWebPush(session.user.id)
+      : await requestPushRegistration(session.user.id);
     if (result.status === "registered") setPushState("granted");
     else if (result.status === "denied") setPushState("denied");
     else { setPushState("prompt"); if (result.status === "error") toast.error(`Push registration failed: ${result.message}`); }
+  }
+  async function disablePush() {
+    if (!session?.user?.id || !isWeb) return;
+    setPushState("checking");
+    await unsubscribeWebPush(session.user.id);
+    setPushState("prompt");
   }
 
   const load = useCallback(async () => {
@@ -187,14 +205,14 @@ export function NotificationsPage() {
         }
       />
 
-      {/* Native push notifications — only shown inside a Capacitor build */}
+      {/* Push notifications — native (Capacitor) or browser (VAPID web push) */}
       {pushState !== "unsupported" && (
         <HudCard>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <Smartphone size={16} className="text-primary shrink-0" />
               <div>
-                <p className="text-xs font-mono text-foreground">Push notifications</p>
+                <p className="text-xs font-mono text-foreground">Push notifications{isWeb ? " (browser)" : ""}</p>
                 <p className="text-[11px] text-muted-foreground">
                   {pushState === "granted" && "Enabled — proactive nudges reach this device directly."}
                   {pushState === "denied" && "Denied in device settings. Enable in your phone's app permissions."}
@@ -209,6 +227,14 @@ export function NotificationsPage() {
                 className="shrink-0 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-colors"
               >
                 Enable
+              </button>
+            )}
+            {pushState === "granted" && isWeb && (
+              <button
+                onClick={disablePush}
+                className="shrink-0 px-3 py-1.5 text-xs font-mono bg-muted border border-border text-muted-foreground rounded hover:border-destructive/40 hover:text-destructive transition-colors"
+              >
+                Disable
               </button>
             )}
           </div>

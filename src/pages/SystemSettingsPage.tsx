@@ -2010,6 +2010,104 @@ function DeviceIcon({ platform }: { platform: string | null }) {
   return <Globe size={14} />;
 }
 
+// ============================================================
+// IntegrationsTab — Composio real-world tool access, on/off + connect
+// ============================================================
+
+function IntegrationsTab() {
+  const { user } = useAuth() as any;
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toolkitSlug, setToolkitSlug] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [connectUrl, setConnectUrl] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    (supabase as any)
+      .from("profiles")
+      .select("composio_enabled")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data }: any) => {
+        setEnabled(!!data?.composio_enabled);
+        setLoading(false);
+      });
+  }, [user?.id]);
+
+  async function toggleEnabled() {
+    if (!user?.id) return;
+    setSaving(true);
+    const next = !enabled;
+    const { error } = await (supabase as any).from("profiles").update({ composio_enabled: next }).eq("id", user.id);
+    if (error) toast.error(error.message);
+    else setEnabled(next);
+    setSaving(false);
+  }
+
+  async function connect() {
+    const slug = toolkitSlug.trim().toLowerCase();
+    if (!slug || connecting) return;
+    setConnecting(true);
+    setConnectError(null);
+    setConnectUrl(null);
+    const { data, error } = await supabase.functions.invoke("mavis-composio-agent", {
+      body: { action: "connect", toolkit_slug: slug },
+    });
+    if (error || data?.error) {
+      setConnectError(data?.error ?? error?.message ?? "Failed to start connection.");
+    } else if (data?.connect_url) {
+      setConnectUrl(data.connect_url);
+    } else {
+      setConnectError("No connection link returned.");
+    }
+    setConnecting(false);
+  }
+
+  if (loading) {
+    return <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="border border-border rounded-lg p-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-mono text-foreground">Real-World Tools (Composio)</p>
+          <p className="text-xs font-mono text-muted-foreground mt-0.5 max-w-md">
+            When enabled, MAVIS can act on real-world accounts you connect (Gmail, Calendar, Slack, Notion, etc.) via Composio, not just its own data.
+          </p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={toggleEnabled} disabled={saving} />
+      </div>
+
+      {enabled && (
+        <div className="border border-border rounded-lg p-4 space-y-2">
+          <p className="text-xs font-mono text-muted-foreground">Connect an app</p>
+          <div className="flex gap-2">
+            <Input
+              className="text-xs font-mono h-9"
+              placeholder="e.g. gmail, slack, notion"
+              value={toolkitSlug}
+              onChange={(e) => setToolkitSlug(e.target.value)}
+            />
+            <Button onClick={connect} disabled={connecting || !toolkitSlug.trim()} size="sm" className="h-9 text-xs">
+              {connecting ? <Loader2 size={12} className="animate-spin" /> : "Connect"}
+            </Button>
+          </div>
+          {connectUrl && (
+            <a href={connectUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-primary hover:underline block">
+              Finish authorizing {toolkitSlug.trim()} →
+            </a>
+          )}
+          {connectError && <p className="text-xs font-mono text-red-400">{connectError}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DevicesTab() {
   const { user } = useAuth() as any;
   const [devices, setDevices] = useState<DeviceSession[]>([]);
@@ -2264,6 +2362,10 @@ export function SystemSettingsPage() {
             <Monitor size={12} />
             Devices
           </TabsTrigger>
+          <TabsTrigger value="integrations" className="gap-1.5 text-xs font-mono">
+            <Zap size={12} />
+            Integrations
+          </TabsTrigger>
           <TabsTrigger value="llm-analytics" className="gap-1.5 text-xs font-mono">
             <BarChart2 size={12} />
             LLM Analytics
@@ -2292,6 +2394,10 @@ export function SystemSettingsPage() {
 
         <TabsContent value="devices">
           <DevicesTab />
+        </TabsContent>
+
+        <TabsContent value="integrations">
+          <IntegrationsTab />
         </TabsContent>
 
         <TabsContent value="llm-analytics">
