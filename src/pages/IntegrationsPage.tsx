@@ -414,7 +414,7 @@ export function IntegrationsPage() {
         for (const provider of group.providers) {
           editing[provider.id] = {};
           for (const k of provider.keys) {
-            editing[provider.id][k] = grouped[provider.id]?.[k] ?? "";
+            editing[provider.id][k] = "";
           }
         }
       }
