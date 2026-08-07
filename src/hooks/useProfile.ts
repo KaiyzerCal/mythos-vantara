@@ -4,6 +4,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getRankForLevel, calculateXPForLevel } from "@/types/rpg";
 
 export interface ProfileData {
+  // Identity (from auth.users)
+  id: string;
   // Identity
   inscribed_name: string;
   true_name: string | null;
@@ -64,6 +66,7 @@ export interface ProfileData {
 }
 
 const defaults: ProfileData = {
+  id: "",
   inscribed_name: "Black Sun Monarch",
   true_name: null,
   titles: ["The Architect", "Sovereign of CODEXOS"],
@@ -127,7 +130,7 @@ export function useProfile() {
       .then(({ data, error }) => {
         if (error) console.error("[useProfile] Failed to load profile:", error.message);
         if (data) {
-          setProfile(data as any);
+          setProfile({ ...(data as any), id: user.id });
           // Auto-set timezone on first load if still default
           const stored = (data as any).timezone as string | undefined;
           if (!stored || stored === "UTC") {
@@ -186,7 +189,7 @@ export function useProfile() {
   const refetchProfile = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-    if (data) setProfile(data as any);
+    if (data) setProfile({ ...(data as any), id: user.id });
   }, [user]);
 
   return { profile, loading, updateProfile, awardXP, refetchProfile };
