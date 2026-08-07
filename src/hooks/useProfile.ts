@@ -130,7 +130,7 @@ export function useProfile() {
       .then(({ data, error }) => {
         if (error) console.error("[useProfile] Failed to load profile:", error.message);
         if (data) {
-          setProfile(data as any);
+          setProfile({ ...(data as any), id: user.id });
           // Auto-set timezone on first load if still default
           const stored = (data as any).timezone as string | undefined;
           if (!stored || stored === "UTC") {
