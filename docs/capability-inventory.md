@@ -5,6 +5,14 @@ Static analysis only — live `cron.job` table, live Supabase secrets, and
 live deploy status remain unverified pending Supabase MCP access. Where
 this table says "not verified," that's the reason.
 
+> **STALE as of 2026-08-07** — confirmed during a progress-doc
+> reconciliation pass (see `docs/EXECUTION-PROGRESS.md`'s 2026-08-07
+> findings-log entry). This table predates a significant wave of Aug 2-5
+> security/triage work (new tables, RLS fixes, cron fixes, function
+> auth fixes) and does not reflect current function counts or status.
+> Do not treat the numbers below as current until this file is
+> regenerated — flagged as an open item, not fixed in that pass.
+
 **How to read the table**: `Frontend?`/`Other functions?` are grep-verified
 call sites (see methodology below — false positives filtered, dynamic call
 sites resolved by hand where possible). `Cron/webhook?` marks `cron` (a real
