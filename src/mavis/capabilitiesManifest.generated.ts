@@ -830,7 +830,8 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": null,
     "status": "ACTIVE",
     "calledFromFrontend": [
-      "src/mavis/useMavisActionHandlers.ts"
+      "src/mavis/useMavisActionHandlers.ts",
+      "src/pages/SystemSettingsPage.tsx"
     ],
     "calledFromBackend": [],
     "isCronTarget": false,

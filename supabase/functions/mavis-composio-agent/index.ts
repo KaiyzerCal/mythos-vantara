@@ -61,24 +61,44 @@ serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   try {
-    const body = await req.json().catch(() => ({})) as { tool_slug?: string; params?: Record<string, unknown>; user_id?: string };
+    const body = await req.json().catch(() => ({})) as { action?: string; tool_slug?: string; toolkit_slug?: string; params?: Record<string, unknown>; user_id?: string };
     const userId = await resolveUserId(req, body.user_id);
     if (!userId) return json({ error: "Unauthorized" }, 401);
 
-    const toolSlug = String(body.tool_slug ?? "").trim();
-    if (!toolSlug) return json({ error: "tool_slug is required" }, 400);
+    const { data: profile } = await adminSb.from("profiles").select("composio_enabled").eq("id", userId).maybeSingle();
+    if (!profile?.composio_enabled) {
+      return json({ successful: false, error: "Composio isn't enabled for this operator. Toggle it on in Settings → Integrations." }, 403);
+    }
 
     if (!COMPOSIO_API_KEY) {
-      // No silent fallback — surfaces in mavis_events so a missing key
-      // doesn't stay invisible the way it did for the webhook gaps found
-      // in Stage D.
       await adminSb.from("mavis_events").insert({
         event_name: "fallback_triggered",
         user_id: userId,
-        metadata: { function: "mavis-composio-agent", reason: "COMPOSIO_API_KEY not set", tool_slug: toolSlug },
+        metadata: { function: "mavis-composio-agent", reason: "COMPOSIO_API_KEY not set" },
       }).then(() => {}, () => {});
       return json({ successful: false, error: "COMPOSIO_API_KEY is not configured. See Track A of the Execution Blueprint's Stage G." }, 503);
     }
+
+    // ── Connect-account flow (settings UI "Connect an app" button) ─────────
+    if (body.action === "connect") {
+      const toolkitSlug = String(body.toolkit_slug ?? "").trim();
+      if (!toolkitSlug) return json({ error: "toolkit_slug is required" }, 400);
+      const res = await fetch(`${COMPOSIO_BASE}/connected-accounts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": COMPOSIO_API_KEY },
+        body: JSON.stringify({ user_id: userId, toolkit_slug: toolkitSlug }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const text = await res.text();
+      let data: any = null;
+      try { data = JSON.parse(text); } catch { /* non-JSON */ }
+      if (!res.ok) return json({ error: `Composio ${res.status}: ${text.slice(0, 500)}` }, res.status >= 500 ? 502 : res.status);
+      const connectUrl = data?.connection_url ?? data?.redirect_url ?? data?.url ?? null;
+      return json({ connect_url: connectUrl });
+    }
+
+    const toolSlug = String(body.tool_slug ?? "").trim();
+    if (!toolSlug) return json({ error: "tool_slug is required" }, 400);
 
     const res = await fetch(`${COMPOSIO_BASE}/tools/execute/${encodeURIComponent(toolSlug)}`, {
       method: "POST",

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import webpush from "https://esm.sh/web-push@3.6.7";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,6 +93,10 @@ serve(async (req: Request) => {
     const APNS_TEAM_ID = Deno.env.get("APNS_TEAM_ID");
     const APNS_AUTH_KEY = Deno.env.get("APNS_AUTH_KEY");
     const apnsConfigured = !!(APNS_KEY_ID && APNS_TEAM_ID && APNS_AUTH_KEY);
+
+    const VAPID_PUBLIC_KEY  = Deno.env.get("VAPID_PUBLIC_KEY")  ?? "";
+    const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY") ?? "";
+    const VAPID_SUBJECT     = Deno.env.get("VAPID_SUBJECT")     ?? "mailto:admin@vantara.app";
 
     // ── Fetch active device tokens for user ──────────────────────────────────
     const { data: tokens, error: fetchError } = await supabase
@@ -231,6 +236,39 @@ serve(async (req: Request) => {
           .update({ error_count: tokenRow.error_count + 1 })
           .eq("id", tokenId);
         failed++;
+      }
+    }
+
+    // ── Web Push (VAPID) — browser/PWA, separate from the FCM/APNS native
+    // token table above. Runs unconditionally alongside it; a user can have
+    // both a native token and a browser subscription.
+    if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+      const { data: webSub } = await supabase
+        .from("web_push_subscriptions")
+        .select("subscription")
+        .eq("user_id", input.user_id)
+        .maybeSingle();
+
+      if (webSub?.subscription) {
+        try {
+          webpush.setVapidDetails(
+            VAPID_SUBJECT.startsWith("mailto:") ? VAPID_SUBJECT : `mailto:${VAPID_SUBJECT}`,
+            VAPID_PUBLIC_KEY,
+            VAPID_PRIVATE_KEY,
+          );
+          await webpush.sendNotification(
+            webSub.subscription,
+            JSON.stringify({ title: input.title, body: input.body, url: (input.data as any)?.url ?? "/" }),
+          );
+          sent++;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("410") || msg.includes("404") || msg.includes("Gone")) {
+            await supabase.from("web_push_subscriptions").delete().eq("user_id", input.user_id);
+          }
+          console.error(`Web push failed for user ${input.user_id}: ${msg}`);
+          failed++;
+        }
       }
     }
 
