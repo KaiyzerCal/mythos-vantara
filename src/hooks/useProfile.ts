@@ -4,6 +4,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getRankForLevel, calculateXPForLevel } from "@/types/rpg";
 
 export interface ProfileData {
+  // Identity (from auth.users)
+  id: string;
   // Identity
   inscribed_name: string;
   true_name: string | null;
