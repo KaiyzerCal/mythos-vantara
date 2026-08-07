@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseProposedActions, submitProposalsForApproval } from "@/mavis/proposeAction";
 import { buildPersonaVoiceSystemPrompt } from "@/mavis/councilPersona";
 import { CopyButton } from "@/components/chat/CopyButton";
+import { truncateAtWord } from "@/lib/truncateAtWord";
 
 const MOOD_EMOJI: Record<string, string> = {
   happy: "😊", sad: "😔", excited: "⚡", frustrated: "😤",
@@ -282,12 +283,12 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
           .join("\n\n");
         const topicSummary = messages
           .slice(-20)
-          .map((m) => `${m.role === "user" ? "OP" : "P"}: ${m.content.slice(0, 300)}`)
+          .map((m) => `${m.role === "user" ? "OP" : "P"}: ${truncateAtWord(m.content, 300)}`)
           .join("\n");
         await supabase.from("memories").insert({
           user_id: userId,
           title: `Persona: ${persona.name} — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-          content: fullThread.slice(0, 50000),
+          content: truncateAtWord(fullThread, 50000),
           memory_type: "conversation",
           source: "persona_chat_clear",
           tags: ["persona", persona.name.toLowerCase(), persona.role, "archived"],

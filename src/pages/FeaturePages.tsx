@@ -22,6 +22,7 @@ import type { VoicePersona } from "@/components/VoiceChatOverlay";
 import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt, buildContextSummary } from "@/mavis/councilPersona";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import type { AppContextSnapshot } from "@/mavis/appContextLoader";
+import { truncateAtWord } from "@/lib/truncateAtWord";
 
 const QUEST_TYPES = ["all", "main", "epic", "side", "daily"] as const;
 const QUEST_STATUSES = ["all", "active", "completed", "failed", "locked"] as const;
@@ -1251,7 +1252,7 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
       if (!session?.user) throw new Error("Not authenticated");
       const condensed = messages
         .filter((m) => m.id !== "init")
-        .map((m) => `[${m.role === "user" ? "OP" : member.name.toUpperCase()}] ${m.content.slice(0, 300)}${m.content.length > 300 ? "…" : ""}`)
+        .map((m) => `[${m.role === "user" ? "OP" : member.name.toUpperCase()}] ${truncateAtWord(m.content, 300)}`)
         .join("\n");
       const { error } = await supabase.from("omnisync_snapshots").insert({
         user_id: session.user.id,
@@ -1321,7 +1322,7 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
           .limit(5);
         if (mems?.length) {
           memoriesContext = "\n\nARCHIVED MEMORIES (past conversations and key info — reference naturally):\n" +
-            mems.map((m: any) => `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`).join("\n---\n");
+            mems.map((m: any) => `[${m.title}]\n${(m.metadata as any)?.topic_summary || truncateAtWord(m.content, 1000)}`).join("\n---\n");
         }
       }
     } catch {} // Non-critical

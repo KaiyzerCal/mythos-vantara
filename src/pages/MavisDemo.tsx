@@ -8,6 +8,7 @@ import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
 import { initSession } from "@/mavis/memoryEngine";
+import { truncateAtWord } from "@/lib/truncateAtWord";
 import { loadRuntimeSkills } from "@/mavis/skills/_registry";
 import { gatherProviderContext } from "@/mavis/contextProviders";
 import { buildRecallContext } from "@/mavis/proactiveRecall";
@@ -468,7 +469,7 @@ export default function MavisDemo() {
           const { data: memories } = await supabase.from("memories").select("title, content, metadata, created_at")
             .eq("user_id", userId).or("source.eq.mavis_chat_clear,source.eq.mavis_auto_memory,source.eq.council_chat_clear")
             .order("created_at", { ascending: false }).limit(5);
-          return (memories ?? []).map((m: any) => `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`).join("\n---\n");
+          return (memories ?? []).map((m: any) => `[${m.title}]\n${(m.metadata as any)?.topic_summary || truncateAtWord(m.content, 1000)}`).join("\n---\n");
         } catch { return ""; }
       })(),
       userId ? gatherProviderContext(userId, content).catch(() => "") : Promise.resolve(""),
@@ -657,13 +658,13 @@ export default function MavisDemo() {
         const topicSummary = (chatMessages as any[])
           .filter((m: any) => m.id !== "init")
           .slice(-20)
-          .map((m: any) => `${m.role === "user" ? "OP" : "M"}: ${String(m.content).slice(0, 300)}`)
+          .map((m: any) => `${m.role === "user" ? "OP" : "M"}: ${truncateAtWord(String(m.content), 300)}`)
           .join("\n");
 
         await supabase.from("memories").insert({
           user_id: session.user.id,
           title: `MavisUI Thread — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-          content: memoryContent.slice(0, 50000),
+          content: truncateAtWord(memoryContent, 50000),
           memory_type: "conversation",
           source: "mavis_chat_clear",
           tags: ["chat_thread", "archived", "mavisui", String(chatMode).toLowerCase()],

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
+import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -405,7 +406,7 @@ serve(async (req) => {
       .limit(8);
     const archivedBlock = (archivedMems && archivedMems.length > 0)
       ? "\n═══ ARCHIVED MEMORIES (past conversations across all chats — reference naturally when relevant) ═══\n" +
-        archivedMems.map((m: any) => `[${m.title}] (${m.source})\n${(m.metadata as any)?.topic_summary || (m.content || "").slice(0, 1200)}`).join("\n---\n") +
+        archivedMems.map((m: any) => `[${m.title}] (${m.source})\n${(m.metadata as any)?.topic_summary || truncateAtWord(m.content || "", 1200)}`).join("\n---\n") +
         "\n═══ END ARCHIVED MEMORIES ═══\n"
       : "";
 
