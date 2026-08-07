@@ -15,6 +15,7 @@ import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { AttachmentTray, AttachButton } from "@/components/chat/AttachmentTray";
 import { ChatMediaPreview } from "@/components/chat/ChatMediaPreview";
 import { DEFAULT_VOICE_BY_GENDER, findVoice } from "@/lib/voiceCatalog";
+import { truncateAtWord } from "@/lib/truncateAtWord";
 import { ScrollProgressBar, BackToTopButton, ScrollToBottomButton, EndOfFeed } from "@/components/chat/ScrollKit";
 import { SessionBlock, groupMessagesIntoSessions } from "@/components/chat/SessionBlock";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
@@ -825,7 +826,7 @@ export default function MavisChat() {
             .order("created_at", { ascending: false })
             .limit(5);
           return (memories ?? []).map((m: any) =>
-            `[${m.title}]\n${(m.metadata as any)?.topic_summary || m.content.slice(0, 1000)}`
+            `[${m.title}]\n${(m.metadata as any)?.topic_summary || truncateAtWord(m.content, 1000)}`
           ).join("\n---\n");
         } catch { return ""; }
       })(),
@@ -1607,13 +1608,13 @@ export default function MavisChat() {
         const topicSummary = chatMessages
           .filter(m => m.id !== "init")
           .slice(-20)
-          .map(m => `${m.role === "user" ? "OP" : "M"}: ${m.content.slice(0, 300)}`)
+          .map(m => `${m.role === "user" ? "OP" : "M"}: ${truncateAtWord(m.content, 300)}`)
           .join("\n");
 
         await supabase.from("memories").insert({
           user_id: session.user.id,
           title: `Chat Thread — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-          content: memoryContent.slice(0, 50000),
+          content: truncateAtWord(memoryContent, 50000),
           memory_type: "conversation",
           source: "mavis_chat_clear",
           tags: ["chat_thread", "archived", chatMode.toLowerCase()],

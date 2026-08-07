@@ -13,6 +13,7 @@ import type { CouncilMember } from "@/mavis/councilPersona";
 import { buildCouncilMemberPrompt, buildCouncilMemberVoicePrompt, buildPersonaVoiceSystemPrompt, buildContextSummary } from "@/mavis/councilPersona";
 import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
 import type { VoicePersona } from "@/components/VoiceChatOverlay";
+import { truncateAtWord } from "@/lib/truncateAtWord";
 import { CouncilGroupVoice } from "@/components/CouncilGroupVoice";
 import type { UnifiedPersona } from "@/mavis/agentTypes";
 import { loadPersonaAgents } from "@/mavis/agentLoader";
@@ -417,7 +418,7 @@ export default function CouncilBoard() {
         await supabase.from("memories").insert({
           user_id:     userId,
           title:       `Council Board — ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-          content:     fullThread.slice(0, 50000),
+          content:     truncateAtWord(fullThread, 50000),
           memory_type: "conversation",
           source:      "council_chat_clear",
           tags:        ["council-board", "archived"],

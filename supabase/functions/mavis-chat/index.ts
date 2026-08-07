@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { scoreImportance, compressBlock, isHighStakesQuery, estimateLlmCost, detectFacets } from "./utils.ts";
 import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream } from "./providers.ts";
 import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionIntent, hasResearchIntent, resolveActionsNative } from "./toolDispatch.ts";
+import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";
 import { buildSharedTruth } from "../_shared/context.ts";
 
@@ -473,7 +474,7 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
       `  • ${new Date(a.created_at).toISOString().slice(0,16)} [${a.event_type}] +${a.xp_amount}XP — ${a.description}`
     ).join("\n") || "  None";
     const fmtMemories = dbState.memories.map((m: any) =>
-      `  • [${m.source}] ${m.title}: ${(((m.metadata as any)?.topic_summary) || m.content || "").slice(0, 200)}`
+      `  • [${m.source}] ${m.title}: ${truncateAtWord(((m.metadata as any)?.topic_summary) || m.content || "", 200)}`
     ).join("\n") || "  None";
     const fmtContacts = dbState.contacts.map((c: any) => {
       const prof = (c.profile && typeof c.profile === "object") ? c.profile : {};
