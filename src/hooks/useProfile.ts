@@ -68,6 +68,7 @@ export interface ProfileData {
 const defaults: ProfileData = {
   id: "",
   inscribed_name: "Black Sun Monarch",
+  true_name: null,
   titles: ["The Architect", "Sovereign of CODEXOS"],
   species_lineage: ["Codicanthropos Dominus"],
   aura: "Emerald Sovereign Aura",
