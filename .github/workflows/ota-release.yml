@@ -1,0 +1,73 @@
+name: OTA Release (Live Update)
+
+# Publishes a new self-hosted live-update bundle to the ota-bundles Supabase
+# Storage bucket whenever the web app changes. src/lib/liveUpdate.ts (native
+# side) checks manifest.json at startup and applies whatever's newest here —
+# no app-store review needed for JS/CSS-only changes, same category of
+# update Capgo/Appflow/CodePush operate in.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "public/**"
+      - "index.html"
+      - "package.json"
+      - "bun.lock"
+      - "vite.config.mts"
+      - "capacitor.config.ts"
+      - ".github/workflows/ota-release.yml"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF are environment-scoped
+    # secrets (see deploy-mavis-functions.yml) — must select the same
+    # environment or they resolve to empty strings.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build web assets
+        run: bun run build
+
+      - name: Zip bundle and compute checksum
+        id: bundle
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_SHA::12}"
+          cd dist
+          zip -qr "../${VERSION}.zip" .
+          cd ..
+          CHECKSUM=$(sha256sum "${VERSION}.zip" | cut -d' ' -f1)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "checksum=${CHECKSUM}" >> "$GITHUB_OUTPUT"
+          cat > manifest.json <<EOF
+          {"version":"${VERSION}","url":"https://wlygujlvsfimhtqsdxrx.supabase.co/storage/v1/object/public/ota-bundles/${VERSION}.zip","checksum":"${CHECKSUM}"}
+          EOF
+          cat manifest.json
+
+      - uses: supabase/setup-cli@v1
+
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      # storage cp has no --project-ref flag — it uses whatever `supabase
+      # link` just pointed at, selected explicitly via --linked.
+      - name: Upload bundle and manifest
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase storage cp "${{ steps.bundle.outputs.version }}.zip" "ss:///ota-bundles/${{ steps.bundle.outputs.version }}.zip" --linked --experimental
+          supabase storage cp manifest.json "ss:///ota-bundles/manifest.json" --linked --experimental

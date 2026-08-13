@@ -9,6 +9,7 @@
         "@capacitor/core": "^8.3.0",
         "@capacitor/preferences": "^8.0.1",
         "@capacitor/push-notifications": "^8.1.2",
+        "@capawesome/capacitor-live-update": "^8.4.0",
         "@codesandbox/sandpack-react": "^2.20.0",
         "@hookform/resolvers": "^3.10.0",
         "@lovable.dev/mcp-js": "^0.23.0",
@@ -127,6 +128,8 @@
     "@capacitor/preferences": ["@capacitor/preferences@8.0.1", "https://europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/@capacitor/preferences/-/preferences-8.0.1.tgz", { "peerDependencies": { "@capacitor/core": ">=8.0.0" } }, "sha512-T6no3ebi79XJCk91U3Jp/liJUwgBdvHR+s6vhvPkPxSuch7z3zx5Rv1bdWM6sWruNx+pViuEGqZvbfCdyBvcHQ=="],
 
     "@capacitor/push-notifications": ["@capacitor/push-notifications@8.1.2", "https://europe-west1-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/@capacitor/push-notifications/-/push-notifications-8.1.2.tgz", { "peerDependencies": { "@capacitor/core": ">=8.0.0" } }, "sha512-TQl4XxqJfNF+KbSYBFMXYYT5WXUaleVKXlByhh/8+KySMVNjp+l5OqAUoGe/sY1IAnGXEuUeCjA/WLZEVvGwrA=="],
+
+    "@capawesome/capacitor-live-update": ["@capawesome/capacitor-live-update@8.4.0", "", { "peerDependencies": { "@capacitor/core": ">=8.0.0" } }, "sha512-h/kivX9PT+MK4nudaauZqcDNWDApHb9Qi9Zs98jANf/xb0MLnpacwVUzUEPP3dMwLc9rjeyB1EiWd4lUKoNCLQ=="],
 
     "@codemirror/autocomplete": ["@codemirror/autocomplete@6.20.3", "https://europe-west4-npm.pkg.dev/lovable-core-prod/sandbox-npm-cache/@codemirror/autocomplete/-/autocomplete-6.20.3.tgz", { "dependencies": { "@codemirror/language": "^6.0.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.17.0", "@lezer/common": "^1.0.0" } }, "sha512-tlosUqb+3BbxCxZdu4tKeRghPFC+QM7q4X5YhKV2eCmPG+1r2F3f4AaSz5sCrFqUtX4Jh20VFTKecl16MgiV9g=="],
 
