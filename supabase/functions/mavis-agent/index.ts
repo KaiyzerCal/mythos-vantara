@@ -2947,7 +2947,15 @@ Deno.serve(async (req) => {
     // These three lookups are independent; running them in parallel (instead of
     // sequentially awaiting each) removes ~200-500ms of blocking time before the
     // first model call. The assembled string order is preserved below.
-    const memoryFragmentP: Promise<string> = (goalText && userId) ? (async () => {
+    //
+    // Bounds a fragment-builder promise so a stalled embedding session or
+    // Supabase call can't hang the whole request before the SSE stream even
+    // opens — the Promise.all below would otherwise wait forever, leaving the
+    // client's fetch() stuck with no headers and no error to fall back on.
+    const withTimeout = (p: Promise<string>, ms = 6000): Promise<string> =>
+      Promise.race([p, new Promise<string>((resolve) => setTimeout(() => resolve(""), ms))]);
+
+    const memoryFragmentP: Promise<string> = withTimeout((goalText && userId) ? (async () => {
       try {
         // @ts-ignore — Supabase.ai available in edge runtime
         const embedSession = new Supabase.ai.Session("gte-small");
@@ -2968,9 +2976,9 @@ Deno.serve(async (req) => {
         }
       } catch { /* embedding service unavailable — proceed without */ }
       return "";
-    })() : Promise.resolve("");
+    })() : Promise.resolve(""));
 
-    const prefsFragmentP: Promise<string> = (async () => {
+    const prefsFragmentP: Promise<string> = withTimeout((async () => {
       try {
         const { data: prefs } = await supabase
           .from("mavis_learned_preferences")
@@ -3008,9 +3016,9 @@ Deno.serve(async (req) => {
         }
       } catch { /* non-critical */ }
       return "";
-    })();
+    })());
 
-    const specialistFragmentP: Promise<string> = (async () => {
+    const specialistFragmentP: Promise<string> = withTimeout((async () => {
       try {
         const { data: specialist } = await supabase
           .from("mavis_active_agency_specialists")
@@ -3030,17 +3038,18 @@ Deno.serve(async (req) => {
         }
       } catch { /* non-critical */ }
       return "";
-    })();
+    })());
 
     // Shared source of truth — identity + temporal + app snapshot + directives.
     // Identical block used by mavis-chat, personas, and council members.
+    // (buildSharedTruth already bounds each of its own queries internally.)
     const timeFragmentP: Promise<string> = buildSharedTruth(supabase, userId, { surface: "agent-mode" })
       .then((t) => t.text, () => "");
 
     // System settings — the operator's Standing Orders (mavis_tacit) and Autonomy
     // (auto-execute types) from the System Settings page. mavis-agent previously
     // had zero awareness of either.
-    const systemSettingsFragmentP: Promise<string> = buildSystemSettingsFragment(supabase, userId);
+    const systemSettingsFragmentP: Promise<string> = withTimeout(buildSystemSettingsFragment(supabase, userId));
 
     const [memoryFragment, prefsFragment, specialistFragment, timeFragment, systemSettingsFragment] =
       await Promise.all([memoryFragmentP, prefsFragmentP, specialistFragmentP, timeFragmentP, systemSettingsFragmentP]);
