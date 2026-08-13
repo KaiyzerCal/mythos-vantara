@@ -222,10 +222,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   // Supabase Realtime — live sync for core tables
   const realtimeRef = useRef<any>(null);
+  const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Coalesce bursts of change events into a single refetch per table (250ms)
+  const debounced = useCallback((key: string, fn: () => Promise<unknown>) => {
+    clearTimeout(timersRef.current[key]);
+    timersRef.current[key] = setTimeout(() => { fn().catch(() => {}); }, 250);
+  }, []);
   useEffect(() => {
+    const timers = timersRef.current;
     const channel = (supabase as any)
       .channel("vantara-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "quests" }, () => { refetchQuests().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "quests" }, () => { debounced("quests", refetchQuests); })
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => { refetchTasks().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "energy_systems" }, () => { refetchEnergy().catch(() => {}); })
       .on("postgres_changes", { event: "*", schema: "public", table: "journal_entries" }, () => { refetchJournal().catch(() => {}); })
