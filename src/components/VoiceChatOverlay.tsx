@@ -633,7 +633,8 @@ export function VoiceChatOverlay({
 
     let lastCapturedText = "";
     let silenceTimer: ReturnType<typeof setTimeout> | null = null;
-    const SILENCE_MS = 6000;
+    // Give the operator room to think mid-sentence before we cut the turn off.
+    const SILENCE_MS = 14000;
 
     const normalizeTranscript = (value: string) =>
       value.replace(/\s+/g, " ").trim();
