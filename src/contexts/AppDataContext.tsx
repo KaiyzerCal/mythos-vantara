@@ -233,25 +233,28 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const channel = (supabase as any)
       .channel("vantara-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "quests" }, () => { debounced("quests", refetchQuests); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => { refetchTasks().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "energy_systems" }, () => { refetchEnergy().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "journal_entries" }, () => { refetchJournal().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "skills" }, () => { refetchSkills().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "allies" }, () => { refetchAllies().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => { refetchInventory().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "councils" }, () => { refetchCouncils().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "transformations" }, () => { refetchTransformations().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "rituals" }, () => { refetchRituals().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "mavis_domain_effects" }, () => { refetchDomainEffects().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "vault_entries" }, () => { refetchVault().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "store_items" }, () => { refetchStore().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "currencies" }, () => { refetchCurrencies().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { refetchProfile().catch(() => {}); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "rankings_profiles" }, () => { refetchRankings().catch(() => {}); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => { debounced("tasks", refetchTasks); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "energy_systems" }, () => { debounced("energy", refetchEnergy); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "journal_entries" }, () => { debounced("journal", refetchJournal); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "skills" }, () => { debounced("skills", refetchSkills); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "allies" }, () => { debounced("allies", refetchAllies); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => { debounced("inventory", refetchInventory); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "councils" }, () => { debounced("councils", refetchCouncils); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "transformations" }, () => { debounced("transformations", refetchTransformations); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "rituals" }, () => { debounced("rituals", refetchRituals); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "mavis_domain_effects" }, () => { debounced("domainEffects", refetchDomainEffects); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "vault_entries" }, () => { debounced("vault", refetchVault); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "store_items" }, () => { debounced("store", refetchStore); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "currencies" }, () => { debounced("currencies", refetchCurrencies); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { debounced("profile", refetchProfile); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "rankings_profiles" }, () => { debounced("rankings", refetchRankings); })
       .subscribe();
     realtimeRef.current = channel;
-    return () => { (supabase as any).removeChannel(channel); };
-  }, [refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals, refetchDomainEffects, refetchVault, refetchStore, refetchCurrencies, refetchProfile, refetchRankings]);
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
+      (supabase as any).removeChannel(channel);
+    };
+  }, [debounced, refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals, refetchDomainEffects, refetchVault, refetchStore, refetchCurrencies, refetchProfile, refetchRankings]);
 
   const [lastActionTs, setLastActionTs] = useState(0);
 
