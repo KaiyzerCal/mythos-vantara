@@ -263,33 +263,48 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [chatMode, setChatMode] = useState("PRIME");
 
+  // Memoized so consumers only re-render when data actually changes,
+  // not on every provider render (18 hooks settle independently at boot).
+  const value = useMemo(
+    () => ({
+      profile, profileLoading, updateProfile, awardXP, refetchProfile,
+      quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetchQuests,
+      rituals, ritualsLoading,
+      tasks, tasksLoading, createTask, updateTask, deleteTask,
+      journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry,
+      vaultEntries, vaultLoading, createVaultEntry, updateVaultEntry, deleteVaultEntry,
+      councils, councilsLoading, createCouncilMember, updateCouncilMember, deleteCouncilMember,
+      skills, skillsLoading, createSkill, updateSkill, deleteSkill,
+      energySystems, energyLoading, updateEnergy, createEnergy, updateEnergyFull, deleteEnergy, seedDefaultEnergy,
+      inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, refetchInventory,
+      allies, alliesLoading, createAlly, updateAlly, deleteAlly,
+      bpmSessions, bpmLoading, logBpmSession,
+      storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
+      currencies, currenciesLoading, createCurrency, setCurrencyAmount, deleteCurrency, spendCurrency,
+      transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation, refetchTransformations,
+      rankings, rankingsLoading, createRanking, updateRanking, deleteRanking,
+      domainEffects, domainEffectsLoading, createDomainEffect, updateDomainEffect, deleteDomainEffect, refetchDomainEffects,
+      logActivity,
+      refetchAll,
+      lastActionTs,
+      chatMessages, setChatMessages, conversationId, setConversationId,
+      chatMode, setChatMode,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      profile, profileLoading, quests, questsLoading, questStats, rituals, ritualsLoading,
+      tasks, tasksLoading, journalEntries, journalLoading, vaultEntries, vaultLoading,
+      councils, councilsLoading, skills, skillsLoading, energySystems, energyLoading,
+      inventory, inventoryLoading, allies, alliesLoading, bpmSessions, bpmLoading,
+      storeItems, storeLoading, currencies, currenciesLoading, transformations, transformationsLoading,
+      rankings, rankingsLoading, domainEffects, domainEffectsLoading,
+      refetchAll, lastActionTs, chatMessages, conversationId, chatMode,
+    ],
+  );
+
   return (
-    <AppDataContext.Provider
-      value={{
-        profile, profileLoading, updateProfile, awardXP, refetchProfile,
-        quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetchQuests,
-        rituals, ritualsLoading,
-        tasks, tasksLoading, createTask, updateTask, deleteTask,
-        journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry,
-        vaultEntries, vaultLoading, createVaultEntry, updateVaultEntry, deleteVaultEntry,
-        councils, councilsLoading, createCouncilMember, updateCouncilMember, deleteCouncilMember,
-        skills, skillsLoading, createSkill, updateSkill, deleteSkill,
-        energySystems, energyLoading, updateEnergy, createEnergy, updateEnergyFull, deleteEnergy, seedDefaultEnergy,
-        inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, refetchInventory,
-        allies, alliesLoading, createAlly, updateAlly, deleteAlly,
-        bpmSessions, bpmLoading, logBpmSession,
-        storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
-        currencies, currenciesLoading, createCurrency, setCurrencyAmount, deleteCurrency, spendCurrency,
-        transformations, transformationsLoading, createTransformation, updateTransformation, deleteTransformation, refetchTransformations,
-        rankings, rankingsLoading, createRanking, updateRanking, deleteRanking,
-        domainEffects, domainEffectsLoading, createDomainEffect, updateDomainEffect, deleteDomainEffect, refetchDomainEffects,
-        logActivity,
-        refetchAll,
-        lastActionTs,
-        chatMessages, setChatMessages, conversationId, setConversationId,
-        chatMode, setChatMode,
-      }}
-    >
+    <AppDataContext.Provider value={value}>
+
       {children}
     </AppDataContext.Provider>
   );
