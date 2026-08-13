@@ -5,6 +5,16 @@ name: OTA Release (Live Update)
 # side) checks manifest.json at startup and applies whatever's newest here —
 # no app-store review needed for JS/CSS-only changes, same category of
 # update Capgo/Appflow/CodePush operate in.
+#
+# Uploads go straight to the Storage REST API with OTA_SUPABASE_URL /
+# OTA_SUPABASE_SERVICE_ROLE_KEY (plain repo secrets, not environment-scoped)
+# rather than through `supabase link` + the CLI. The existing
+# SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF secrets (deploy-mavis-
+# functions.yml) turned out to resolve to an unrelated personal Supabase
+# account, not this project's real one — confirmed live via `supabase
+# projects list` on main, not just a branch-scoping fluke. VANTARA's actual
+# deploys have been staying in sync via Lovable's own separate pipeline,
+# not that workflow.
 on:
   push:
     branches: ["main"]
@@ -22,10 +32,6 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF are environment-scoped
-    # secrets (see deploy-mavis-functions.yml) — must select the same
-    # environment or they resolve to empty strings.
-    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -55,22 +61,25 @@ jobs:
           EOF
           cat manifest.json
 
-      - uses: supabase/setup-cli@v1
-
-      - name: Link project
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
-          echo "--- linked project (diagnostic, not secret) ---"
-          supabase projects list
-
-      # storage cp has no --project-ref flag — it uses whatever `supabase
-      # link` just pointed at, selected explicitly via --linked.
       - name: Upload bundle and manifest
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          OTA_SUPABASE_URL: ${{ secrets.OTA_SUPABASE_URL }}
+          OTA_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.OTA_SUPABASE_SERVICE_ROLE_KEY }}
+          VERSION: ${{ steps.bundle.outputs.version }}
         run: |
           set -euo pipefail
-          supabase storage cp "${{ steps.bundle.outputs.version }}.zip" "ss:///ota-bundles/${{ steps.bundle.outputs.version }}.zip" --linked --experimental
-          supabase storage cp manifest.json "ss:///ota-bundles/manifest.json" --linked --experimental
+          upload() {
+            local file="$1" dest="$2"
+            code=$(curl -sS -o /tmp/upload_resp.txt -w "%{http_code}" \
+              -X POST "${OTA_SUPABASE_URL}/storage/v1/object/ota-bundles/${dest}" \
+              -H "Authorization: Bearer ${OTA_SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "apikey: ${OTA_SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "x-upsert: true" \
+              --data-binary "@${file}")
+            echo "PUT ${dest}: HTTP ${code}"
+            cat /tmp/upload_resp.txt
+            echo
+            if [ "$code" -ge 300 ]; then exit 1; fi
+          }
+          upload "${VERSION}.zip" "${VERSION}.zip"
+          upload "manifest.json" "manifest.json"
