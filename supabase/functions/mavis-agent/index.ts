@@ -3042,8 +3042,21 @@ Deno.serve(async (req) => {
     // had zero awareness of either.
     const systemSettingsFragmentP: Promise<string> = buildSystemSettingsFragment(supabase, userId);
 
+    // Latency budget: none of these enrichment fragments is worth delaying the
+    // first token for. If one is slow (embedding cold start, a slow RPC), drop it
+    // for this turn rather than letting it gate the whole request.
+    const withBudget = (p: Promise<string>, ms: number): Promise<string> =>
+      Promise.race([p.catch(() => ""), new Promise<string>((r) => setTimeout(() => r(""), ms))]);
+
     const [memoryFragment, prefsFragment, specialistFragment, timeFragment, systemSettingsFragment] =
-      await Promise.all([memoryFragmentP, prefsFragmentP, specialistFragmentP, timeFragmentP, systemSettingsFragmentP]);
+      await Promise.all([
+        withBudget(memoryFragmentP, 1500),
+        withBudget(prefsFragmentP, 1200),
+        withBudget(specialistFragmentP, 1200),
+        // Shared truth carries identity/time — worth a slightly longer budget.
+        withBudget(timeFragmentP, 2500),
+        withBudget(systemSettingsFragmentP, 1200),
+      ]);
     // Memory fragment replaced the base prompt in the original ordering; keep the
     // same final composition: SYSTEM_PROMPT + memory + prefs + specialist + time + settings.
     systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment + timeFragment + systemSettingsFragment;
