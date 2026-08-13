@@ -17,15 +17,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
+          bun-version: latest
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build web assets
-        run: npm run build
+        run: bun run build
 
       - uses: actions/setup-java@v4
         with:
@@ -33,7 +33,7 @@ jobs:
           java-version: 21
 
       - name: Sync Capacitor
-        run: npx @capacitor/cli sync android
+        run: bunx @capacitor/cli sync android
 
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
