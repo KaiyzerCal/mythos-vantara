@@ -2,7 +2,7 @@
 // VANTARA.EXE — Data Hooks Bundle
 // useTasks | useRituals | useJournal | useVault | useCouncils | useEnergy | useSkills
 // ============================================================
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,19 +18,27 @@ function makeHook<T extends { id: string }>(
     const [loading, setLoading] = useState(true);
     const orderColumn = options?.orderColumn ?? "created_at";
     const ascending = options?.ascending ?? false;
+    // Dedupe concurrent fetches (realtime bursts + manual refetchAll can overlap)
+    const inflight = useRef<Promise<void> | null>(null);
 
     const fetch = useCallback(async () => {
       if (!user) return;
-      const { data: rows, error } = await (supabase as any)
-        .from(tableName)
-        .select("*")
-        .eq("user_id", user.id)
-        .order(orderColumn, { ascending });
-      if (error) {
-        console.error(`[useDataHooks] Error fetching ${tableName}:`, error);
-      }
-      if (rows) setData(rows as unknown as T[]);
-      setLoading(false);
+      if (inflight.current) return inflight.current;
+      const run = (async () => {
+        const { data: rows, error } = await (supabase as any)
+          .from(tableName)
+          .select("*")
+          .eq("user_id", user.id)
+          .order(orderColumn, { ascending })
+          .limit(500);
+        if (error) {
+          console.error(`[useDataHooks] Error fetching ${tableName}:`, error);
+        }
+        if (rows) setData(rows as unknown as T[]);
+        setLoading(false);
+      })();
+      inflight.current = run;
+      try { await run; } finally { inflight.current = null; }
     }, [orderColumn, tableName, user]);
 
     useEffect(() => { fetch(); }, [fetch]);
