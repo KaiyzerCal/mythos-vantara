@@ -633,11 +633,16 @@ export function VoiceChatOverlay({
     liveAudioQueueRef.current = [];
   }, []);
 
-  // Native path: the plugin has no "confirmed vs interim" concept like the
-  // Web Speech API — partialResults just streams live text for display,
-  // and the start() promise itself resolves with the final matches once
-  // Android's recognizer detects the end of speech (or stop() is called).
-  // That resolution is the direct equivalent of the web path's onend.
+  // Native path: with partialResults:true, the plugin's Android side
+  // (SpeechRecognition.java beginListening()) resolves the start() promise
+  // IMMEDIATELY after calling speechRecognizer.startListening() — before
+  // any speech happens, with no matches. It never resolves again after
+  // that (a PluginCall can only settle once), so onResults/onError past
+  // that point only reach JS via the "partialResults"/"listeningState"
+  // events, never via this promise. Confirmed by reading the plugin's
+  // native source directly. The real "recognition finished" signal is the
+  // listeningState event going to "stopped" (fired from onEndOfSpeech),
+  // not the start() promise settling.
   const startListeningNative = useCallback(async () => {
     try {
       const { speechRecognition } = await NativeSpeechRecognition.checkPermissions();
@@ -652,24 +657,21 @@ export function VoiceChatOverlay({
 
     await NativeSpeechRecognition.removeAllListeners();
     let lastPartial = "";
-    await NativeSpeechRecognition.addListener("partialResults", (data) => {
-      const text = data.matches?.[0]?.trim() ?? "";
-      if (text) { lastPartial = text; setInterimTranscript(text); }
-    });
+    let finished = false;
+    let safetyTimer: ReturnType<typeof setTimeout> | null = null;
 
-    setTranscript("");
-    setInterimTranscript("");
-    setPhase("listening");
-
-    try {
-      const { matches } = await NativeSpeechRecognition.start({
-        language: "en-US",
-        partialResults: true,
-        popup: false,
-      });
-      await NativeSpeechRecognition.removeAllListeners();
-      const captured = (matches?.[0]?.trim()) || lastPartial;
+    // The plugin exposes no "error" event (only partialResults/listeningState —
+    // confirmed against its definitions.d.ts), so onError conditions on the
+    // native side (ERROR_SPEECH_TIMEOUT when the user never speaks at all,
+    // ERROR_NO_MATCH, a busy recognizer, etc.) are otherwise invisible to JS
+    // and would leave the UI stuck on "listening" forever. This is the fallback.
+    const finalize = () => {
+      if (finished) return;
+      finished = true;
+      if (safetyTimer) clearTimeout(safetyTimer);
+      NativeSpeechRecognition.removeAllListeners().catch(() => {});
       if (closingRef.current) return;
+      const captured = lastPartial;
       if (captured) {
         setPhase("thinking");
         setTranscript("");
@@ -681,7 +683,33 @@ export function VoiceChatOverlay({
       } else {
         setPhase("idle");
       }
+    };
+
+    await NativeSpeechRecognition.addListener("partialResults", (data) => {
+      const text = data.matches?.[0]?.trim() ?? "";
+      if (text) { lastPartial = text; setInterimTranscript(text); }
+    });
+    await NativeSpeechRecognition.addListener("listeningState", (data) => {
+      if (data.status === "stopped") finalize();
+    });
+
+    setTranscript("");
+    setInterimTranscript("");
+    setPhase("listening");
+
+    try {
+      // Awaited only to surface immediate rejects (missing permission,
+      // recognizer unavailable/busy) — its resolved value carries nothing
+      // useful in partialResults mode, see comment above.
+      safetyTimer = setTimeout(finalize, 15000);
+      await NativeSpeechRecognition.start({
+        language: "en-US",
+        partialResults: true,
+        popup: false,
+      });
     } catch {
+      finished = true;
+      if (safetyTimer) clearTimeout(safetyTimer);
       await NativeSpeechRecognition.removeAllListeners().catch(() => {});
       if (!closingRef.current) setPhase("idle");
     }
