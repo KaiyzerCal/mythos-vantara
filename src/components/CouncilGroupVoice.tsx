@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Mic, MicOff, Users, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { Capacitor } from "@capacitor/core";
+import { TextToSpeech as NativeTextToSpeech } from "@capacitor-community/text-to-speech";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -137,9 +139,34 @@ export function CouncilGroupVoice({
     );
   }, []);
 
+  // Android's native WebView has no window.speechSynthesis at all — same gap
+  // fixed in VoiceChatOverlay.tsx/useElevenLabsTts.ts. This is the universal
+  // fallback every path here lands on after any failure, so on native it was
+  // silently producing zero audio. Wraps Android's real TTS engine instead.
+  const speakWithBrowserNative = useCallback(async (text: string, onDone: () => void) => {
+    if (!text || closingRef.current) { onDone(); return; }
+    setDisplayedText(text);
+    setSpokenUpTo(0);
+    await NativeTextToSpeech.removeAllListeners();
+    await NativeTextToSpeech.addListener("onRangeStart", (info) => {
+      setSpokenUpTo(info.end);
+      spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    try {
+      await NativeTextToSpeech.speak({ text, lang: "en-US", rate: 0.95, pitch: 1, volume: 1 });
+      setSpokenUpTo(text.length);
+    } catch {
+      // fall through to onDone below regardless
+    } finally {
+      await NativeTextToSpeech.removeAllListeners().catch(() => {});
+      if (!closingRef.current) onDone();
+    }
+  }, []);
+
   // ── Browser TTS (fallback) — karaoke via onboundary ───────────────────────
   const speakWithBrowser = useCallback(
     (text: string, onDone: () => void) => {
+      if (Capacitor.isNativePlatform()) { speakWithBrowserNative(text, onDone); return; }
       if (!text || closingRef.current) { onDone(); return; }
       const synth = window.speechSynthesis;
       if (!synth) { onDone(); return; }
@@ -212,7 +239,7 @@ export function CouncilGroupVoice({
         setTimeout(doSpeak, 60);
       }
     },
-    [pickVoice],
+    [pickVoice, speakWithBrowserNative],
   );
 
   // ── ElevenLabs TTS — exact pattern from VoiceChatOverlay ──────────────────
@@ -326,6 +353,7 @@ export function CouncilGroupVoice({
       try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
       utteranceRef.current = null;
     }
+    if (Capacitor.isNativePlatform()) NativeTextToSpeech.stop().catch(() => {});
     if (elevenAudioElRef.current) {
       try { elevenAudioElRef.current.pause(); } catch { /* ignore */ }
       elevenAudioElRef.current.src = "";

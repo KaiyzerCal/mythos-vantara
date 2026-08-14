@@ -10,6 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { Capacitor } from "@capacitor/core";
+import { TextToSpeech as NativeTextToSpeech } from "@capacitor-community/text-to-speech";
 import {
   BROWSER_VOICE_HINTS,
   DEFAULT_VOICE_BY_GENDER,
@@ -141,10 +143,47 @@ export function useElevenLabsTts() {
       audioRef.current.src = "";
       audioRef.current = null;
     }
+    if (Capacitor.isNativePlatform()) {
+      NativeTextToSpeech.stop().catch(() => {});
+    }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
     setIsSpeaking(false);
+  }, []);
+
+  // Android's native WebView has no Web Speech Synthesis API at all
+  // (window.speechSynthesis is undefined there, not just unavailable) — this
+  // is the default voice tier AND the universal fallback every other
+  // provider in speak() below lands on after any failure, so on native it
+  // was silently producing zero audio for every single reply. Uses
+  // @capacitor-community/text-to-speech to wrap Android's real TTS engine.
+  // No per-OS-voice picking here (unlike the web path) since the native
+  // voice catalog doesn't share names with desktop/mobile browser voices —
+  // language + rate/pitch is all speakReplyNative in VoiceChatOverlay.tsx
+  // uses too, for consistency.
+  const speakBrowserNative = useCallback(async (
+    text: string,
+    gender: VoiceGender,
+    speed: number,
+  ) => {
+    const chunks = chunkBySentence(text);
+    setIsSpeaking(true);
+    for (const chunk of chunks) {
+      if (cancelledRef.current) break;
+      try {
+        await NativeTextToSpeech.speak({
+          text: chunk,
+          lang: "en-US",
+          rate: speed,
+          pitch: gender === "female" ? 1.02 : 0.96,
+          volume: 1.0,
+        });
+      } catch {
+        break;
+      }
+    }
+    if (!cancelledRef.current) setIsSpeaking(false);
   }, []);
 
   const speakBrowser = useCallback(async (
@@ -153,6 +192,7 @@ export function useElevenLabsTts() {
     hintKey: string,
     speed: number,
   ) => {
+    if (Capacitor.isNativePlatform()) { await speakBrowserNative(text, gender, speed); return; }
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     const voice = pickBrowserVoice(gender, hintKey);
     const chunks = chunkBySentence(text);
@@ -174,7 +214,7 @@ export function useElevenLabsTts() {
       });
     }
     if (!cancelledRef.current) setIsSpeaking(false);
-  }, []);
+  }, [speakBrowserNative]);
 
   const playBase64 = useCallback(async (audioContent: string) => {
     return await new Promise<void>((resolve) => {
