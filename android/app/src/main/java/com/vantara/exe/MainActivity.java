@@ -24,6 +24,14 @@ public class MainActivity extends BridgeActivity {
   public void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
 
+    // Android WebView defaults to requiring a user gesture for <audio>/<video>
+    // playback. ElevenLabs TTS playback (VoiceChatOverlay's speakWithElevenLabs)
+    // calls audio.play() only after an async network round-trip completes, well
+    // after the tap that started the turn — WebView no longer considers that a
+    // live gesture, so play() rejects with NotAllowedError and falls back to
+    // silence. Disabling the requirement is the standard fix for in-app TTS.
+    this.bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+
     this.bridge.getWebView().setWebChromeClient(new WebChromeClient() {
       @Override
       public void onPermissionRequest(final PermissionRequest request) {

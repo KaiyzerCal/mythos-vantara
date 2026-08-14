@@ -5,6 +5,7 @@ import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition as NativeSpeechRecognition } from "@capacitor-community/speech-recognition";
+import { TextToSpeech as NativeTextToSpeech } from "@capacitor-community/text-to-speech";
 
 export interface VoicePersona {
   name: string;
@@ -152,9 +153,40 @@ export function VoiceChatOverlay({
     );
   }, []);
 
+  // Android's native WebView does not implement speechSynthesis at all
+  // (same gap as SpeechRecognition — window.speechSynthesis is simply
+  // undefined there), so this fallback path was a silent no-op on native
+  // for any persona without an ElevenLabs voiceId (and for the default,
+  // non-persona MAVIS chat, which never sets one at all). Uses
+  // @capacitor-community/text-to-speech to wrap Android's real TTS engine.
+  const speakReplyNative = useCallback(async (text: string) => {
+    if (!text || closingRef.current) return;
+    setDisplayedReply(text);
+    setSpokenUpTo(0);
+    setPhase("speaking");
+
+    await NativeTextToSpeech.removeAllListeners();
+    await NativeTextToSpeech.addListener("onRangeStart", (info) => {
+      setSpokenUpTo(info.end);
+      spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+
+    try {
+      await NativeTextToSpeech.speak({ text, lang: "en-US", rate: 0.95, pitch: 1, volume: 1 });
+      setSpokenUpTo(text.length);
+    } catch {
+      // e.g. ERROR_UTTERANCE, or stop() was called mid-utterance — either way
+      // fall through to resetting phase below rather than leaving it stuck.
+    } finally {
+      await NativeTextToSpeech.removeAllListeners().catch(() => {});
+      if (!closingRef.current) setPhase("idle");
+    }
+  }, []);
+
   // ── Speech synthesis with karaoke ──────────────────────────
   const speakReply = useCallback((text: string) => {
     if (!text || closingRef.current) return;
+    if (Capacitor.isNativePlatform()) { speakReplyNative(text); return; }
     const synth = window.speechSynthesis;
     if (!synth) { setPhase("idle"); return; }
 
@@ -239,7 +271,7 @@ export function VoiceChatOverlay({
       // Tiny defer avoids the "cancel()-then-speak() silently dropped" bug
       setTimeout(doSpeak, 60);
     }
-  }, [pickVoice]);
+  }, [pickVoice, speakReplyNative]);
 
   // Track the currently-playing ElevenLabs <audio> element so we can clean up
   // before starting a new one (prevents stuck/overlapping playback on turn 2+).
@@ -902,6 +934,10 @@ export function VoiceChatOverlay({
     if (resumeKeepAliveRef.current) clearInterval(resumeKeepAliveRef.current);
     stopListening();
     disconnectLiveVoice();
+    if (Capacitor.isNativePlatform()) {
+      NativeTextToSpeech.stop().catch(() => {});
+      NativeTextToSpeech.removeAllListeners().catch(() => {});
+    }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     elevenLabsAudioCtxRef.current?.close().catch(() => {});
     elevenLabsAudioCtxRef.current = null;
@@ -1013,22 +1049,18 @@ export function VoiceChatOverlay({
       setPersonaLoading(false);
       setPhase("idle");
     } else if (phase === "speaking") {
-      if (isPaused) {
-        // Resume
-        if (elevenAudioElRef.current) {
-          elevenAudioElRef.current.play().catch(() => {});
-        } else if (window.speechSynthesis) {
-          window.speechSynthesis.resume();
-        }
+      if (elevenAudioElRef.current) {
+        // Real <audio> element either platform — pause/resume both work.
+        if (isPaused) { elevenAudioElRef.current.play().catch(() => {}); setIsPaused(false); }
+        else { elevenAudioElRef.current.pause(); setIsPaused(true); }
+      } else if (Capacitor.isNativePlatform()) {
+        // NativeTextToSpeech has no pause/resume API — treat a tap here as stop.
+        NativeTextToSpeech.stop().catch(() => {});
         setIsPaused(false);
-      } else {
-        // Pause
-        if (elevenAudioElRef.current) {
-          elevenAudioElRef.current.pause();
-        } else if (window.speechSynthesis) {
-          window.speechSynthesis.pause();
-        }
-        setIsPaused(true);
+        setPhase("idle");
+      } else if (window.speechSynthesis) {
+        if (isPaused) { window.speechSynthesis.resume(); setIsPaused(false); }
+        else { window.speechSynthesis.pause(); setIsPaused(true); }
       }
     }
   }, [phase, liveMode, isPaused, startListening, unlockAudio]);
@@ -1055,6 +1087,7 @@ export function VoiceChatOverlay({
         elevenAudioElRef.current.src = "";
         elevenAudioElRef.current = null;
       }
+      if (Capacitor.isNativePlatform()) NativeTextToSpeech.stop().catch(() => {});
       if (window.speechSynthesis) window.speechSynthesis.cancel();
       setIsPaused(false);
       setPhase("idle");
