@@ -15,23 +15,21 @@ if (sentryDsn) {
   });
 }
 
-// Runs before render so an available update reloads the page once, up
-// front, rather than rendering the old bundle and immediately reloading
-// out from under it. No-ops on web; on native it either finds nothing new
-// (returns immediately) or triggers reload() and this script re-runs fresh.
-// Wrapped in an IIFE rather than top-level await — the build targets
-// Safari 13 for web, which predates it.
-void (async () => {
-  await checkForUpdate();
+// Render immediately — never block first paint on a network call. The OTA
+// check used to be awaited before this render, which meant every launch
+// paid for a manifest fetch (and, whenever a new bundle existed, a full
+// download) before the user saw anything but a blank screen. Now it runs
+// in the background after render; if it finds an update it reloads the
+// page once that update is ready, which is a much better trade than
+// stalling every single launch on it.
+createRoot(document.getElementById("root")!).render(<App />);
 
-  createRoot(document.getElementById("root")!).render(<App />);
+// Confirms the bundle that just rendered is good — must come after a real
+// render. If this is never reached (crash on startup), the plugin's
+// readyTimeout auto-rolls-back to the last known-good bundle on next launch.
+void confirmBootSuccess();
 
-  // Confirms the bundle that just rendered is good — must come after a
-  // real render. If this is never reached (crash on startup), the
-  // plugin's readyTimeout auto-rolls-back to the last known-good bundle
-  // on next launch.
-  void confirmBootSuccess();
-})();
+void checkForUpdate();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
