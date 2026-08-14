@@ -8,9 +8,31 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
 // ─── helpers ───────────────────────────────────────────────
+// AppDataProvider mounts every one of these hooks at once, so all of them
+// fire their initial fetch on every app boot regardless of which page is
+// open — roughly 600 kB of rows (well over 1 MB once JSON-encoded) across
+// ~17 parallel queries, which is slow on mobile. `deferInitial` marks the
+// tables no page needs in its first paint (the heaviest ones: vault_entries
+// ~225 kB, councils ~157 kB, transformations ~54 kB) so they yield the
+// connection to the dashboard-critical tables and load right after, instead
+// of competing with them. Nothing is skipped — only reordered — and every
+// consumer already renders off `loading`, so a slightly later arrival is
+// already a state they handle.
+function scheduleAfterFirstPaint(run: () => void): () => void {
+  const ric = (window as any).requestIdleCallback as
+    | ((cb: () => void, opts?: { timeout: number }) => number)
+    | undefined;
+  if (ric) {
+    const handle = ric(run, { timeout: 2000 });
+    return () => (window as any).cancelIdleCallback?.(handle);
+  }
+  const t = setTimeout(run, 300);
+  return () => clearTimeout(t);
+}
+
 function makeHook<T extends { id: string }>(
   tableName: string,
-  options?: { orderColumn?: string; ascending?: boolean }
+  options?: { orderColumn?: string; ascending?: boolean; deferInitial?: boolean }
 ) {
   return function useTableData() {
     const { user } = useAuth();
@@ -41,7 +63,10 @@ function makeHook<T extends { id: string }>(
       try { await run; } finally { inflight.current = null; }
     }, [orderColumn, tableName, user]);
 
-    useEffect(() => { fetch(); }, [fetch]);
+    useEffect(() => {
+      if (!options?.deferInitial) { fetch(); return; }
+      return scheduleAfterFirstPaint(() => { fetch(); });
+    }, [fetch]);
 
     const create = useCallback(async (input: Omit<T, "id" | "user_id" | "created_at" | "updated_at">): Promise<T | null> => {
       if (!user) return null;
@@ -96,7 +121,7 @@ export interface Task {
   created_at: string;
   updated_at: string;
 }
-export const useTasks = makeHook<Task>("tasks");
+export const useTasks = makeHook<Task>("tasks", { deferInitial: true });
 
 // ─── RITUALS ───────────────────────────────────────────────
 export interface Ritual {
@@ -112,7 +137,7 @@ export interface Ritual {
   last_completed: string | null;
   created_at: string;
 }
-export const useRituals = makeHook<Ritual>("rituals");
+export const useRituals = makeHook<Ritual>("rituals", { deferInitial: true });
 
 // ─── JOURNAL ───────────────────────────────────────────────
 export interface JournalEntry {
@@ -142,7 +167,7 @@ export interface VaultEntry {
   created_at: string;
   updated_at: string;
 }
-export const useVault = makeHook<VaultEntry>("vault_entries");
+export const useVault = makeHook<VaultEntry>("vault_entries", { deferInitial: true });
 
 // ─── COUNCILS ──────────────────────────────────────────────
 export interface CouncilMember {
@@ -157,7 +182,7 @@ export interface CouncilMember {
   created_at: string;
   updated_at: string;
 }
-export const useCouncils = makeHook<CouncilMember>("councils");
+export const useCouncils = makeHook<CouncilMember>("councils", { deferInitial: true });
 
 // ─── SKILLS ────────────────────────────────────────────────
 export interface Skill {
@@ -176,7 +201,7 @@ export interface Skill {
   created_at: string;
   updated_at: string;
 }
-export const useSkills = makeHook<Skill>("skills");
+export const useSkills = makeHook<Skill>("skills", { deferInitial: true });
 
 // ─── ENERGY SYSTEMS ────────────────────────────────────────
 export interface EnergySystem {
@@ -293,7 +318,7 @@ export interface InventoryItem {
   is_equipped: boolean;
   obtained_at: string;
 }
-export const useInventory = makeHook<InventoryItem>("inventory", { orderColumn: "obtained_at" });
+export const useInventory = makeHook<InventoryItem>("inventory", { orderColumn: "obtained_at", deferInitial: true });
 
 // ─── DOMAIN EFFECTS ────────────────────────────────────────
 export interface DomainEffect {
@@ -309,7 +334,7 @@ export interface DomainEffect {
   source: string | null;
   created_at: string;
 }
-export const useDomainEffects = makeHook<DomainEffect>("mavis_domain_effects", { orderColumn: "created_at" });
+export const useDomainEffects = makeHook<DomainEffect>("mavis_domain_effects", { orderColumn: "created_at", deferInitial: true });
 
 // ─── ALLIES ────────────────────────────────────────────────
 export interface Ally {
@@ -324,7 +349,7 @@ export interface Ally {
   notes: string;
   created_at: string;
 }
-export const useAllies = makeHook<Ally>("allies");
+export const useAllies = makeHook<Ally>("allies", { deferInitial: true });
 
 // ─── BPM SESSIONS ──────────────────────────────────────────
 export interface BpmSession {
@@ -337,7 +362,7 @@ export interface BpmSession {
   notes: string | null;
   created_at: string;
 }
-export const useBpmSessions = makeHook<BpmSession>("bpm_sessions");
+export const useBpmSessions = makeHook<BpmSession>("bpm_sessions", { deferInitial: true });
 
 // ─── STORE ITEMS ───────────────────────────────────────────
 export interface StoreItem {
@@ -355,7 +380,7 @@ export interface StoreItem {
   created_at: string;
   updated_at: string;
 }
-export const useStoreItems = makeHook<StoreItem>("store_items");
+export const useStoreItems = makeHook<StoreItem>("store_items", { deferInitial: true });
 
 // ─── CURRENCIES ────────────────────────────────────────────
 // Backs the Store's purchase flow. The `currencies` table predates this hook
@@ -454,7 +479,7 @@ export interface Transformation {
   abilities: any;
   created_at: string;
 }
-export const useTransformations = makeHook<Transformation>("transformations", { orderColumn: "form_order", ascending: true });
+export const useTransformations = makeHook<Transformation>("transformations", { orderColumn: "form_order", ascending: true, deferInitial: true });
 
 // ─── RANKINGS PROFILES ────────────────────────────────────
 export interface RankingProfile {
@@ -475,7 +500,7 @@ export interface RankingProfile {
   created_at: string;
   updated_at: string;
 }
-export const useRankings = makeHook<RankingProfile>("rankings_profiles");
+export const useRankings = makeHook<RankingProfile>("rankings_profiles", { deferInitial: true });
 
 // ─── ACTIVITY LOG (append-only) ────────────────────────────
 export function useActivityLog() {
