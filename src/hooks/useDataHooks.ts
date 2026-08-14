@@ -153,7 +153,11 @@ export interface JournalEntry {
   created_at: string;
   updated_at: string;
 }
-export const useJournal = makeHook<JournalEntry>("journal_entries");
+// Journal entries carry long-form text content, unlike the mostly-structured
+// rows in other tables -- same "heavy, not dashboard-critical" shape as
+// vault_entries/councils/transformations above, but was missing the same
+// deferInitial treatment every sibling hook in this file has.
+export const useJournal = makeHook<JournalEntry>("journal_entries", { deferInitial: true });
 
 // ─── VAULT ─────────────────────────────────────────────────
 export interface VaultEntry {

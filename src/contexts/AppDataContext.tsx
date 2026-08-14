@@ -256,6 +256,31 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     };
   }, [debounced, refetchQuests, refetchTasks, refetchEnergy, refetchJournal, refetchSkills, refetchAllies, refetchInventory, refetchCouncils, refetchTransformations, refetchRituals, refetchDomainEffects, refetchVault, refetchStore, refetchCurrencies, refetchProfile, refetchRankings]);
 
+  // Refetch everything when the app comes back to the foreground after being
+  // backgrounded. Nothing else in this codebase re-syncs on resume -- on
+  // native (Capacitor/Tauri), backgrounding a WebView for a while can
+  // silently kill the Realtime WebSocket and suspend in-flight fetches
+  // without a clean error, and there's no @capacitor/app appStateChange
+  // listener anywhere to catch that. `visibilitychange` is a plain web API
+  // (Capacitor's WebView fires it same as a browser tab), so this needs no
+  // new native dependency. Only fires on a real hidden->visible transition
+  // (never on initial mount -- the event doesn't fire until visibility
+  // actually changes at least once), throttled to avoid redundant refetches
+  // if visibility flaps rapidly.
+  const lastResumeRefetchRef = useRef(0);
+  useEffect(() => {
+    const RESUME_THROTTLE_MS = 10_000;
+    const onVisibilityChange = () => {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastResumeRefetchRef.current < RESUME_THROTTLE_MS) return;
+      lastResumeRefetchRef.current = now;
+      refetchAll().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [refetchAll]);
+
   const [lastActionTs, setLastActionTs] = useState(0);
 
   // MAVIS chat state
