@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Mic, Pause, Play, Square } from "lucide-react";
 import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
+import { Capacitor } from "@capacitor/core";
+import { SpeechRecognition as NativeSpeechRecognition } from "@capacitor-community/speech-recognition";
 
 export interface VoicePersona {
   name: string;
@@ -406,7 +408,18 @@ export function VoiceChatOverlay({
   useEffect(() => { personaRef.current = persona; }, [persona]);
 
   // ── Voice input ─────────────────────────────────────────────
+  // Android's native WebView does not implement the Web Speech API at
+  // all (window.SpeechRecognition / webkitSpeechRecognition are simply
+  // undefined there — this isn't a permissions issue, the API doesn't
+  // exist) — confirmed the cause of voice input silently doing nothing
+  // in the Capacitor build. Native builds use
+  // @capacitor-community/speech-recognition instead, which wraps
+  // Android's real SpeechRecognizer.
   const stopListening = useCallback(() => {
+    if (Capacitor.isNativePlatform()) {
+      NativeSpeechRecognition.stop().catch(() => {});
+      return;
+    }
     if (recognitionRef.current) {
       recognitionRef.current.abort();
       recognitionRef.current = null;
@@ -620,7 +633,66 @@ export function VoiceChatOverlay({
     liveAudioQueueRef.current = [];
   }, []);
 
+  // Native path: the plugin has no "confirmed vs interim" concept like the
+  // Web Speech API — partialResults just streams live text for display,
+  // and the start() promise itself resolves with the final matches once
+  // Android's recognizer detects the end of speech (or stop() is called).
+  // That resolution is the direct equivalent of the web path's onend.
+  const startListeningNative = useCallback(async () => {
+    try {
+      const { speechRecognition } = await NativeSpeechRecognition.checkPermissions();
+      if (speechRecognition !== "granted") {
+        const req = await NativeSpeechRecognition.requestPermissions();
+        if (req.speechRecognition !== "granted") { setPhase("idle"); return; }
+      }
+    } catch {
+      setPhase("idle");
+      return;
+    }
+
+    await NativeSpeechRecognition.removeAllListeners();
+    let lastPartial = "";
+    await NativeSpeechRecognition.addListener("partialResults", (data) => {
+      const text = data.matches?.[0]?.trim() ?? "";
+      if (text) { lastPartial = text; setInterimTranscript(text); }
+    });
+
+    setTranscript("");
+    setInterimTranscript("");
+    setPhase("listening");
+
+    try {
+      const { matches } = await NativeSpeechRecognition.start({
+        language: "en-US",
+        partialResults: true,
+        popup: false,
+      });
+      await NativeSpeechRecognition.removeAllListeners();
+      const captured = (matches?.[0]?.trim()) || lastPartial;
+      if (closingRef.current) return;
+      if (captured) {
+        setPhase("thinking");
+        setTranscript("");
+        setInterimTranscript("");
+        const dispatch = personaRef.current ? sendPersonaMessage : sendMessageRef.current;
+        dispatch?.(captured).catch(() => {
+          if (!closingRef.current) setPhase("idle");
+        });
+      } else {
+        setPhase("idle");
+      }
+    } catch {
+      await NativeSpeechRecognition.removeAllListeners().catch(() => {});
+      if (!closingRef.current) setPhase("idle");
+    }
+  }, [sendPersonaMessage]);
+
   const startListening = useCallback(() => {
+    if (Capacitor.isNativePlatform()) {
+      startListeningNative();
+      return;
+    }
+
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
@@ -778,7 +850,7 @@ export function VoiceChatOverlay({
     setInterimTranscript("");
     recognition.start();
     setPhase("listening");
-  }, [sendPersonaMessage]);
+  }, [sendPersonaMessage, startListeningNative]);
 
   // Auto-restart after speaking finishes (skip in live mode — WS handles it)
   useEffect(() => {

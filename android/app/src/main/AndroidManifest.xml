@@ -42,4 +42,11 @@
          @capacitor/push-notifications' registration/permission flow needs this
          declared even though the runtime prompt is what the user sees. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- VoiceChatOverlay's LIVE mode calls getUserMedia({audio: true}) directly
+         (not through a Capacitor plugin) — RECORD_AUDIO is the runtime
+         permission MainActivity requests, MODIFY_AUDIO_SETTINGS is required
+         separately or Android's audio subsystem refuses to hand the mic to
+         the WebView even after RECORD_AUDIO is granted. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 </manifest>
