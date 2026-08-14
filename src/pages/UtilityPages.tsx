@@ -41,9 +41,15 @@ export function AuthPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const handleSubmit = async () => {
-    setError(null);
-    setLoading(true);
+  // Same root cause as a cold-network resume elsewhere in the app: right
+  // after Android/Capacitor brings the WebView back from a long background
+  // suspend, the OS network stack can still be catching up, so the very
+  // first request thrown at it fails with a plain "Failed to fetch" that
+  // has nothing to do with the entered credentials.
+  const isTransientFetchError = (e: any) =>
+    /failed to fetch|network/i.test(e?.message ?? "") || e?.name === "AuthRetryableFetchError";
+
+  const attemptSubmit = async (retriesLeft: number): Promise<void> => {
     try {
       if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -54,10 +60,19 @@ export function AuthPage() {
         setMessage("Check your email to confirm your account.");
       }
     } catch (e: any) {
+      if (retriesLeft > 0 && isTransientFetchError(e)) {
+        await new Promise((r) => setTimeout(r, 800));
+        return attemptSubmit(retriesLeft - 1);
+      }
       setError(e.message);
-    } finally {
-      setLoading(false);
     }
+  };
+
+  const handleSubmit = async () => {
+    setError(null);
+    setLoading(true);
+    await attemptSubmit(1);
+    setLoading(false);
   };
 
   return (
