@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import * as Sentry from "@sentry/react";
+import { Capacitor } from "@capacitor/core";
 import App from "./App.tsx";
 import "./index.css";
 import { checkForUpdate, confirmBootSuccess } from "./lib/liveUpdate";
@@ -31,7 +32,28 @@ void confirmBootSuccess();
 
 void checkForUpdate();
 
-if ("serviceWorker" in navigator) {
+// Web-only: sw.js's own PWA offline/push-notification job is redundant on
+// native (LiveUpdate already caches the current bundle locally; native push
+// goes through @capacitor/push-notifications instead), and its cache-first
+// navigation handling is a real risk now that checkForUpdate() can trigger
+// a live in-session reload() — the service worker was designed for real
+// HTTP(S) navigations/fetches, not Capacitor's local bundle-directory
+// server, and a stale cached response served across a live bundle swap is
+// exactly the kind of thing that would leave the page rendered but hooks
+// mid-fetch never resolving.
+if (Capacitor.isNativePlatform()) {
+  // Clean up any service worker + cache already installed on-device from
+  // before this fix shipped — skipping registration above only prevents
+  // new installs, it doesn't stop one already running from a prior launch.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations()
+      .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+      .catch(() => {});
+  }
+  if ("caches" in window) {
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).catch(() => {});
+  }
+} else if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("/sw.js", { scope: "/" })
