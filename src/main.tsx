@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import * as Sentry from "@sentry/react";
 import { Capacitor } from "@capacitor/core";
+import { isTauri } from "@tauri-apps/api/core";
 import App from "./App.tsx";
 import "./index.css";
 import { checkForUpdate, confirmBootSuccess } from "./lib/liveUpdate";
@@ -41,7 +42,15 @@ void checkForUpdate();
 // server, and a stale cached response served across a live bundle swap is
 // exactly the kind of thing that would leave the page rendered but hooks
 // mid-fetch never resolving.
-if (Capacitor.isNativePlatform()) {
+//
+// Tauri desktop (VANTARA.EXE) hits the same failure mode for a different
+// reason: Capacitor.isNativePlatform() is false there (Tauri isn't
+// Capacitor), so it used to fall into the plain-web branch below and
+// register sw.js. Its origin (https://tauri.localhost) stays constant
+// across app rebuilds and the cache name never changes, so a rebuilt exe
+// can boot straight into a stale cache-first app shell/bundle from a
+// previous install — same "renders, but app state never loads" symptom.
+if (Capacitor.isNativePlatform() || isTauri()) {
   // Clean up any service worker + cache already installed on-device from
   // before this fix shipped — skipping registration above only prevents
   // new installs, it doesn't stop one already running from a prior launch.
