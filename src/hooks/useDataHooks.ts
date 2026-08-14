@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { withTransientRetry } from "@/lib/retryTransientFetch";
 
 // ─── helpers ───────────────────────────────────────────────
 // AppDataProvider mounts every one of these hooks at once, so all of them
@@ -47,12 +48,14 @@ function makeHook<T extends { id: string }>(
       if (!user) return;
       if (inflight.current) return inflight.current;
       const run = (async () => {
-        const { data: rows, error } = await (supabase as any)
-          .from(tableName)
-          .select("*")
-          .eq("user_id", user.id)
-          .order(orderColumn, { ascending })
-          .limit(500);
+        const { data: rows, error } = await withTransientRetry(() =>
+          (supabase as any)
+            .from(tableName)
+            .select("*")
+            .eq("user_id", user.id)
+            .order(orderColumn, { ascending })
+            .limit(500)
+        );
         if (error) {
           console.error(`[useDataHooks] Error fetching ${tableName}:`, error);
         }
@@ -227,11 +230,13 @@ export function useEnergySystems() {
 
   const fetch = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from("energy_systems")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("type");
+    const { data } = await withTransientRetry(() =>
+      supabase
+        .from("energy_systems")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("type")
+    );
     if (data) setSystems(data as EnergySystem[]);
     setLoading(false);
   }, [user]);
@@ -407,8 +412,10 @@ export function useCurrencies() {
 
   const fetch = useCallback(async () => {
     if (!user) return;
-    const { data: rows, error } = await (supabase as any)
-      .from("currencies").select("*").eq("user_id", user.id).order("name", { ascending: true });
+    const { data: rows, error } = await withTransientRetry(() =>
+      (supabase as any)
+        .from("currencies").select("*").eq("user_id", user.id).order("name", { ascending: true })
+    );
     if (error) console.error("[useDataHooks] Error fetching currencies:", error);
     if (rows) setData(rows as unknown as Currency[]);
     setLoading(false);

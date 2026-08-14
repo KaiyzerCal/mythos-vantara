@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { withTransientRetry } from "@/lib/retryTransientFetch";
 
 interface AuthContextType {
   session: Session | null;
@@ -36,18 +37,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Resuming from a long background suspend, Android/Capacitor's WebView
     // can hand control back before its network stack is actually reachable
-    // again -- the first getSession() call throws a plain "Failed to fetch"
-    // even though a valid session is sitting right there in storage. Without
-    // this retry that transient throw drops a still-logged-in user back to
-    // the login screen. One short retry rides it out, well inside the 4s
-    // failsafe above.
-    const getSessionWithRetry = (attempt = 0): ReturnType<typeof supabase.auth.getSession> =>
-      supabase.auth.getSession().catch((err) => {
-        if (attempt >= 1) throw err;
-        return new Promise((resolve) => setTimeout(resolve, 800)).then(() => getSessionWithRetry(attempt + 1));
-      });
-
-    getSessionWithRetry()
+    // again -- the first getSession() call fails with a plain "Failed to
+    // fetch" even though a valid session is sitting right there in storage.
+    // Without this retry that transient failure drops a still-logged-in
+    // user back to the login screen. One short retry rides it out, well
+    // inside the 4s failsafe above.
+    withTransientRetry(() => supabase.auth.getSession())
       .then(({ data: { session } }) => {
         setSession(session);
         setLoading(false);
