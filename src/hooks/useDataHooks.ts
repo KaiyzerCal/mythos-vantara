@@ -48,7 +48,7 @@ function makeHook<T extends { id: string }>(
       if (!user) return;
       if (inflight.current) return inflight.current;
       const run = (async () => {
-        const { data: rows, error } = await withTransientRetry(() =>
+        const { data: rows, error } = await withTransientRetry<{ data: unknown[] | null; error: unknown }>(() =>
           (supabase as any)
             .from(tableName)
             .select("*")
@@ -412,7 +412,7 @@ export function useCurrencies() {
 
   const fetch = useCallback(async () => {
     if (!user) return;
-    const { data: rows, error } = await withTransientRetry(() =>
+    const { data: rows, error } = await withTransientRetry<{ data: unknown[] | null; error: unknown }>(() =>
       (supabase as any)
         .from("currencies").select("*").eq("user_id", user.id).order("name", { ascending: true })
     );
