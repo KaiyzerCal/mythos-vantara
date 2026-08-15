@@ -10,6 +10,7 @@ const supabase = _supabase as any;
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { withTransientRetry } from "@/lib/retryTransientFetch";
+import { isTransientFetchError } from "@/lib/retryTransientFetch";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
 import Dashboard from "./Dashboard";
 
@@ -62,7 +63,9 @@ export function AuthPage() {
         }
       });
     } catch (e: any) {
-      setError(e.message);
+      setError(isTransientFetchError(e)
+        ? "The connection is temporarily unavailable. Check your connection and try again."
+        : e.message);
     } finally {
       setLoading(false);
     }
