@@ -63,6 +63,7 @@ export function VoiceChatOverlay({
   const resumeKeepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const closingRef = useRef(false);
+  const nativeTtsRangeListenerRef = useRef<{ remove: () => Promise<void> } | null>(null);
   const wakeLockRef = useRef<any>(null);
   const replyScrollRef = useRef<HTMLDivElement>(null);
   const spokenWordRef = useRef<HTMLSpanElement>(null);
@@ -165,8 +166,8 @@ export function VoiceChatOverlay({
     setSpokenUpTo(0);
     setPhase("speaking");
 
-    await NativeTextToSpeech.removeAllListeners();
-    await NativeTextToSpeech.addListener("onRangeStart", (info) => {
+    await nativeTtsRangeListenerRef.current?.remove().catch(() => {});
+    nativeTtsRangeListenerRef.current = await NativeTextToSpeech.addListener("onRangeStart", (info) => {
       setSpokenUpTo(info.end);
       spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
@@ -178,7 +179,8 @@ export function VoiceChatOverlay({
       // e.g. ERROR_UTTERANCE, or stop() was called mid-utterance — either way
       // fall through to resetting phase below rather than leaving it stuck.
     } finally {
-      await NativeTextToSpeech.removeAllListeners().catch(() => {});
+      await nativeTtsRangeListenerRef.current?.remove().catch(() => {});
+      nativeTtsRangeListenerRef.current = null;
       if (!closingRef.current) setPhase("idle");
     }
   }, []);
@@ -936,7 +938,8 @@ export function VoiceChatOverlay({
     disconnectLiveVoice();
     if (Capacitor.isNativePlatform()) {
       NativeTextToSpeech.stop().catch(() => {});
-      NativeTextToSpeech.removeAllListeners().catch(() => {});
+      nativeTtsRangeListenerRef.current?.remove().catch(() => {});
+      nativeTtsRangeListenerRef.current = null;
     }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     elevenLabsAudioCtxRef.current?.close().catch(() => {});

@@ -104,6 +104,7 @@ export function CouncilGroupVoice({
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const closingRef = useRef(false);
+  const nativeTtsRangeListenerRef = useRef<{ remove: () => Promise<void> } | null>(null);
   const recognitionRef = useRef<any>(null);
   const karaokeTickRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeKeepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -147,8 +148,8 @@ export function CouncilGroupVoice({
     if (!text || closingRef.current) { onDone(); return; }
     setDisplayedText(text);
     setSpokenUpTo(0);
-    await NativeTextToSpeech.removeAllListeners();
-    await NativeTextToSpeech.addListener("onRangeStart", (info) => {
+    await nativeTtsRangeListenerRef.current?.remove().catch(() => {});
+    nativeTtsRangeListenerRef.current = await NativeTextToSpeech.addListener("onRangeStart", (info) => {
       setSpokenUpTo(info.end);
       spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
@@ -158,7 +159,8 @@ export function CouncilGroupVoice({
     } catch {
       // fall through to onDone below regardless
     } finally {
-      await NativeTextToSpeech.removeAllListeners().catch(() => {});
+      await nativeTtsRangeListenerRef.current?.remove().catch(() => {});
+      nativeTtsRangeListenerRef.current = null;
       if (!closingRef.current) onDone();
     }
   }, []);
