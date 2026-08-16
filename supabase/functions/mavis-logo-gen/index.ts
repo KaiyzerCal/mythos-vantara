@@ -13,6 +13,8 @@
 //   format        string   — "square" | "wide" | "tall" (default: square)
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { generateImageCascade } from "../_shared/providers.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -112,12 +114,20 @@ async function generateWithFluxPro(prompt: string, imageSize: string): Promise<s
   return url;
 }
 
+function recraftSizeToDimensions(size: string): { width: number; height: number } {
+  const map: Record<string, string> = {
+    square_hd: "1024x1024",
+    landscape_4_3: "1024x768",
+    portrait_4_3: "768x1024",
+  };
+  const [w, h] = (map[size] ?? "1024x1024").split("x").map(Number);
+  return { width: w || 1024, height: h || 1024 };
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
-  if (!FAL_KEY) return json({ error: "FAL_API_KEY not configured" }, 503);
 
   try {
     const body = await req.json();
@@ -134,21 +144,42 @@ serve(async (req) => {
     const prompt = buildLogoPrompt(brandName, description || brandName, style, colors, logoType);
     const recraftStyle = RECRAFT_STYLES[style] ?? RECRAFT_STYLES.default;
     const imageSize = FORMAT_SIZES[format] ?? FORMAT_SIZES.square;
+    const { width, height } = recraftSizeToDimensions(imageSize);
 
     let url: string;
     let usedProvider: string;
 
     if (provider === "flux") {
-      url = await generateWithFluxPro(prompt, imageSize);
-      usedProvider = "flux-pro";
+      if (FAL_KEY) {
+        try {
+          url = await generateWithFluxPro(prompt, imageSize);
+          usedProvider = "flux-pro";
+        } catch (err) {
+          console.warn("FLUX Pro failed, falling back to shared image cascade:", err);
+          const result = await generateImageCascade({ prompt, width, height });
+          url = result.url;
+          usedProvider = `${result.provider} (cascade)`;
+        }
+      } else {
+        const result = await generateImageCascade({ prompt, width, height });
+        url = result.url;
+        usedProvider = `${result.provider} (cascade)`;
+      }
     } else {
-      try {
-        url = await generateWithRecraft(prompt, recraftStyle, imageSize);
-        usedProvider = "recraft-v3";
-      } catch (err) {
-        console.warn("Recraft failed, falling back to FLUX Pro:", err);
-        url = await generateWithFluxPro(prompt, imageSize);
-        usedProvider = "flux-pro (fallback)";
+      if (FAL_KEY) {
+        try {
+          url = await generateWithRecraft(prompt, recraftStyle, imageSize);
+          usedProvider = "recraft-v3";
+        } catch (err) {
+          console.warn("Recraft failed, falling back to shared image cascade:", err);
+          const result = await generateImageCascade({ prompt, width, height });
+          url = result.url;
+          usedProvider = `${result.provider} (cascade)`;
+        }
+      } else {
+        const result = await generateImageCascade({ prompt, width, height });
+        url = result.url;
+        usedProvider = `${result.provider} (cascade)`;
       }
     }
 
