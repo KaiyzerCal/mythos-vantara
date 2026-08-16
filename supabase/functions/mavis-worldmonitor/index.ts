@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -299,32 +300,12 @@ async function handleNewsBrief(sb: any): Promise<any> {
 
   let brief: any = null;
   try {
-    if (lovableKey) {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        signal: AbortSignal.timeout(30000),
-        headers: { "Lovable-API-Key": lovableKey, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content ?? "";
-      const match = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
-      if (match) brief = JSON.parse(match[0]);
-    } else if (anthropicKey) {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        signal: AbortSignal.timeout(30000),
-        headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: "claude-3-5-sonnet-latest", max_tokens: 1024, messages: [{ role: "user", content: prompt }] }),
-      });
-      const data = await res.json();
-      const text = data?.content?.[0]?.text ?? "";
-      const match = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
-      if (match) brief = JSON.parse(match[0]);
-    }
+    const { content } = await aiComplete({
+      system: "You are MAVIS, a global intelligence analyst. Respond with JSON only.",
+      user: prompt,
+    });
+    const match = content.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
+    if (match) brief = JSON.parse(match[0]);
   } catch { /* fall through */ }
 
   if (!brief) {

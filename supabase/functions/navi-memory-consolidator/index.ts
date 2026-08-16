@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -102,50 +103,16 @@ Rules:
 
         let summaries: { content: string; importance: number }[] = [];
 
-        // Prefer Lovable AI Gateway (free), fall back to OpenAI
-        if (lovableKey) {
-          try {
-            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${lovableKey}` },
-              body: JSON.stringify({
-                model: "google/gemini-2.5-flash",
-                messages: [
-                  { role: "system", content: "Output only minified JSON matching the requested schema." },
-                  { role: "user", content: consolidationPrompt },
-                ],
-                temperature: 0.3,
-              }),
-            });
-            if (r.ok) {
-              const d = await r.json();
-              const raw = (d?.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-              summaries = JSON.parse(raw).summaries ?? [];
-            }
-          } catch (e) {
-            console.warn(`[consolidator] Lovable failed for ${group.persona_id}:`, e);
-          }
-        }
-
-        if (!summaries.length && openaiKey) {
-          const r = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
-            body: JSON.stringify({
-              model: "gpt-4o-mini",
-              messages: [
-                { role: "system", content: "Output only minified JSON matching the requested schema." },
-                { role: "user", content: consolidationPrompt },
-              ],
-              temperature: 0.3,
-              max_tokens: 512,
-            }),
+        // Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
+        try {
+          const { content } = await aiComplete({
+            system: "Output only minified JSON matching the requested schema.",
+            user: consolidationPrompt,
           });
-          if (r.ok) {
-            const d = await r.json();
-            const raw = (d?.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-            summaries = JSON.parse(raw).summaries ?? [];
-          }
+          const raw = content.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+          summaries = JSON.parse(raw).summaries ?? [];
+        } catch (e) {
+          console.warn(`[consolidator] AI unavailable for ${group.persona_id}:`, e instanceof Error ? e.message : e);
         }
 
         if (!summaries.length) {
