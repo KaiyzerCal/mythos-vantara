@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 type MavisAction = {
   type: string;
@@ -2008,20 +2009,26 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           return { results: data.results ?? [], answer: data.answer ?? null, query };
         }
       }
-      const grokKey = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "";
-      if (grokKey) {
-        const res = await fetch("https://api.x.ai/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${grokKey}` },
-          body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "user", content: `Search the web for: ${query}. Return a concise answer with sources.` }] }),
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          return { answer: data.choices?.[0]?.message?.content ?? "", query };
-        }
+      const providerKeys = {
+        openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+        claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+        grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+        gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+        groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+      };
+      const hasAnyKey = providerKeys.gemini || providerKeys.groq || providerKeys.grok || providerKeys.claude || providerKeys.openai;
+      if (hasAnyKey) {
+        try {
+          const answer = (await callWithFallback(
+            "grok",
+            [{ role: "user", content: `Search the web for: ${query}. Return a concise answer with sources.` }],
+            "",
+            providerKeys,
+          )).content;
+          if (answer) return { answer, query };
+        } catch { /* fall through */ }
       }
-      return { error: "Search unavailable — set TAVILY_API_KEY or GROK_API_KEY in Supabase secrets", query };
+      return { error: "Search unavailable — set TAVILY_API_KEY or an AI provider key in Supabase secrets", query };
     }
 
     // ── BROWSE URL ──────────────────────────────────────────────────────────

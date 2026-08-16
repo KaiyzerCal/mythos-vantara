@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
 serve(async (req) => {
@@ -182,26 +183,20 @@ serve(async (req) => {
 
     const contextStr = contextLines.join("\n");
 
-    // Call Claude Haiku
-    const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 600,
-        system:
-          "You are MAVIS writing an end-of-day journal entry ON BEHALF of your operator in first person ('Today I...'). Write 2-3 paragraphs. Tone: reflective, direct, honest. Reference actual data provided. Note wins, note what didn't happen, suggest one thing for tomorrow. No fluff.",
-        messages: [{ role: "user", content: contextStr }],
-      }),
-    });
-
-    const anthropicData = await anthropicRes.json();
-    const draftText: string =
-      anthropicData.content?.[0]?.text ?? "No journal entry generated.";
+    // Call the free-first provider cascade
+    const providerKeys = {
+      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
+    const draftText: string = (await callWithFallback(
+      "claude",
+      [{ role: "user", content: contextStr }],
+      "You are MAVIS writing an end-of-day journal entry ON BEHALF of your operator in first person ('Today I...'). Write 2-3 paragraphs. Tone: reflective, direct, honest. Reference actual data provided. Note wins, note what didn't happen, suggest one thing for tomorrow. No fluff.",
+      providerKeys,
+    )).content || "No journal entry generated.";
 
     // Check if a journal entry already exists for today with auto-journal tag
     const { data: existingEntries } = await supabase

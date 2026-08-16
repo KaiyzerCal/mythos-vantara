@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +19,14 @@ const SB_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 // OPENAI_API is a fallback env var name matching the rest of the codebase
 const OPENAI_KEY = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
+const PROVIDER_KEYS = {
+  openai: OPENAI_KEY,
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const supabase = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
@@ -256,49 +265,16 @@ async function getUserId(req: Request): Promise<string | null> {
   }
 }
 
-// ── Raw Claude API call ──────────────────────────────────────────────────────
+// ── Free-first cascade call (Gemini/Groq before Claude/OpenAI) ────────────────
 async function claudeCall(
   system: string,
   userMessage: string,
-  model: string,
-  maxTokens: number,
-  timeoutMs = 60_000,
+  _model: string,
+  _maxTokens: number,
+  _timeoutMs = 60_000,
 ): Promise<string> {
-  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY is not configured");
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content: userMessage }],
-    }),
-    // Previously unbounded — a single hung Claude request stalled this
-    // whole agent forever, which stalled Promise.all in the main handler
-    // forever, which meant nothing (not even already-finished sibling
-    // agents) ever reached persistence. See the 20260804060000 migration
-    // for the other half of this fix.
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Claude API error ${res.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const data = await res.json();
-  const text: string = (data.content ?? [])
-    .filter((b: { type: string }) => b.type === "text")
-    .map((b: { text: string }) => b.text)
-    .join("");
-
-  if (!text) throw new Error("Claude returned an empty response");
+  const text = (await callWithFallback("claude", [{ role: "user", content: userMessage }], system, PROVIDER_KEYS)).content;
+  if (!text) throw new Error("All providers returned an empty response");
   return text;
 }
 
@@ -596,18 +572,9 @@ serve(async (req: Request): Promise<Response> => {
   }
 
   // ── Guard: must have at least one LLM provider ───────────────────────────
-  if (!ANTHROPIC_KEY && !OPENAI_KEY) {
+  if (!HAS_ANY_PROVIDER_KEY) {
     return new Response(
-      JSON.stringify({
-        error: "No LLM provider configured. Set ANTHROPIC_API_KEY (required) or OPENAI_API.",
-      }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  }
-
-  if (!ANTHROPIC_KEY) {
-    return new Response(
-      JSON.stringify({ error: "ANTHROPIC_API_KEY is required for the crew orchestrator." }),
+      JSON.stringify({ error: "No AI provider key configured for the crew orchestrator." }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }

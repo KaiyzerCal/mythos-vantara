@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +17,13 @@ const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const CHAT_ID = Deno.env.get("TELEGRAM_CHAT_ID") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const PRIORITY_KEYWORDS = ["invoice", "contract", "deadline", "urgent", "asap", "legal"];
 
@@ -68,28 +76,11 @@ async function sendTelegram(text: string): Promise<void> {
   }
 }
 
-/** Call Claude Haiku for a short generation task. Returns the text content. */
-async function callHaiku(systemPrompt: string, userMessage: string, maxTokens = 300): Promise<string> {
-  if (!ANTHROPIC_KEY) return "";
+/** Free-first cascade call for a short generation task. Returns the text content. */
+async function callHaiku(systemPrompt: string, userMessage: string, _maxTokens = 300): Promise<string> {
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: maxTokens,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userMessage }],
-      }),
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) return "";
-    const data = await res.json();
-    return data?.content?.[0]?.text?.trim() ?? "";
+    const text = (await callWithFallback("claude", [{ role: "user", content: userMessage }], systemPrompt, PROVIDER_KEYS)).content;
+    return text.trim();
   } catch {
     return "";
   }
