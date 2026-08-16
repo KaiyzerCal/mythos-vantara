@@ -302,7 +302,7 @@ serve(async (req) => {
     // Run HTML and image generation in parallel
     const [html, imageUrl] = await Promise.all([
       ANTHROPIC_KEY ? generateHTML(fields, specs).catch(err => { console.error(err); return null; }) : null,
-      generateIdeogramImage(fields, specs.ideogram_ratio),
+      generateIdeogramImage(fields, specs.ideogram_ratio, specs.width, specs.height),
     ]);
 
     // Store HTML in Supabase Storage (non-blocking)
