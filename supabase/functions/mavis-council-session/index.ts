@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -79,33 +80,10 @@ async function callLovableGateway(system: string, userMsg: string, key: string, 
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-async function callGroupLLM(system: string, userMsg: string, maxTokens: number): Promise<string> {
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
-  const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-  const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-
-  if (lovableKey) {
-    try {
-      return await callLovableGateway(system, userMsg, lovableKey, maxTokens);
-    } catch (err: any) {
-      console.warn(`[council-session] Gemini Flash failed (${err.message}) → falling back to Claude Haiku`);
-    }
-  }
-
-  if (claudeKey) {
-    try {
-      return await callClaude("claude-haiku-4-5-20251001", system, userMsg, claudeKey, maxTokens);
-    } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
-      console.warn(`[council-session] Claude Haiku unfunded → falling back to GPT-4o-mini`);
-    }
-  }
-
-  if (openaiKey) {
-    return await callOpenAI("gpt-4o-mini", system, userMsg, openaiKey, maxTokens);
-  }
-
-  throw new Error("All AI providers unavailable for group council session.");
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
+async function callGroupLLM(system: string, userMsg: string, _maxTokens: number): Promise<string> {
+  const { content } = await aiComplete({ system, user: userMsg });
+  return content;
 }
 
 // ── Prompt builder ────────────────────────────────────────────────────────────

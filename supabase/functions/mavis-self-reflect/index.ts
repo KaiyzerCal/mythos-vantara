@@ -12,58 +12,17 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function callAI(prompt: string, key: string): Promise<string> {
-  // Try Lovable gateway (Gemini Flash) first, fallback to Claude Haiku
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-  if (lovableKey) {
-    try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 2000,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        return d?.choices?.[0]?.message?.content ?? "";
-      }
-    } catch { /* fall through */ }
-  }
-
-  // Fallback: Claude Haiku
-  const claudeKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (claudeKey) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": claudeKey,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 2000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (res.ok) {
-      const d = await res.json();
-      return d?.content?.[0]?.text ?? "";
-    }
-  }
-
-  throw new Error("No AI key available for self-reflection");
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
+async function callAI(prompt: string, _key?: string): Promise<string> {
+  const { content } = await aiComplete({ system: "You are MAVIS, an analytical subsystem. Answer precisely.", user: prompt });
+  return content;
 }
 
 Deno.serve(async (req) => {

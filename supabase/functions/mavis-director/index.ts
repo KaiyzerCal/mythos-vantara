@@ -19,6 +19,7 @@
 //   queue_autonomous_task → insert into mavis_autonomous_tasks
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,73 +46,20 @@ const json = (data: unknown, status = 200) =>
 // AI HELPERS — same cascade as telegram-webhook
 // ─────────────────────────────────────────────────────────────
 
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
 async function callAI(
   system: string,
   user: string,
-  maxTokens = 512,
+  _maxTokens = 512,
   preferFast = true,
 ): Promise<string> {
-  // Tier 1: Gemini Flash via Lovable (free)
-  if (LOVABLE_KEY) {
-    try {
-      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          max_tokens: maxTokens,
-          messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        }),
-      });
-      if (r.ok) {
-        const d = await r.json();
-        const t = d.choices?.[0]?.message?.content ?? "";
-        if (t) return t;
-      }
-    } catch { /* fall through */ }
+  try {
+    const { content } = await aiComplete({ system, user, mode: preferFast ? "PRIME" : "ARCH" });
+    return content;
+  } catch (err) {
+    console.warn("[director] all providers unavailable:", err instanceof Error ? err.message : err);
+    return "[No AI provider available]";
   }
-
-  // Tier 2: Claude Haiku (fast/cheap) or Sonnet (quality)
-  if (ANTHROPIC_KEY) {
-    const model = preferFast ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
-    try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({ model, max_tokens: maxTokens, system,
-          messages: [{ role: "user", content: user }] }),
-      });
-      if (r.ok) {
-        const d = await r.json();
-        return d.content?.[0]?.text ?? "";
-      }
-    } catch { /* fall through */ }
-  }
-
-  // Tier 3: OpenAI mini
-  if (OPENAI_KEY) {
-    try {
-      const r = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          max_tokens: maxTokens,
-          messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        }),
-      });
-      if (r.ok) {
-        const d = await r.json();
-        return d.choices?.[0]?.message?.content ?? "";
-      }
-    } catch { /* fall through */ }
-  }
-
-  return "[No AI provider available]";
 }
 
 // ─────────────────────────────────────────────────────────────

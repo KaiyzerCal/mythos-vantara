@@ -8,6 +8,7 @@
 // Runs Sunday 4am UTC via mavis_cron_config. verify_jwt = false.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,64 +25,10 @@ const MAX_ROWS_PER_USER = 2000;
 const MAX_AGE_DAYS      = 90;
 const MIN_IMPORTANCE    = 4;
 
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
 async function callAI(prompt: string): Promise<string> {
-  if (LOVABLE_KEY) {
-    try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 600,
-        }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        const t = d.choices?.[0]?.message?.content ?? "";
-        if (t.trim()) return t;
-      }
-    } catch { /* fall through */ }
-  }
-  if (ANTHROPIC_KEY) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 600,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        return d.content?.[0]?.text ?? "";
-      }
-    } catch { /* fall through */ }
-  }
-  if (OPENAI_KEY) {
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          max_tokens: 600,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        return d.choices?.[0]?.message?.content ?? "";
-      }
-    } catch { /* fall through */ }
-  }
-  return "";
+  const { content } = await aiComplete({ system: "You are MAVIS, an analytical subsystem. Answer precisely.", user: prompt });
+  return content;
 }
 
 interface ArchiveResult {

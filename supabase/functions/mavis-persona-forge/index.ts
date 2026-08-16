@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,6 +93,8 @@ Make the system_prompt rich, specific, and in-character. Make the persona feel l
     const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API") ?? "";
 
     const providers: Array<() => Promise<string>> = [
+      // Free-first: shared cascade (free Gemini → Groq → Lovable gateway → paid tiers).
+      async () => (await aiComplete({ system: FORGE_SYSTEM_PROMPT, user: description })).content,
       callAnthropic,
       ...(lovableKey ? [() => callOpenAICompat(
         "https://ai.gateway.lovable.dev/v1/chat/completions",

@@ -9,6 +9,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -355,67 +356,10 @@ Be direct and in-character.`;
 // AI CALL (cascade: Gemini Flash → Claude Haiku → Claude Sonnet)
 // ─────────────────────────────────────────────────────────────
 
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
 async function callAI(system: string, userMsg: string): Promise<string> {
-  // Tier 1: Gemini Flash (free)
-  if (LOVABLE_KEY) {
-    try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
-          max_tokens: 800,
-        }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        const text = d.choices?.[0]?.message?.content ?? "";
-        if (text) return text;
-      }
-    } catch { /* fall through */ }
-  }
-
-  // Tier 2: Claude Haiku (cheap)
-  if (ANTHROPIC_KEY) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 800,
-          system,
-          messages: [{ role: "user", content: userMsg }],
-        }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        return d.content?.[0]?.text ?? "";
-      }
-    } catch { /* fall through */ }
-  }
-
-  // Tier 3: OpenAI gpt-4o-mini
-  if (OPENAI_KEY) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
-        max_tokens: 800,
-      }),
-    });
-    const d = await res.json();
-    return d.choices?.[0]?.message?.content ?? "";
-  }
-
-  throw new Error("No AI provider available");
+  const { content } = await aiComplete({ system, user: userMsg });
+  return content;
 }
 
 // ─────────────────────────────────────────────────────────────

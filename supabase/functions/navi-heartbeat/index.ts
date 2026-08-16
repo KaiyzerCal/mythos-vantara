@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -139,34 +140,15 @@ Return ONLY the message text. No quotes, no JSON, no explanation.`;
 
         let message = "";
 
-        if (lovableKey) {
-          try {
-            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${lovableKey}` },
-              body: JSON.stringify({
-                model: "google/gemini-2.5-flash",
-                messages: [{ role: "user", content: heartbeatPrompt }],
-                temperature: 0.85,
-                max_tokens: 150,
-              }),
-            });
-            if (r.ok) message = (await r.json())?.choices?.[0]?.message?.content?.trim() ?? "";
-          } catch { /* fallback */ }
-        }
-
-        if (!message && openaiKey) {
-          const r = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
-            body: JSON.stringify({
-              model: "gpt-4o-mini",
-              messages: [{ role: "user", content: heartbeatPrompt }],
-              temperature: 0.85,
-              max_tokens: 150,
-            }),
+        // Free-first provider cascade (shared).
+        try {
+          const { content } = await aiComplete({
+            system: "You write short, warm, in-character persona messages. Return only the message text.",
+            user: heartbeatPrompt,
           });
-          if (r.ok) message = (await r.json())?.choices?.[0]?.message?.content?.trim() ?? "";
+          message = content.trim();
+        } catch (e) {
+          console.warn("[navi-heartbeat] all providers unavailable:", e instanceof Error ? e.message : e);
         }
 
         // Fallback message if LLM unavailable

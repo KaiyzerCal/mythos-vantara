@@ -1968,14 +1968,16 @@ interface AgentLoopResult {
 //               permission) and code/agentic work
 //   grok      — xAI — live knowledge: news, X/Twitter, markets, trending
 //   openai    — GPT — deep reasoning, analysis, strategy
-type ProviderId = "gateway" | "anthropic" | "openai" | "grok";
+type ProviderId = "groq" | "gateway" | "anthropic" | "openai" | "grok";
 
+// "groq" is the free Llama 3.3 70B tool-calling lane — kept as a fallback on
+// every lane so a gateway 402/429 never takes the agent loop down.
 const PROVIDER_LANES: Record<string, ProviderId[]> = {
-  generation: ["anthropic", "openai", "gateway", "grok"],
-  code:       ["anthropic", "openai", "gateway", "grok"],
-  realtime:   ["grok", "gateway", "anthropic", "openai"],
-  reasoning:  ["openai", "anthropic", "gateway", "grok"],
-  default:    ["gateway", "anthropic", "openai", "grok"],
+  generation: ["anthropic", "openai", "gateway", "groq", "grok"],
+  code:       ["anthropic", "openai", "gateway", "groq", "grok"],
+  realtime:   ["grok", "gateway", "groq", "anthropic", "openai"],
+  reasoning:  ["openai", "anthropic", "gateway", "groq", "grok"],
+  default:    ["gateway", "groq", "anthropic", "openai", "grok"],
 };
 
 const GENERATION_INTENT = /\b(generate|draw|render|imagine|make|create)\b[\s\S]{0,60}\b(image|picture|photo|pic|art|artwork|video|animation|avatar|portrait|wallpaper)\b|\b(image|picture|photo|video)\s+of\b|\b(nsfw|hentai|furry|lewd|nude|naked|sexy|erotic|porn)\b/i;
@@ -2197,7 +2199,7 @@ async function runAgentLoop(
   supabase: ReturnType<typeof createClient>,
   env: Env,
   onEvent?: (event: Record<string, unknown>) => void,
-  providerChain: ProviderId[] = ["gateway", "anthropic"],
+  providerChain: ProviderId[] = ["gateway", "groq", "anthropic"],
 ): Promise<AgentLoopResult> {
   const anthropicModel = "claude-sonnet-4-6";
   // OpenAI-compatible providers share one request/response shape.
@@ -2214,6 +2216,12 @@ async function runAgentLoop(
       key:        env.openaiKey,
       model:      Deno.env.get("OPENAI_MODEL") ?? "gpt-5-mini",
       tokenParam: "max_completion_tokens",
+    },
+    groq: {
+      url:        "https://api.groq.com/openai/v1/chat/completions",
+      key:        Deno.env.get("GROQ_API_KEY") ?? "",
+      model:      Deno.env.get("GROQ_MODEL") ?? "llama-3.3-70b-versatile",
+      tokenParam: "max_tokens",
     },
     grok: {
       url:        "https://api.x.ai/v1/chat/completions",
@@ -2917,7 +2925,7 @@ Deno.serve(async (req) => {
       serviceKey: SERVICE_KEY,
     };
 
-    if (!lovableKey && !claudeKey && !env.openaiKey && !env.grokKey) {
+    if (!lovableKey && !claudeKey && !env.openaiKey && !env.grokKey && !Deno.env.get("GROQ_API_KEY")) {
       return json({ error: "No AI provider configured" }, 500);
     }
 
@@ -3104,7 +3112,8 @@ Deno.serve(async (req) => {
     // force a provider with body.provider = "anthropic"|"openai"|"grok"|"gateway".
     const overrideRaw = String(body.provider ?? "").toLowerCase();
     const override: ProviderId | "" =
-      overrideRaw === "gateway" || overrideRaw === "gemini" ? "gateway"
+      overrideRaw === "groq" ? "groq"
+      : overrideRaw === "gateway" || overrideRaw === "gemini" ? "gateway"
       : overrideRaw === "anthropic" || overrideRaw === "claude" ? "anthropic"
       : overrideRaw === "openai" || overrideRaw === "gpt" ? "openai"
       : overrideRaw === "grok" || overrideRaw === "xai" ? "grok"
@@ -3114,6 +3123,7 @@ Deno.serve(async (req) => {
       ? [override, ...PROVIDER_LANES.default.filter((p) => p !== override)]
       : PROVIDER_LANES[lane] ?? PROVIDER_LANES.default;
     const keyFor: Record<ProviderId, string> = {
+      groq:      Deno.env.get("GROQ_API_KEY") ?? "",
       gateway:   lovableKey,
       anthropic: claudeKey,
       openai:    env.openaiKey,

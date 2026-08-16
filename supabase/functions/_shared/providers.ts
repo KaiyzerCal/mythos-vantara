@@ -318,7 +318,7 @@ export async function callWithFallback(
   primary: Provider,
   messages: any[],
   system: string,
-  keys: { openai: string; claude: string; grok: string; gemini: string; groq: string },
+  keys: { openai: string; claude: string; grok: string; gemini: string; groq: string; lovable?: string },
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ content: string; provider: string }> {
@@ -356,6 +356,16 @@ export async function callWithFallback(
     } catch (err: any) {
       if (err instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
       console.warn(`[fallback] Groq failed (${err.message}) → cascading`);
+    }
+  }
+
+  // Tier 0d — Lovable AI Gateway (workspace credits; broad model coverage)
+  if (keys.lovable && !isProviderUnhealthy("lovable")) {
+    try {
+      return { content: await callLovable(messages, system, keys.lovable, { thinking: mU === "DEEP" }), provider: "lovable-gateway" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", err.status === 429 ? 60_000 : 300_000);
+      console.warn(`[fallback] Lovable gateway failed (${err.message}) → cascading`);
     }
   }
 
@@ -745,7 +755,7 @@ export async function callWithFallbackStream(
   primary: Provider,
   messages: any[],
   system: string,
-  keys: { openai: string; claude: string; grok: string; gemini: string; groq: string },
+  keys: { openai: string; claude: string; grok: string; gemini: string; groq: string; lovable?: string },
   useThinking = false,
   mode = "PRIME",
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
@@ -776,6 +786,14 @@ export async function callWithFallbackStream(
     catch (e: any) {
       if (e instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
       console.warn(`[stream-fallback] Groq: ${e.message} → cascading`);
+    }
+  }
+  // Tier 0c — Lovable AI Gateway (workspace credits)
+  if (keys.lovable && !isProviderUnhealthy("lovable")) {
+    try { return { stream: await callLovableStream(messages, system, keys.lovable, { thinking: mU === "DEEP" }), provider: "lovable-gateway" }; }
+    catch (e: any) {
+      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", e.status === 429 ? 60_000 : 300_000);
+      console.warn(`[stream-fallback] Lovable gateway: ${e.message} → cascading`);
     }
   }
   // Tier 1 — Mode-designated provider
@@ -817,4 +835,121 @@ export async function callWithFallbackStream(
     }
   }
   throw new Error("All AI providers unavailable for streaming (no funded keys).");
+}
+
+// ============================================================
+// LOVABLE AI GATEWAY ADAPTER + UNIVERSAL ENTRYPOINT
+// Every edge function that needs text completion should call
+// `aiComplete` (or `aiCompleteStream`) instead of hitting a
+// single provider directly, so one provider outage / 402 / 429
+// can never produce a user-facing 500.
+// ============================================================
+
+export const LOVABLE_GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+export const LOVABLE_DEFAULT_MODEL = "google/gemini-3.6-flash";
+
+export interface LovableOpts { model?: string; maxTokens?: number; thinking?: boolean; temperature?: number }
+
+function lovableBody(messages: any[], system: string, opts: LovableOpts, stream: boolean) {
+  return JSON.stringify({
+    model: opts.model ?? LOVABLE_DEFAULT_MODEL,
+    messages: [{ role: "system", content: system }, ...messages],
+    max_tokens: opts.maxTokens ?? (opts.thinking ? 8192 : 4096),
+    temperature: opts.temperature ?? 0.8,
+    ...(stream ? { stream: true } : {}),
+  });
+}
+
+function lovableHeaders(key: string) {
+  return {
+    "Content-Type": "application/json",
+    // The gateway authenticates on this header — never `Authorization: Bearer`.
+    "Lovable-API-Key": key,
+    "X-Lovable-AIG-SDK": "fetch",
+  };
+}
+
+export async function callLovable(messages: any[], system: string, key: string, opts: LovableOpts = {}): Promise<string> {
+  const res = await fetch(LOVABLE_GATEWAY_URL, {
+    method: "POST",
+    headers: lovableHeaders(key),
+    body: lovableBody(messages, system, opts, false),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("lovable", errText.slice(0, 200), res.status);
+    throw new ProviderUnavailableError("lovable", errText.slice(0, 200), res.status);
+  }
+  const d = await res.json();
+  return d.choices?.[0]?.message?.content ?? "";
+}
+
+export async function callLovableStream(messages: any[], system: string, key: string, opts: LovableOpts = {}): Promise<ReadableStream<string>> {
+  const res = await fetch(LOVABLE_GATEWAY_URL, {
+    method: "POST",
+    headers: lovableHeaders(key),
+    body: lovableBody(messages, system, opts, true),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new ProviderUnavailableError("lovable", errText.slice(0, 200), res.status);
+  }
+  return oaiSseToTextStream(res.body!);
+}
+
+/** Read every provider key this project supports from the function environment. */
+export function getProviderKeys(): { openai: string; claude: string; grok: string; gemini: string; groq: string; lovable: string } {
+  return {
+    gemini:  Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "",
+    groq:    Deno.env.get("GROQ_API_KEY") ?? "",
+    lovable: Deno.env.get("LOVABLE_API_KEY") ?? "",
+    openai:  Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+    claude:  Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+    grok:    Deno.env.get("XAI_API_KEY") ?? Deno.env.get("GROK_API_KEY") ?? "",
+  };
+}
+
+export interface AiCompleteOpts {
+  system?: string;
+  user?: string;
+  messages?: any[];
+  mode?: string;
+  thinking?: boolean;
+  /** Try the Lovable AI Gateway before the project's own free keys. */
+  preferLovable?: boolean;
+}
+
+/**
+ * Universal free-first text completion.
+ * Order: free Gemini 2.0 Flash → Flash-Lite → Groq Llama → Lovable Gateway →
+ *        paid Gemini 2.5 → mode provider → OpenAI → Claude → Grok.
+ * Throws only when every configured provider is unavailable.
+ */
+export async function aiComplete(opts: AiCompleteOpts): Promise<{ content: string; provider: string }> {
+  const system = opts.system ?? "You are a helpful assistant.";
+  const messages = opts.messages ?? [{ role: "user", content: opts.user ?? "" }];
+  const mode = opts.mode ?? (opts.thinking ? "DEEP" : "PRIME");
+  const keys = getProviderKeys();
+  const primary = routeToProvider(mode, typeof messages.at(-1)?.content === "string" ? messages.at(-1).content : "");
+
+  if (opts.preferLovable && keys.lovable && !isProviderUnhealthy("lovable")) {
+    try {
+      return { content: await callLovable(messages, system, keys.lovable, { thinking: opts.thinking }), provider: "lovable-gateway" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", err.status === 429 ? 60_000 : 300_000);
+      console.warn(`[aiComplete] lovable gateway failed (${err.message}) → free cascade`);
+    }
+  }
+
+  return await callWithFallback(primary, messages, system, keys, !!opts.thinking, mode);
+}
+
+/** Streaming variant of `aiComplete`. */
+export async function aiCompleteStream(opts: AiCompleteOpts): Promise<{ stream: ReadableStream<string>; provider: string }> {
+  const system = opts.system ?? "You are a helpful assistant.";
+  const messages = opts.messages ?? [{ role: "user", content: opts.user ?? "" }];
+  const mode = opts.mode ?? (opts.thinking ? "DEEP" : "PRIME");
+  const keys = getProviderKeys();
+  const primary = routeToProvider(mode, typeof messages.at(-1)?.content === "string" ? messages.at(-1).content : "");
+  return await callWithFallbackStream(primary, messages, system, keys, !!opts.thinking, mode);
 }
