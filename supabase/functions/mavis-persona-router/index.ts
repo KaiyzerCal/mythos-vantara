@@ -2,25 +2,27 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
+import {
+  ProviderUnavailableError,
+  isUnfundedStatus,
+  callGemini,
+  callGroq,
+} from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// ── LLM cascade: configured-provider → OpenAI → Lovable AI Gateway ───────────
-
-class ProviderUnavailableError extends Error {
-  constructor(public providerName: string, public reason: string, public status: number) {
-    super(`${providerName} unavailable (${status}): ${reason}`);
-  }
-}
-
-function isUnfundedStatus(status: number, body: string): boolean {
-  if ([401, 402, 403, 429].includes(status)) return true;
-  const b = body.toLowerCase();
-  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("payment") || b.includes("insufficient");
-}
+// ── LLM cascade: Gemini (free) → Groq (free) → configured-provider → OpenAI →
+//    Lovable AI Gateway ───────────────────────────────────────────────────────
+// Gemini/Groq/ProviderUnavailableError/isUnfundedStatus come from
+// _shared/providers.ts — the same cascade mavis-chat (and council, which
+// routes through mavis-chat) already relies on. Before this, persona chat's
+// cascade only ever tried paid providers (OpenAI/Claude/Grok) plus the
+// Lovable Gateway; when all of those were unfunded, persona chat failed
+// completely while MAVIS/council kept working — because they had two free
+// tiers (Gemini, then Groq) this cascade never attempted at all.
 
 function mapToGatewayModel(model: string): string {
   if (!model) return "google/gemini-2.5-flash";
@@ -101,6 +103,8 @@ async function callLovableGateway(model: string, system: string, messages: any[]
 }
 
 // Cascade order:
+//   0a. Gemini 2.0 Flash (free, 15 RPM) — same first attempt mavis-chat makes
+//   0b. Groq Llama 3.3 70B (free, generous rate limit) — mavis-chat's next attempt
 //   1. Lovable Gemini Flash (free) — every persona starts here
 //   2. The persona's MAVIS-chosen `model` (claude / openai / grok) — chosen at forge time as the persona's signature voice
 //   3. Generic safety net: OpenAI mini → Claude Haiku → Claude Sonnet → Grok
@@ -108,7 +112,27 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
   const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
   const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
+  const geminiKey  = Deno.env.get("GEMINI_API_KEY") ?? "";
+  const groqKey    = Deno.env.get("GROQ_API_KEY") ?? "";
   const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+
+  // Tier 0a — Gemini 2.0 Flash (free)
+  if (geminiKey) {
+    try {
+      return await callGemini(messages, system, geminiKey, { model: "gemini-2.0-flash" });
+    } catch (err: any) {
+      console.warn(`[persona-router] Gemini 2.0 Flash failed (${err.message}) → trying Groq`);
+    }
+  }
+
+  // Tier 0b — Groq Llama 3.3 70B (free)
+  if (groqKey) {
+    try {
+      return await callGroq(messages, system, groqKey);
+    } catch (err: any) {
+      console.warn(`[persona-router] Groq failed (${err.message}) → falling back to Lovable Gateway`);
+    }
+  }
 
   // Tier 1 — Lovable Gemini Flash (free)
   if (lovableKey) {

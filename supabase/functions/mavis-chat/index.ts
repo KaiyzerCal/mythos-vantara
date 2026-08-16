@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 import { scoreImportance, compressBlock, isHighStakesQuery, estimateLlmCost, detectFacets } from "./utils.ts";
-import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream } from "./providers.ts";
+import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream } from "../_shared/providers.ts";
 import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionIntent, hasResearchIntent, resolveActionsNative } from "./toolDispatch.ts";
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";

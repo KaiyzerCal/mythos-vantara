@@ -5,7 +5,7 @@
 // model calls.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { isProviderUnhealthy, callClaude, callGemini } from "./providers.ts";
+import { isProviderUnhealthy, callClaude, callGemini } from "../_shared/providers.ts";
 
 // ============================================================
 // REACT AGENTIC LOOP — ACTION block parsing and execution
