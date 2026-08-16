@@ -1022,7 +1022,7 @@ async function lovableImage(prompt: string): Promise<string | null> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Lovable-API-Key": key,
+        "Authorization": `Bearer ${key}`,
         "X-Lovable-AIG-SDK": "fetch",
       },
       body: JSON.stringify({
