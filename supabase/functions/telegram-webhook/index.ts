@@ -11,6 +11,7 @@
 // After deploying, register the webhook by calling /telegram-setup once.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -700,9 +701,9 @@ async function tryGeminiFlash(system: string, messages: { role: string; content:
   if (!AI_KEYS.lovable) throw new ProviderUnavailableError("lovable", 0);
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${AI_KEYS.lovable}` },
+    headers: { "Content-Type": "application/json", "Lovable-API-Key": AI_KEYS.lovable },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "google/gemini-3.6-flash",
       messages: [{ role: "system", content: system }, ...messages],
       max_tokens: 1024,
     }),
@@ -784,7 +785,13 @@ async function callClaude(
   systemPrompt: string,
   messages: { role: string; content: string }[],
 ): Promise<string> {
-  // Tier 1 — Lovable Gemini Flash (free quota)
+  // Tier 0 — Direct free Gemini / Groq keys (zero credits burned)
+  try {
+    const { content } = await aiComplete({ system: systemPrompt, messages });
+    if (content) return content;
+  } catch (e) { console.warn("[MAVIS-TG] free cascade unavailable:", e instanceof Error ? e.message : e); }
+
+  // Tier 1 — Lovable Gemini Flash (workspace credits)
   try { return await tryGeminiFlash(systemPrompt, messages); }
   catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Gemini Flash unavailable → OpenAI mini"); }
 

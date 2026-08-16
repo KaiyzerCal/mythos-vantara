@@ -25,7 +25,7 @@ async function generateEmbedding(text: string): Promise<number[]> {
   const res = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "Lovable-API-Key": LOVABLE_API_KEY,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -35,6 +35,25 @@ async function generateEmbedding(text: string): Promise<number[]> {
   });
   if (!res.ok) {
     const t = await res.text();
+    // Free fallback: direct Gemini embedding API with the project's own key.
+    const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "";
+    if (geminiKey) {
+      const g = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "models/text-embedding-004",
+            content: { parts: [{ text: text.slice(0, 2000) }] },
+          }),
+        },
+      );
+      if (g.ok) {
+        const gd = await g.json();
+        return gd?.embedding?.values ?? [];
+      }
+    }
     throw new Error(`Embedding failed: ${res.status} ${t}`);
   }
   const data = await res.json();
