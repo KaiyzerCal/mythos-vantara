@@ -11,7 +11,6 @@ serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const claudeKey   = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const adminSb     = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
   // Step 1 — Determine uid (real user JWT, or trusted internal caller via service-role key)
