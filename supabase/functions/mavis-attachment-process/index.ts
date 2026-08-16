@@ -173,45 +173,48 @@ Be thorough — this analysis is the only way the AI system can "see" this video
 }
 
 // Cascading multimodal description:
-//   1. Gemini (inline base64 — handles images + PDFs natively)
-//   2. Claude Haiku (images only — vision)
-//   3. GPT-4o-mini (images only — vision)
+//   1. Gemini 2.0 Flash (free, handles images + PDFs natively)
+//   2. Gemini 2.5 Flash (paid fallback, better PDF tables)
+//   3. Claude Haiku (images only — vision)
+//   4. GPT-4o-mini (images only — vision)
 async function describeWithAI(buf: ArrayBuffer, mime: string, fileName: string, prompt: string): Promise<string> {
   const b64 = base64Encode(buf);
   const isImage = mime.startsWith("image/");
 
-  // ── Tier 1: Gemini direct (best for PDFs, good for images) ──
+  // ── Tier 1: Free Gemini 2.0 Flash (images + PDFs) ──
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   if (geminiKey) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              role: "user",
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mime, data: b64 } },
-              ],
-            }],
-            generationConfig: { maxOutputTokens: 8192 },
-          }),
-          signal: AbortSignal.timeout(30000),
-        },
-      );
-      if (res.ok) {
-        const j = await res.json();
-        const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
-        const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
-        if (text.length > 10) return text.slice(0, 60000);
-      } else {
-        console.warn(`[gemini] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    for (const model of ["gemini-2.0-flash", "gemini-2.5-flash-preview-05-20"]) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                role: "user",
+                parts: [
+                  { text: prompt },
+                  { inline_data: { mime_type: mime, data: b64 } },
+                ],
+              }],
+              generationConfig: { maxOutputTokens: 8192 },
+            }),
+            signal: AbortSignal.timeout(30000),
+          },
+        );
+        if (res.ok) {
+          const j = await res.json();
+          const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+          const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+          if (text.length > 10) return text.slice(0, 60000);
+        } else {
+          console.warn(`[gemini ${model}] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        }
+      } catch (e: any) {
+        console.warn(`[gemini ${model}] describe failed:`, e.message);
       }
-    } catch (e: any) {
-      console.warn("[gemini] describe failed:", e.message);
     }
   }
 
