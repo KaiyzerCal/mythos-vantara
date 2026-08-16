@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveAuthedUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
 serve(async (req) => {
@@ -11,6 +12,11 @@ serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const claudeKey   = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+  const openaiKey   = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+  const grokKey     = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "";
+  const geminiKey   = Deno.env.get("GEMINI_API_KEY") ?? "";
+  const groqKey     = Deno.env.get("GROQ_API_KEY") ?? "";
+  const providerKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey };
   const adminSb     = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
   // Step 1 — Determine uid (real user JWT, or trusted internal caller via service-role key)
@@ -181,27 +187,12 @@ Rules:
 - Total length: 150-200 words.
 - Tone: calm authority, tactical clarity.`;
 
-  // Step 6 — Generate via Claude Sonnet
-  const claudeBody = {
-    model: "claude-sonnet-4-6",
-    max_tokens: 512,
-    system: systemPrompt,
-    messages: [{ role: "user", content: `Generate the morning briefing from this data:\n${dataBlock}` }],
-  };
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": claudeKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(claudeBody),
-  });
-  let digest: string = (await res.json()).content
-    .filter((b: any) => b.type === "text")
-    .map((b: any) => b.text)
-    .join("");
+  // Step 6 — Generate via free-first provider cascade (Gemini/Groq free tiers
+  // before falling through to Claude Sonnet)
+  const digestMessages: any[] = [
+    { role: "user", content: `Generate the morning briefing from this data:\n${dataBlock}` },
+  ];
+  let digest: string = (await callWithFallback("claude", digestMessages, systemPrompt, providerKeys)).content;
 
   // Step 7 — Quality evaluation (regenerate once if below threshold)
   let evalData: { score?: number; feedback?: string; passed?: boolean } = { passed: true };
@@ -225,31 +216,16 @@ Rules:
 
   if (!evalData.passed) {
     // Regenerate with feedback appended
-    const regenBody = {
-      ...claudeBody,
-      messages: [
-        ...claudeBody.messages,
-        { role: "assistant", content: digest },
-        {
-          role: "user",
-          content: `Quality feedback: ${evalData.feedback ?? "improve quality"}. Please regenerate the briefing addressing this feedback while keeping the same structure and data.`,
-        },
-      ],
-    };
+    const regenMessages: any[] = [
+      ...digestMessages,
+      { role: "assistant", content: digest },
+      {
+        role: "user",
+        content: `Quality feedback: ${evalData.feedback ?? "improve quality"}. Please regenerate the briefing addressing this feedback while keeping the same structure and data.`,
+      },
+    ];
     try {
-      const regenRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": claudeKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(regenBody),
-      });
-      const regenText = (await regenRes.json()).content
-        .filter((b: any) => b.type === "text")
-        .map((b: any) => b.text)
-        .join("");
+      const regenText = (await callWithFallback("claude", regenMessages, systemPrompt, providerKeys)).content;
       if (regenText) digest = regenText;
     } catch {
       // Keep original digest if regen fails

@@ -172,50 +172,61 @@ Be thorough — this analysis is the only way the AI system can "see" this video
   return text.slice(0, 60000);
 }
 
+async function describeWithGeminiModel(model: string, b64: string, mime: string, prompt: string, geminiKey: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mime, data: b64 } },
+            ],
+          }],
+          generationConfig: { maxOutputTokens: 8192 },
+        }),
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    if (res.ok) {
+      const j = await res.json();
+      const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+      const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+      if (text.length > 10) return text.slice(0, 60000);
+    } else {
+      console.warn(`[gemini:${model}] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    }
+  } catch (e: any) {
+    console.warn(`[gemini:${model}] describe failed:`, e.message);
+  }
+  return null;
+}
+
 // Cascading multimodal description:
-//   1. Gemini (inline base64 — handles images + PDFs natively)
-//   2. Claude Haiku (images only — vision)
-//   3. GPT-4o-mini (images only — vision)
+//   1. Gemini 2.0 Flash (free tier — handles images + PDFs natively)
+//   2. Gemini 2.5 Flash (paid — better quality fallback)
+//   3. Claude Haiku (images only — vision)
+//   4. GPT-4o-mini (images only — vision)
 async function describeWithAI(buf: ArrayBuffer, mime: string, fileName: string, prompt: string): Promise<string> {
   const b64 = base64Encode(buf);
   const isImage = mime.startsWith("image/");
 
-  // ── Tier 1: Gemini direct (best for PDFs, good for images) ──
+  // ── Tier 1: Gemini 2.0 Flash — free tier, tried first ──
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   if (geminiKey) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              role: "user",
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mime, data: b64 } },
-              ],
-            }],
-            generationConfig: { maxOutputTokens: 8192 },
-          }),
-          signal: AbortSignal.timeout(30000),
-        },
-      );
-      if (res.ok) {
-        const j = await res.json();
-        const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
-        const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
-        if (text.length > 10) return text.slice(0, 60000);
-      } else {
-        console.warn(`[gemini] ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      }
-    } catch (e: any) {
-      console.warn("[gemini] describe failed:", e.message);
-    }
+    const free = await describeWithGeminiModel("gemini-2.0-flash", b64, mime, prompt, geminiKey);
+    if (free) return free;
+
+    // ── Tier 2: Gemini 2.5 Flash — paid, better quality ──
+    const paid = await describeWithGeminiModel("gemini-2.5-flash-preview-05-20", b64, mime, prompt, geminiKey);
+    if (paid) return paid;
   }
 
-  // ── Tier 2: Claude Haiku vision (images only) ───────────────
+  // ── Tier 3: Claude Haiku vision (images only) ───────────────
   const claudeKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (claudeKey && isImage) {
     try {
@@ -252,7 +263,7 @@ async function describeWithAI(buf: ArrayBuffer, mime: string, fileName: string, 
     }
   }
 
-  // ── Tier 3: GPT-4o-mini vision (images only) ────────────────
+  // ── Tier 4: GPT-4o-mini vision (images only) ────────────────
   const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY");
   if (openaiKey && isImage) {
     try {

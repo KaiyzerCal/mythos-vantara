@@ -6,6 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,47 +34,14 @@ Continue. Take the next concrete action. Do not re-state the goal — execute.`;
 async function callAI(
   systemPrompt: string,
   userContent: string,
-  keys: { gemini: string; claude: string; openai: string },
-  maxTokens = 512,
+  keys: { gemini: string; claude: string; openai: string; grok: string; groq: string },
+  _maxTokens = 512,
 ): Promise<string> {
-  if (keys.gemini) {
-    try {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${keys.gemini}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: "user", parts: [{ text: userContent }] }],
-          generationConfig: { maxOutputTokens: maxTokens, temperature: 0.2 },
-        }),
-      });
-      if (r.ok) { const d = await r.json(); return d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
-    } catch { /* try next */ }
+  try {
+    return (await callWithFallback("claude", [{ role: "user", content: userContent }], systemPrompt, keys)).content;
+  } catch {
+    return "";
   }
-
-  if (keys.claude) {
-    try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": keys.claude, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: maxTokens, system: systemPrompt, messages: [{ role: "user", content: userContent }] }),
-      });
-      if (r.ok) { const d = await r.json(); return d.content?.[0]?.text ?? ""; }
-    } catch { /* try next */ }
-  }
-
-  if (keys.openai) {
-    try {
-      const r = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${keys.openai}` },
-        body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userContent }], max_tokens: maxTokens, temperature: 0.2 }),
-      });
-      if (r.ok) { const d = await r.json(); return d.choices?.[0]?.message?.content ?? ""; }
-    } catch { /* give up */ }
-  }
-
-  return "";
 }
 
 function judgeIsDone(judgeResponse: string): { done: boolean; reason: string } {
@@ -96,8 +64,10 @@ serve(async (req) => {
   const geminiKey   = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_AI_API_KEY") ?? "";
   const claudeKey   = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
   const openaiKey   = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+  const grokKey     = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "";
+  const groqKey     = Deno.env.get("GROQ_API_KEY") ?? "";
 
-  const keys = { gemini: geminiKey, claude: claudeKey, openai: openaiKey };
+  const keys = { gemini: geminiKey, claude: claudeKey, openai: openaiKey, grok: grokKey, groq: groqKey };
   const sb = createClient(supabaseUrl, serviceKey);
 
   let body: any = {};

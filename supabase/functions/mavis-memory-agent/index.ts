@@ -10,33 +10,34 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const BOT_TOKEN     = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
 const OPENAI_KEY    = (Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API")) ?? "";
+const PROVIDER_KEYS = {
+  openai: OPENAI_KEY,
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function callClaude(systemPrompt: string, userPrompt: string, model = "claude-haiku-4-5-20251001"): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) throw new Error(`Claude error ${res.status}`);
-  const data = await res.json();
-  return (data.content?.[0]?.text ?? "").trim();
+async function callClaude(systemPrompt: string, userPrompt: string, _model = "claude-haiku-4-5-20251001"): Promise<string> {
+  const text = (await callWithFallback(
+    "claude",
+    [{ role: "user", content: userPrompt }],
+    systemPrompt,
+    PROVIDER_KEYS,
+  )).content;
+  return text.trim();
 }
 
 async function embedText(text: string): Promise<number[] | null> {
