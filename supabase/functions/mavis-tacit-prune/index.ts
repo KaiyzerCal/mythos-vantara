@@ -11,6 +11,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -25,48 +26,10 @@ const MAX_PER_CATEGORY  = 60;
 const MAX_AGE_DAYS      = 90;
 const KEEP_CATEGORIES   = ["hard_rule", "preference", "lesson_learned", "workflow_habit"];
 
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
 async function callAI(prompt: string): Promise<string> {
-  if (LOVABLE_KEY) {
-    try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 500,
-        }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        const t = d.choices?.[0]?.message?.content ?? "";
-        if (t) return t;
-      }
-    } catch { /* fall through */ }
-  }
-  if (ANTHROPIC_KEY) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 500,
-          messages: [{ role: "user", content: prompt }] }),
-      });
-      if (res.ok) { const d = await res.json(); return d.content?.[0]?.text ?? ""; }
-    } catch { /* fall through */ }
-  }
-  if (OPENAI_KEY) {
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
-        body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 500,
-          messages: [{ role: "user", content: prompt }] }),
-      });
-      if (res.ok) { const d = await res.json(); return d.choices?.[0]?.message?.content ?? ""; }
-    } catch { /* fall through */ }
-  }
-  return "";
+  const { content } = await aiComplete({ system: "You are MAVIS, an analytical subsystem. Answer precisely.", user: prompt });
+  return content;
 }
 
 Deno.serve(async (req) => {
