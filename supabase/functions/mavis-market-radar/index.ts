@@ -7,6 +7,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +18,14 @@ const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const TAVILY_KEY = Deno.env.get("TAVILY_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const TELEGRAM_CHAT_ID = Deno.env.get("TELEGRAM_CHAT_ID") ?? "";
 
@@ -130,7 +139,7 @@ async function scoreArticlesWithClaude(
   articles: Array<{ topic: string; title: string; content: string; url: string }>,
   operatorName: string,
 ): Promise<Array<ScoredArticle & { topic: string; url: string }>> {
-  if (!ANTHROPIC_KEY || articles.length === 0) {
+  if (!HAS_ANY_PROVIDER_KEY || articles.length === 0) {
     // Return minimal fallback scores so we still store something
     return articles.map((a) => ({
       topic: a.topic,
@@ -168,39 +177,12 @@ No explanation, no markdown, just the JSON array.`;
     const userPrompt = `Score these ${batch.length} articles:\n\n${articleList}`;
 
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 1500,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userPrompt }],
-        }),
-      });
-
-      if (!res.ok) {
-        console.warn(`[market-radar] Claude scoring failed: ${res.status}`);
-        // Fallback: assign neutral scores
-        for (const a of batch) {
-          results.push({
-            topic: a.topic,
-            url: a.url,
-            headline: a.title,
-            summary: a.content.slice(0, 200),
-            relevance_score: 0.5,
-            signal_type: "news",
-          });
-        }
-        continue;
-      }
-
-      const claudeData = await res.json();
-      const rawText: string = claudeData.content?.find((b: { type: string }) => b.type === "text")?.text ?? "[]";
+      const rawText: string = (await callWithFallback(
+        "claude",
+        [{ role: "user", content: userPrompt }],
+        systemPrompt,
+        PROVIDER_KEYS,
+      )).content || "[]";
 
       // Parse JSON — strip any accidental markdown fences
       const jsonText = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();

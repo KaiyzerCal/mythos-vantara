@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
 type RelationshipType =
@@ -175,26 +176,24 @@ serve(async (req) => {
 
     const contextStr = contextLines.join("\n");
 
-    // Call Claude Haiku
-    const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 400,
-        system:
-          "You are MAVIS. Generate a concise relationship nudge (max 5 bullet lines). List who needs attention and why. Reference their relationship type. Suggest one opening message idea for the most overdue person.",
-        messages: [{ role: "user", content: contextStr }],
-      }),
-    });
-
-    const anthropicData = await anthropicRes.json();
-    const nudgeText: string =
-      anthropicData.content?.[0]?.text ?? "Check your contacts.";
+    // Call the free-first provider cascade
+    const providerKeys = {
+      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
+    let nudgeText = "Check your contacts.";
+    try {
+      const text = (await callWithFallback(
+        "claude",
+        [{ role: "user", content: contextStr }],
+        "You are MAVIS. Generate a concise relationship nudge (max 5 bullet lines). List who needs attention and why. Reference their relationship type. Suggest one opening message idea for the most overdue person.",
+        providerKeys,
+      )).content;
+      if (text) nudgeText = text;
+    } catch { /* keep default nudgeText */ }
 
     // Send Telegram notification
     const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN")!;

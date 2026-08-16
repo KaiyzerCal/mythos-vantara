@@ -1,10 +1,18 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const GROK_API_KEY = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY");
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const GROK_API_KEY = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "";
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_API_KEY,
+  grok:   GROK_API_KEY,
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 interface ProductProposal {
   title: string;
@@ -22,47 +30,11 @@ function stripCodeFences(text: string): string {
     .trim();
 }
 
-async function callGrok(prompt: string): Promise<string> {
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "grok-3-mini",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Grok API error ${res.status}: ${err}`);
-  }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
-}
-
-async function callClaude(prompt: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY!,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2048,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Anthropic API error ${res.status}: ${err}`);
-  }
-  const data = await res.json();
-  return data.content?.[0]?.text ?? "";
+// Free-first cascade (Gemini 2.0 Flash / Groq before paid providers), keeping
+// Grok as the designated "primary" tier since real-time trend awareness was
+// the original reason Grok was preferred here over Claude.
+async function callAI(prompt: string): Promise<string> {
+  return (await callWithFallback("grok", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content;
 }
 
 Deno.serve(async (req) => {
@@ -198,18 +170,15 @@ For each, return a JSON array with objects containing exactly these fields:
 
 Respond with ONLY the JSON array, no explanation.`;
 
-    // 4. Call AI (Grok preferred, Claude fallback)
-    let rawResponse: string;
-    if (GROK_API_KEY) {
-      rawResponse = await callGrok(prompt);
-    } else if (ANTHROPIC_API_KEY) {
-      rawResponse = await callClaude(prompt);
-    } else {
+    // 4. Call AI via the free-first cascade (Gemini/Groq free tiers, then Grok, then Claude/OpenAI)
+    const hasAnyKey = PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.grok || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai;
+    if (!hasAnyKey) {
       return new Response(
-        JSON.stringify({ error: "No AI API key configured (XAI_API_KEY or ANTHROPIC_API_KEY required)" }),
+        JSON.stringify({ error: "No AI API key configured" }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
+    const rawResponse = await callAI(prompt);
 
     // 4 cont. Parse JSON (handle code fences)
     let proposals: ProductProposal[] = [];

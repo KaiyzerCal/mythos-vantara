@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,6 +11,13 @@ const SB_URL      = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const BROWSER_URL   = Deno.env.get("BROWSER_URL") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -104,25 +112,9 @@ async function analyzeChange(oldContent: string, newContent: string): Promise<{
 }> {
   const prompt = `Compare these two website snapshots and summarize what changed:\n\nOLD:\n${oldContent.slice(0, 2000)}\n\nNEW:\n${newContent.slice(0, 2000)}\n\nReturn JSON only: { "changes": string[], "significance": "minor"|"moderate"|"major", "insight": string }`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!res.ok) throw new Error(`Anthropic error ${res.status}`);
-  const data = await res.json();
-  const text = data.content?.[0]?.text ?? "{}";
+  const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content || "{}";
   const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("Failed to parse Claude response");
+  if (!match) throw new Error("Failed to parse AI response");
   return JSON.parse(match[0]);
 }
 
@@ -174,7 +166,8 @@ serve(async (req) => {
         if (newHash !== competitor.last_content_hash) {
           const oldContent = (competitor.snapshot as any)?.content ?? "";
 
-          if (ANTHROPIC_KEY && oldContent) {
+          const hasAnyKey = PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok;
+          if (hasAnyKey && oldContent) {
             try {
               const analysis = await analyzeChange(oldContent, content);
 

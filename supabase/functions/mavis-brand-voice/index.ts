@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,7 +32,13 @@ serve(async (req) => {
 
     const body = await req.json();
     const { action, samples, content, platform = "general" } = body;
-    const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+    const providerKeys = {
+      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
 
     if (action === "train") {
       if (!samples || !Array.isArray(samples) || samples.length === 0) {
@@ -42,20 +49,11 @@ serve(async (req) => {
 
       const combined = samples.join("\n---\n");
 
-      const profileRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1024,
-          system: "You are a writing style analyst. Return ONLY valid JSON, no markdown fences.",
-          messages: [{
-            role: "user",
-            content: `Analyze these writing samples and return ONLY valid JSON with this exact shape:
+      const raw = (await callWithFallback(
+        "claude",
+        [{
+          role: "user",
+          content: `Analyze these writing samples and return ONLY valid JSON with this exact shape:
 {
   "tone": "string (e.g. confident, casual, authoritative)",
   "vocabulary_level": "string (e.g. simple, technical, academic)",
@@ -71,12 +69,10 @@ serve(async (req) => {
 
 SAMPLES:
 ${combined}`,
-          }],
-        }),
-      });
-
-      const profileData = await profileRes.json();
-      const raw = profileData.content?.[0]?.text ?? "{}";
+        }],
+        "You are a writing style analyst. Return ONLY valid JSON, no markdown fences.",
+        providerKeys,
+      )).content || "{}";
       let profile: Record<string, unknown> = {};
       try { profile = JSON.parse(raw); } catch { profile = { summary: raw }; }
 
@@ -122,26 +118,12 @@ ${combined}`,
 
       const voiceProfile = (notes[0].properties as any).voice_profile;
 
-      const rewriteRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1024,
-          system: `You are a ghostwriter. Rewrite content to match this exact voice profile: ${JSON.stringify(voiceProfile)}. Preserve the meaning, transform the style.`,
-          messages: [{
-            role: "user",
-            content: `Rewrite the following for ${platform}:\n\n${content}`,
-          }],
-        }),
-      });
-
-      const rewriteData = await rewriteRes.json();
-      const rewritten = rewriteData.content?.[0]?.text ?? content;
+      const rewritten = (await callWithFallback(
+        "claude",
+        [{ role: "user", content: `Rewrite the following for ${platform}:\n\n${content}` }],
+        `You are a ghostwriter. Rewrite content to match this exact voice profile: ${JSON.stringify(voiceProfile)}. Preserve the meaning, transform the style.`,
+        providerKeys,
+      )).content || content;
 
       return new Response(JSON.stringify({ rewritten, voice_profile: voiceProfile }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
