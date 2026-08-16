@@ -181,27 +181,20 @@ Rules:
 - Total length: 150-200 words.
 - Tone: calm authority, tactical clarity.`;
 
-  // Step 6 — Generate via Claude Sonnet
-  const claudeBody = {
-    model: "claude-sonnet-4-6",
-    max_tokens: 512,
-    system: systemPrompt,
-    messages: [{ role: "user", content: `Generate the morning briefing from this data:\n${dataBlock}` }],
-  };
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": claudeKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(claudeBody),
-  });
-  let digest: string = (await res.json()).content
-    .filter((b: any) => b.type === "text")
-    .map((b: any) => b.text)
-    .join("");
+  // Step 6 — Generate via free-first AI cascade
+  const userPrompt = `Generate the morning briefing from this data:\n${dataBlock}`;
+  let digest = "";
+  try {
+    const { content, provider } = await aiComplete({
+      system: systemPrompt,
+      user: userPrompt,
+      mode: "SOVEREIGN",
+    });
+    digest = content;
+    console.log(`[mavis-morning-digest] generated via ${provider}`);
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: "AI generation failed", details: e.message }), { status: 502, headers: corsHeaders });
+  }
 
   // Step 7 — Quality evaluation (regenerate once if below threshold)
   let evalData: { score?: number; feedback?: string; passed?: boolean } = { passed: true };
