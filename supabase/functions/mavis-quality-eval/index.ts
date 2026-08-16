@@ -27,28 +27,13 @@ ${String(content ?? "").slice(0, 3000)}
 Respond ONLY with valid JSON: { "score": 8.5, "feedback": "one sentence of specific feedback", "passed": true }
 "passed" is true if score >= 7.0.`;
 
-    const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": claudeKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 150,
-        temperature: 0,
-        messages: [{ role: "user", content: evaluatorPrompt }],
-      }),
+    const res = await aiComplete({
+      system: "You are a precise quality evaluator. Respond only with valid JSON: { \"score\": number, \"feedback\": string, \"passed\": boolean }.",
+      user: evaluatorPrompt,
+      mode: "PRIME",
     });
 
-    const data = await res.json();
-    const rawText = (data.content ?? [])
-      .filter((b: any) => b.type === "text")
-      .map((b: any) => b.text)
-      .join("");
+    const rawText = res.content;
 
     // Extract JSON from the response (strip any surrounding markdown fences)
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
