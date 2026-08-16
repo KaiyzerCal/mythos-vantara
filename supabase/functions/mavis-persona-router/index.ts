@@ -25,17 +25,17 @@ const corsHeaders = {
 // tiers (Gemini, then Groq) this cascade never attempted at all.
 
 function mapToGatewayModel(model: string): string {
-  if (!model) return "google/gemini-2.5-flash";
+  if (!model) return "google/gemini-3.6-flash";
   const m = model.toLowerCase();
   if (m.startsWith("google/")) return model;
   if (m.startsWith("openai/")) return model;
   if (m.includes("gpt-5")) return "openai/gpt-5";
   if (m.includes("gpt-4") || m.includes("gpt-4o")) return "openai/gpt-5-mini";
   if (m.includes("claude")) return "google/gemini-2.5-pro";
-  if (m.includes("grok")) return "google/gemini-2.5-flash";
+  if (m.includes("grok")) return "google/gemini-3.6-flash";
   if (m.includes("gemini-2.5-pro")) return "google/gemini-2.5-pro";
-  if (m.includes("gemini")) return "google/gemini-2.5-flash";
-  return "google/gemini-2.5-flash";
+  if (m.includes("gemini")) return "google/gemini-3.6-flash";
+  return "google/gemini-3.6-flash";
 }
 
 async function callClaude(model: string, system: string, messages: any[], key: string): Promise<string> {
@@ -86,7 +86,7 @@ async function callGrok(model: string, system: string, messages: any[], key: str
 async function callLovableGateway(model: string, system: string, messages: any[], key: string): Promise<string> {
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    headers: { "Content-Type": "application/json", "Lovable-API-Key": key },
     body: JSON.stringify({
       model: mapToGatewayModel(model),
       messages: [{ role: "system", content: system }, ...messages],
@@ -137,7 +137,7 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
   // Tier 1 — Lovable Gemini Flash (free)
   if (lovableKey) {
     try {
-      return await callLovableGateway("google/gemini-2.5-flash", system, messages, lovableKey);
+      return await callLovableGateway("google/gemini-3.6-flash", system, messages, lovableKey);
     } catch (err: any) {
       console.warn(`[persona-router] Gemini Flash failed (${err.message}) → falling back to persona's chosen model: ${model}`);
     }
