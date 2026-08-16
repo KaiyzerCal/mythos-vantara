@@ -251,7 +251,7 @@ serve(async (req) => {
         if (GEMINI_KEY && model === "claude-haiku-4-5-20251001") {
           try {
             const text = await callGeminiVision(imageSource, prompt, 4096);
-            return json({ result: text, model: "gemini-2.5-flash" });
+            return json({ result: text, model: "gemini-2.0-flash" });
           } catch (e: any) {
             console.warn("[analyze] Gemini failed, falling back to Claude:", e.message);
           }
@@ -281,7 +281,7 @@ serve(async (req) => {
         if (GEMINI_KEY && model === "claude-haiku-4-5-20251001") {
           try {
             const text = await callGeminiVision(imageSource, prompt, 2048);
-            return json({ description: text, detail, model: "gemini-2.5-flash" });
+            return json({ description: text, detail, model: "gemini-2.0-flash" });
           } catch (e: any) {
             console.warn("[describe] Gemini failed, falling back to Claude:", e.message);
           }
