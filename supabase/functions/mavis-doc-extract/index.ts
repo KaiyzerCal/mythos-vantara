@@ -79,24 +79,46 @@ async function extractPdfWithClaude(fileUrl: string): Promise<string> {
   return data.content?.[0]?.text ?? "";
 }
 
-// Generate embedding via OpenAI text-embedding-3-small
+// Generate embedding via free Gemini text-embedding-004 first, fallback to OpenAI
 async function generateEmbedding(text: string): Promise<number[] | null> {
-  if (!OPENAI_KEY) return null;
-  try {
-    const res = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_KEY}`,
-      },
-      body: JSON.stringify({ model: "text-embedding-3-small", input: text }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.data?.[0]?.embedding ?? null;
-  } catch {
-    return null;
+  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "";
+  if (geminiKey) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: { parts: [{ text: text.slice(0, 8192) }] } }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const vec = data.embedding?.values ?? null;
+        if (Array.isArray(vec) && vec.length > 0) return vec;
+      }
+    } catch (e) {
+      console.warn("[mavis-doc-extract] Gemini embedding failed:", e);
+    }
   }
+
+  const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+  if (openaiKey) {
+    try {
+      const res = await fetch("https://api.openai.com/v1/embeddings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+        body: JSON.stringify({ model: "text-embedding-3-small", input: text }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.data?.[0]?.embedding ?? null;
+      }
+    } catch (e) {
+      console.warn("[mavis-doc-extract] OpenAI embedding failed:", e);
+    }
+  }
+  return null;
 }
 
 // Chunk text into ~1200 char chunks with 150 char overlap
