@@ -240,15 +240,20 @@ serve(async (req) => {
   // Extract text based on file type
   if (ext === "pdf") {
     try {
-      extractedText = await extractPdfWithClaude(fileUrl);
+      extractedText = await extractPdfWithGemini(fileUrl);
     } catch (err) {
-      console.error("[mavis-doc-extract] Claude PDF extraction failed, trying plain text fallback:", err);
-      // Fallback: fetch as text
+      console.warn("[mavis-doc-extract] Gemini PDF extraction failed, trying Claude:", err);
       try {
-        const fallbackRes = await fetch(fileUrl);
-        if (fallbackRes.ok) extractedText = await fallbackRes.text();
-      } catch (fallbackErr) {
-        console.error("[mavis-doc-extract] Fallback text fetch also failed:", fallbackErr);
+        extractedText = await extractPdfWithClaude(fileUrl);
+      } catch (claudeErr) {
+        console.error("[mavis-doc-extract] Claude PDF extraction failed, trying plain text fallback:", claudeErr);
+        // Fallback: fetch as text
+        try {
+          const fallbackRes = await fetch(fileUrl);
+          if (fallbackRes.ok) extractedText = await fallbackRes.text();
+        } catch (fallbackErr) {
+          console.error("[mavis-doc-extract] Fallback text fetch also failed:", fallbackErr);
+        }
       }
     }
   } else if (["txt", "md", "csv", "json"].includes(ext)) {
