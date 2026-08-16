@@ -7,6 +7,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const sb = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -18,6 +19,14 @@ let OPERATOR_USER_ID = "";
 const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const CHAT_ID          = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
 const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 async function sendTelegram(text: string): Promise<void> {
   if (!BOT_TOKEN || !CHAT_ID) return;
@@ -61,7 +70,7 @@ async function generateBrief(
   event: { title: string; start: string; attendees: string[] },
   contactData: any[],
 ): Promise<string> {
-  if (!ANTHROPIC_KEY) {
+  if (!HAS_ANY_PROVIDER_KEY) {
     // Fallback: plain text brief without AI
     const lines = contactData.map((c: any) => {
       const parts: string[] = [`• *${c.name}*`];
@@ -98,22 +107,11 @@ async function generateBrief(
     (a) => !contactData.some((c) => c.email === a || c.name?.toLowerCase().includes(a.split("@")[0].toLowerCase()))
   );
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 600,
-      system: `You are MAVIS, a sovereign AI personal OS generating a pre-meeting brief.
-Be concise, specific, and actionable. Surface relationship context and suggest one strong opener per person.
-Format using Telegram markdown (*bold*, _italic_). Keep total under 500 words.`,
-      messages: [{
-        role: "user",
-        content: `Generate a pre-meeting brief for:
+  const text = (await callWithFallback(
+    "claude",
+    [{
+      role: "user",
+      content: `Generate a pre-meeting brief for:
 Meeting: ${event.title}
 Starts: ${new Date(event.start).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true })}
 
@@ -124,13 +122,13 @@ ${unknownAttendees.length > 0 ? `Unknown attendees: ${unknownAttendees.join(", "
 
 For each person: relationship context, what they've been up to, one conversation opener.
 End with: one thing to watch for in this meeting.`,
-      }],
-    }),
-    signal: AbortSignal.timeout(20_000),
-  });
-
-  const data = await res.json();
-  return data.content?.[0]?.text ?? "Brief unavailable — check Anthropic key.";
+    }],
+    `You are MAVIS, a sovereign AI personal OS generating a pre-meeting brief.
+Be concise, specific, and actionable. Surface relationship context and suggest one strong opener per person.
+Format using Telegram markdown (*bold*, _italic_). Keep total under 500 words.`,
+    PROVIDER_KEYS,
+  )).content;
+  return text || "Brief unavailable — no AI provider configured.";
 }
 
 Deno.serve(async (req) => {

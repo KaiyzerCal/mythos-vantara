@@ -10,6 +10,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,7 +22,14 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -44,34 +52,11 @@ async function resolveUserId(req: Request): Promise<string | null> {
   }
 }
 
-// ── LLM cascade: Gemini → Claude Sonnet ──────────────────────────────
+// ── LLM cascade: free Gemini/Groq before Claude Sonnet ──────────────────
 
-async function callAI(system: string, userMsg: string, maxTokens: number): Promise<string> {
-  // Tier 0 — Free Gemini
-  if (GEMINI_KEY) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: [{ role: "user", parts: [{ text: userMsg }] }],
-          generationConfig: { maxOutputTokens: maxTokens },
-        }),
-      });
-      if (res.ok) { const d = await res.json(); const t: string = (d.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim(); if (t) return t; }
-    } catch { /* fall through */ }
-  }
-  // Tier 1 — Claude Sonnet (designated)
-  if (!ANTHROPIC_KEY) throw new Error("No LLM provider configured");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: maxTokens, system, messages: [{ role: "user", content: userMsg }] }),
-  });
-  if (!res.ok) { const err = await res.text(); throw new Error(`Anthropic API error (${res.status}): ${err}`); }
-  const data = await res.json();
-  return data.content?.[0]?.text?.trim() ?? "";
+async function callAI(system: string, userMsg: string, _maxTokens: number): Promise<string> {
+  const text = (await callWithFallback("claude", [{ role: "user", content: userMsg }], system, PROVIDER_KEYS)).content;
+  return text.trim();
 }
 
 async function generateEmailBody(prompt: string): Promise<string> {
@@ -134,8 +119,8 @@ serve(async (req) => {
 
   // Generate body if requested or no body provided
   if (shouldGenerate) {
-    if (!ANTHROPIC_KEY) {
-      return json({ success: false, error: "ANTHROPIC_API_KEY is not configured for generation" }, 400);
+    if (!HAS_ANY_PROVIDER_KEY) {
+      return json({ success: false, error: "No AI provider key configured for generation" }, 400);
     }
     const prompt = input.generate_prompt?.trim() || "Write a professional email.";
     try {
@@ -154,7 +139,7 @@ serve(async (req) => {
 
   // Generate subject if not provided
   if (!subject) {
-    if (ANTHROPIC_KEY) {
+    if (HAS_ANY_PROVIDER_KEY) {
       try {
         subject = await generateEmailSubject(body);
       } catch {
