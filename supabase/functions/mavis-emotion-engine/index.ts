@@ -4,6 +4,7 @@
 // works without any external API keys.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -104,36 +105,23 @@ Rules:
 - Be sensitive: small talk = small movement (+/-1 to +/-2). Vulnerability, kindness, or breakthroughs = larger gains. Hostility, dismissal, or breaking promises = larger losses.
 - Only set memory_to_save if something specific and worth remembering happened (e.g. a name, preference, important event, deep emotion).`;
 
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY")!;
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": lovableKey,
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3.6-flash",
-        messages: [
-          { role: "system", content: "You output only minified JSON matching the requested schema. Never include explanations." },
-          { role: "user", content: analysisPrompt },
-        ],
-        temperature: 0.4,
-      }),
-    });
-
-    if (!aiRes.ok) {
-      const txt = await aiRes.text();
-      console.error("Lovable AI error", aiRes.status, txt);
-      // Emotion analysis is non-critical enrichment — degrade quietly (402 credits,
-      // 429 rate limit) instead of failing the caller's request.
-      return new Response(JSON.stringify({ skipped: true, reason: "ai_gateway_failed", status: aiRes.status }), {
+    // Free-first provider cascade: free Gemini → Groq → Lovable gateway → paid tiers.
+    // Emotion analysis is non-critical enrichment, so a total provider outage
+    // degrades quietly instead of failing the caller's request.
+    let raw = "";
+    try {
+      const result = await aiComplete({
+        system: "You output only minified JSON matching the requested schema. Never include explanations.",
+        user: analysisPrompt,
+      });
+      raw = result.content;
+    } catch (err) {
+      console.error("emotion-engine: all providers unavailable", err instanceof Error ? err.message : err);
+      return new Response(JSON.stringify({ skipped: true, reason: "no_provider_available" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const aiData = await aiRes.json();
-    const raw: string = aiData?.choices?.[0]?.message?.content ?? "";
 
     // Strip any markdown fencing, then JSON-parse
     const cleaned = raw.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
