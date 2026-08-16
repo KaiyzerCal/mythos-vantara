@@ -1,8 +1,10 @@
-// mavis-chat/providers.ts
+// _shared/providers.ts
 // Provider waterfall: health-tracked fallback chain across Gemini/Groq/OpenAI/
-// Claude/Grok, both blocking and streaming — extracted from index.ts
-// (Stabilization Brief Phase 2.6). Fully parameter-driven, zero request-scope
-// closure dependencies.
+// Claude/Grok, both blocking and streaming — extracted from mavis-chat/index.ts
+// (Stabilization Brief Phase 2.6), later promoted to _shared/ so
+// mavis-persona-router could reuse the same free-tier-first cascade instead
+// of its own thinner, paid-providers-only fallback chain. Fully
+// parameter-driven, zero request-scope closure dependencies.
 
 // ── Provider health TTL (circuit-breaker) ─────────────────────────────────────
 // Module-level Map persists within a warm Deno isolate; prevents hammering a

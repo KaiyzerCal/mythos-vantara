@@ -23,7 +23,7 @@ export function usePersona(personaId: string, userId: string) {
   const sendMessage = useCallback(async (
     message: string,
     attachmentIds?: string[]
-  ): Promise<{ response: string | null; actionsExecuted: number; proposalsQueued: number }> => {
+  ): Promise<{ response: string | null; actionsExecuted: number; proposalsQueued: number; error: string | null }> => {
     setIsLoading(true);
     setError(null);
     try {
@@ -35,10 +35,11 @@ export function usePersona(personaId: string, userId: string) {
         response: data?.response ?? null,
         actionsExecuted: Number(data?.actions_executed ?? 0),
         proposalsQueued: Number(data?.proposals_queued ?? 0),
+        error: null,
       };
     } catch (e: any) {
       setError(e.message);
-      return { response: null, actionsExecuted: 0, proposalsQueued: 0 };
+      return { response: null, actionsExecuted: 0, proposalsQueued: 0, error: e.message };
     } finally {
       setIsLoading(false);
     }

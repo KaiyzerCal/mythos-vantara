@@ -155,8 +155,15 @@ export function PersonaChat({ persona, userId, onBack }: PersonaChatProps) {
     setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
 
     const attachmentIds = attachments.map((a) => a.id);
-    const { response, actionsExecuted, proposalsQueued } = await sendMessage(trimmed, attachmentIds);
+    const { response, actionsExecuted, proposalsQueued, error: sendError } = await sendMessage(trimmed, attachmentIds);
     if (cancelledRef.current) return;
+    if (!response) {
+      // A null response only ever comes from sendMessage()'s catch path — this
+      // used to fall through silently, so a backend failure (unfunded AI
+      // provider keys, network error, etc.) looked identical to "the persona
+      // just isn't responding," with zero signal anywhere in the UI.
+      toast.error(sendError || `${persona.name} didn't respond — something went wrong.`);
+    }
     if (response) {
       // Strip any residual action blocks before display (edge function already strips them
       // server-side; this is a client-side safety net).
