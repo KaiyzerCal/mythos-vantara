@@ -109,10 +109,10 @@ Rules:
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${lovableKey}`,
+        "Lovable-API-Key": lovableKey,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-3.6-flash",
         messages: [
           { role: "system", content: "You output only minified JSON matching the requested schema. Never include explanations." },
           { role: "user", content: analysisPrompt },
@@ -124,8 +124,10 @@ Rules:
     if (!aiRes.ok) {
       const txt = await aiRes.text();
       console.error("Lovable AI error", aiRes.status, txt);
-      return new Response(JSON.stringify({ error: "ai_gateway_failed", status: aiRes.status }), {
-        status: 502,
+      // Emotion analysis is non-critical enrichment — degrade quietly (402 credits,
+      // 429 rate limit) instead of failing the caller's request.
+      return new Response(JSON.stringify({ skipped: true, reason: "ai_gateway_failed", status: aiRes.status }), {
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
