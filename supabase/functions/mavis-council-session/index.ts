@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,98 +15,19 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-// ── LLM helpers ───────────────────────────────────────────────────────────────
+// ── LLM helper ────────────────────────────────────────────────────────────────
+// Free-first cascade (Gemini 2.0 Flash / Groq before Claude/OpenAI) via the
+// same _shared/providers.ts helper mavis-chat and mavis-persona-router use.
 
-function isUnfundedStatus(status: number, body: string): boolean {
-  if ([401, 402, 403, 429].includes(status)) return true;
-  const b = body.toLowerCase();
-  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("payment") || b.includes("insufficient");
-}
-
-class ProviderUnavailableError extends Error {
-  constructor(public providerName: string, public reason: string, public status: number) {
-    super(`${providerName} unavailable (${status}): ${reason}`);
-  }
-}
-
-async function callClaude(model: string, system: string, userMsg: string, key: string, maxTokens: number): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: userMsg }] }),
-    signal: AbortSignal.timeout(25_000),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("claude", errText.slice(0, 200), res.status);
-    throw new Error(`Claude ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const d = await res.json();
-  return d.content?.[0]?.text ?? "";
-}
-
-async function callOpenAI(model: string, system: string, userMsg: string, key: string, maxTokens: number): Promise<string> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: userMsg }], max_tokens: maxTokens }),
-    signal: AbortSignal.timeout(25_000),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("openai", errText.slice(0, 200), res.status);
-    throw new Error(`OpenAI ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
-}
-
-async function callLovableGateway(system: string, userMsg: string, key: string, maxTokens: number): Promise<string> {
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
-      messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
-      max_tokens: maxTokens,
-    }),
-    signal: AbortSignal.timeout(25_000),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Lovable Gateway ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
-}
-
-async function callGroupLLM(system: string, userMsg: string, maxTokens: number): Promise<string> {
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
-  const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-  const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-
-  if (lovableKey) {
-    try {
-      return await callLovableGateway(system, userMsg, lovableKey, maxTokens);
-    } catch (err: any) {
-      console.warn(`[council-session] Gemini Flash failed (${err.message}) → falling back to Claude Haiku`);
-    }
-  }
-
-  if (claudeKey) {
-    try {
-      return await callClaude("claude-haiku-4-5-20251001", system, userMsg, claudeKey, maxTokens);
-    } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
-      console.warn(`[council-session] Claude Haiku unfunded → falling back to GPT-4o-mini`);
-    }
-  }
-
-  if (openaiKey) {
-    return await callOpenAI("gpt-4o-mini", system, userMsg, openaiKey, maxTokens);
-  }
-
-  throw new Error("All AI providers unavailable for group council session.");
+async function callGroupLLM(system: string, userMsg: string, _maxTokens: number): Promise<string> {
+  const keys = {
+    openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+    claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+    grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+    gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+    groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+  };
+  return (await callWithFallback("claude", [{ role: "user", content: userMsg }], system, keys)).content;
 }
 
 // ── Prompt builder ────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@
 // works without any external API keys.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -104,34 +105,29 @@ Rules:
 - Be sensitive: small talk = small movement (+/-1 to +/-2). Vulnerability, kindness, or breakthroughs = larger gains. Hostility, dismissal, or breaking promises = larger losses.
 - Only set memory_to_save if something specific and worth remembering happened (e.g. a name, preference, important event, deep emotion).`;
 
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY")!;
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${lovableKey}`,
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: "You output only minified JSON matching the requested schema. Never include explanations." },
-          { role: "user", content: analysisPrompt },
-        ],
-        temperature: 0.4,
-      }),
-    });
+    const providerKeys = {
+      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
 
-    if (!aiRes.ok) {
-      const txt = await aiRes.text();
-      console.error("Lovable AI error", aiRes.status, txt);
-      return new Response(JSON.stringify({ error: "ai_gateway_failed", status: aiRes.status }), {
+    let raw = "";
+    try {
+      raw = (await callWithFallback(
+        "claude",
+        [{ role: "user", content: analysisPrompt }],
+        "You output only minified JSON matching the requested schema. Never include explanations.",
+        providerKeys,
+      )).content;
+    } catch (err: any) {
+      console.error("emotion-engine: all providers failed", err?.message ?? err);
+      return new Response(JSON.stringify({ error: "ai_provider_failed" }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const aiData = await aiRes.json();
-    const raw: string = aiData?.choices?.[0]?.message?.content ?? "";
 
     // Strip any markdown fencing, then JSON-parse
     const cleaned = raw.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
