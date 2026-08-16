@@ -1459,7 +1459,7 @@ export async function runwayVideoPoll(request_id: string): Promise<VideoGenResul
   return { status: "processing", request_id, provider: "runway", notes: [] };
 }
 
-async function modelsLabVideoSubmit(prompt: string, duration: number, aspect_ratio: VideoAspectRatio): Promise<{ request_id?: string; url?: string; provider: string }> {
+async function modelsLabVideoSubmit(prompt: string, duration: number, aspect_ratio: VideoAspectRatio): Promise<VideoGenResult> {
   const key = Deno.env.get("MODELSLAB_API_KEY") ?? "";
   if (!key) throw new ProviderUnavailableError("modelslab", "MODELSLAB_API_KEY missing", 400);
   const ratioMap: Record<VideoAspectRatio, [number, number]> = {
@@ -1487,10 +1487,10 @@ async function modelsLabVideoSubmit(prompt: string, duration: number, aspect_rat
   const data = await res.json();
   if (data?.status === "success") {
     const url = Array.isArray(data.output) ? data.output[0] : data.output;
-    return { status: "complete", url, provider: "modelslab" } as VideoGenResult;
+    return { status: "complete", url, provider: "modelslab", notes: [] };
   }
   if (data?.status === "processing") {
-    return { request_id: String(data.id ?? data.fetch_result ?? ""), provider: "modelslab" };
+    return { status: "processing", request_id: String(data.id ?? data.fetch_result ?? ""), provider: "modelslab", notes: [] };
   }
   throw new Error(`ModelsLab error: ${data?.message ?? JSON.stringify(data).slice(0, 200)}`);
 }
