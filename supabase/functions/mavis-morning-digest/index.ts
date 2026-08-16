@@ -218,32 +218,23 @@ Rules:
 
   if (!evalData.passed) {
     // Regenerate with feedback appended
-    const regenBody = {
-      ...claudeBody,
-      messages: [
-        ...claudeBody.messages,
-        { role: "assistant", content: digest },
-        {
-          role: "user",
-          content: `Quality feedback: ${evalData.feedback ?? "improve quality"}. Please regenerate the briefing addressing this feedback while keeping the same structure and data.`,
-        },
-      ],
-    };
     try {
-      const regenRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": claudeKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(regenBody),
+      const { content: regenText, provider } = await aiComplete({
+        system: systemPrompt,
+        messages: [
+          { role: "user", content: userPrompt },
+          { role: "assistant", content: digest },
+          {
+            role: "user",
+            content: `Quality feedback: ${evalData.feedback ?? "improve quality"}. Please regenerate the briefing addressing this feedback while keeping the same structure and data.`,
+          },
+        ],
+        mode: "SOVEREIGN",
       });
-      const regenText = (await regenRes.json()).content
-        .filter((b: any) => b.type === "text")
-        .map((b: any) => b.text)
-        .join("");
-      if (regenText) digest = regenText;
+      if (regenText) {
+        digest = regenText;
+        console.log(`[mavis-morning-digest] regenerated via ${provider}`);
+      }
     } catch {
       // Keep original digest if regen fails
     }
