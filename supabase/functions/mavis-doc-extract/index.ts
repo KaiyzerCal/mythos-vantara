@@ -43,7 +43,64 @@ async function resolveUserId(req: Request, body: Record<string, unknown>): Promi
   }
 }
 
-// Extract text from PDF using Claude document block
+function base64Encode(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// Extract text from PDF using free Gemini 2.0 Flash (images + PDFs)
+async function extractPdfWithGemini(fileUrl: string): Promise<string> {
+  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "";
+  if (!geminiKey) throw new Error("GEMINI_API_KEY not configured");
+
+  const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(30_000) });
+  if (!fileRes.ok) throw new Error(`Failed to fetch PDF: ${fileRes.status}`);
+  const buf = await fileRes.arrayBuffer();
+  const b64 = base64Encode(buf);
+
+  const prompt = "Extract and return the complete text content of this PDF as clean markdown. Preserve headings, lists, tables, and structure. Return only the extracted text, no commentary.";
+
+  for (const model of ["gemini-2.0-flash", "gemini-2.5-flash-preview-05-20"]) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              role: "user",
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: "application/pdf", data: b64 } },
+              ],
+            }],
+            generationConfig: { maxOutputTokens: 8192 },
+          }),
+          signal: AbortSignal.timeout(60_000),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.text();
+        console.warn(`[gemini ${model}] ${res.status}: ${err.slice(0, 200)}`);
+        continue;
+      }
+      const data = await res.json();
+      const parts: any[] = data.candidates?.[0]?.content?.parts ?? [];
+      const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+      if (text.length > 20) return text;
+    } catch (e: any) {
+      console.warn(`[gemini extractPdf] model failed:`, e.message);
+    }
+  }
+  throw new Error("Gemini PDF extraction failed");
+}
+
+// Extract text from PDF using Claude document block (fallback)
 async function extractPdfWithClaude(fileUrl: string): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
