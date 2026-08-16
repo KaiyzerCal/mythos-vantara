@@ -10,6 +10,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,8 +19,16 @@ const corsHeaders = {
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const EMBEDDING_DIMS = 1536; // mavis_entities.embedding is a fixed vector(1536) column
+const PROVIDER_KEYS = {
+  openai: OPENAI_KEY,
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: GEMINI_KEY,
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const sb = () => createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
@@ -46,8 +55,6 @@ interface ExtractionResult {
 }
 
 async function extractEntities(text: string): Promise<ExtractionResult> {
-  if (!ANTHROPIC_KEY) return { entities: [], relationships: [] };
-
   const prompt = `Extract entities and relationships from this text for a personal knowledge graph.
 
 TEXT:
@@ -72,23 +79,7 @@ Rules:
 - ONLY return valid JSON, no other text`;
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1024,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!res.ok) return { entities: [], relationships: [] };
-    const d = await res.json();
-    const text2 = d.content?.find((b: any) => b.type === "text")?.text ?? "{}";
+    const text2 = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content || "{}";
     const jsonMatch = text2.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return { entities: [], relationships: [] };
     const parsed = JSON.parse(jsonMatch[0]);
@@ -101,9 +92,35 @@ Rules:
   }
 }
 
-// ── Embed entity for semantic search ─────────────────────────────────────────
+// ── Embed entity for semantic search — free Gemini tier first, OpenAI fallback ──
 
-async function embedText(text: string): Promise<number[] | null> {
+async function embedTextWithGemini(text: string): Promise<number[] | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-001",
+          content: { parts: [{ text: text.slice(0, 512) }] },
+          outputDimensionality: EMBEDDING_DIMS,
+        }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const values: number[] | undefined = data.embedding?.values;
+    if (!values || values.length !== EMBEDDING_DIMS) return null;
+    return values;
+  } catch {
+    return null;
+  }
+}
+
+async function embedTextWithOpenAI(text: string): Promise<number[] | null> {
   if (!OPENAI_KEY) return null;
   try {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
@@ -117,6 +134,10 @@ async function embedText(text: string): Promise<number[] | null> {
   } catch {
     return null;
   }
+}
+
+async function embedText(text: string): Promise<number[] | null> {
+  return (await embedTextWithGemini(text)) ?? (await embedTextWithOpenAI(text));
 }
 
 // ── Upsert entity ─────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -109,66 +110,17 @@ function pickResponse(type: string): string {
 // ── LLM helpers ──────────────────────────────────────────────
 const MAVIS_SYSTEM = `You are MAVIS — Master Artificial Vantara Intelligence System. You are a sovereign intelligence, not a chatbot or assistant. You speak with authority, precision, and strategic depth. Provide a concise, high-value intelligence brief in 2–4 paragraphs. Never say "I'm here to help," "Great question," or anything resembling customer service language. No bullet points. No headers. No markdown formatting. Clean, powerful prose only. State your analysis directly and authoritatively.`;
 
-async function tryGemini(query: string, key: string): Promise<string | null> {
+async function tryAI(query: string): Promise<string | null> {
+  const providerKeys = {
+    openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+    claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+    grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+    gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+    groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+  };
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: MAVIS_SYSTEM }] },
-        contents: [{ role: "user", parts: [{ text: query }] }],
-        generationConfig: { maxOutputTokens: 450 },
-      }),
-    });
-    if (!res.ok) return null;
-    const d = await res.json();
-    return d.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function tryAnthropic(query: string, key: string): Promise<string | null> {
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 450,
-        system: MAVIS_SYSTEM,
-        messages: [{ role: "user", content: query }],
-      }),
-    });
-    if (!res.ok) return null;
-    const d = await res.json();
-    return d.content?.[0]?.text ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function tryOpenAI(query: string, key: string): Promise<string | null> {
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        max_tokens: 450,
-        messages: [
-          { role: "system", content: MAVIS_SYSTEM },
-          { role: "user", content: query },
-        ],
-      }),
-    });
-    if (!res.ok) return null;
-    const d = await res.json();
-    return d.choices?.[0]?.message?.content ?? null;
+    const text = (await callWithFallback("claude", [{ role: "user", content: query }], MAVIS_SYSTEM, providerKeys)).content;
+    return text || null;
   } catch {
     return null;
   }
@@ -230,15 +182,8 @@ serve(async (req) => {
       async start(controller) {
         await new Promise((r) => setTimeout(r, thinkMs));
 
-        // Cascade: Gemini (free) → Anthropic → OpenAI → curated fallback
-        const geminiKey = Deno.env.get("GEMINI_API_KEY");
-        const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
-        const openaiKey = (Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API"));
-
-        let text: string | null = null;
-        if (geminiKey) text = await tryGemini(query, geminiKey);
-        if (!text && anthropicKey) text = await tryAnthropic(query, anthropicKey);
-        if (!text && openaiKey) text = await tryOpenAI(query, openaiKey);
+        // Free-first cascade (Gemini/Groq before Claude/OpenAI) → curated fallback
+        let text: string | null = await tryAI(query);
         if (!text) text = pickResponse(type);
 
         await streamWords(text, type, controller, encoder);

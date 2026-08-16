@@ -3,6 +3,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback, callWithFallbackStream } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,14 @@ const TAVILY_KEY    = Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("Tavily_API
 // Self-hosted SearXNG meta-search engine. No API key needed.
 // Deploy: docker run -d -p 8888:8080 searxng/searxng  |  set SEARXNG_URL=http://your-server:8888
 const SEARXNG_URL   = Deno.env.get("SEARXNG_URL") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: GEMINI_KEY,
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -72,35 +81,11 @@ async function getUserId(req: Request, bodyUserId?: string): Promise<string | nu
   }
 }
 
-// ── Shared LLM helper: Gemini → Anthropic cascade ─────
-async function callAI(system: string, userMsg: string, maxTokens = 512): Promise<string> {
-  // Tier 0 — Free Gemini
-  if (GEMINI_KEY) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: [{ role: "user", parts: [{ text: userMsg }] }],
-          generationConfig: { maxOutputTokens: maxTokens },
-        }),
-      });
-      if (res.ok) { const d = await res.json(); const t = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; if (t) return t; }
-    } catch { /* fall through */ }
-  }
-  // Tier 1 — Anthropic Haiku (designated)
-  if (ANTHROPIC_KEY) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: maxTokens, system, messages: [{ role: "user", content: userMsg }] }),
-    });
-    if (!res.ok) throw new Error(`Anthropic error: ${res.status}`);
-    const d = await res.json();
-    return d.content?.[0]?.text ?? "";
-  }
-  throw new Error("No LLM provider available");
+// ── Shared LLM helper: free-first cascade (Gemini/Groq before Claude) ─────
+async function callAI(system: string, userMsg: string, _maxTokens = 512): Promise<string> {
+  const text = (await callWithFallback("claude", [{ role: "user", content: userMsg }], system, PROVIDER_KEYS)).content;
+  if (!text) throw new Error("No LLM provider available");
+  return text;
 }
 
 // ── Break query into search angles ────────────────────────────
@@ -237,8 +222,8 @@ serve(async (req) => {
     });
   }
 
-  if (!ANTHROPIC_KEY) {
-    return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured" }), {
+  if (!HAS_ANY_PROVIDER_KEY) {
+    return new Response(JSON.stringify({ error: "No AI provider key configured" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -282,79 +267,23 @@ serve(async (req) => {
       // Step 3: build context
       const context = buildContext(allResults);
 
-      // Step 4: synthesize — Gemini first (non-streaming), then Claude Sonnet (streaming)
+      // Step 4: synthesize — free-first streaming cascade (Gemini/Groq before Claude Sonnet)
       const synthSystem = "You are a research analyst. Write a comprehensive, well-structured markdown report based on the provided sources.";
       const synthUser   = `Research query: "${query}"\n\nSources:\n${context}\n\nWrite a structured markdown report with:\n## Research Report\n### Key Findings\n### Sources (numbered list with URLs)\n### Conclusion`;
 
-      let synthesisHandled = false;
-      if (GEMINI_KEY) {
-        try {
-          const lvRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: synthSystem }] },
-              contents: [{ role: "user", parts: [{ text: synthUser }] }],
-              generationConfig: { maxOutputTokens: 4096 },
-            }),
-          });
-          if (lvRes.ok) {
-            const lvData = await lvRes.json();
-            const lvText = lvData.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-            if (lvText) { await sendToken(lvText); synthesisHandled = true; }
-          }
-        } catch { /* fall through to Claude */ }
-      }
+      const { stream: synthStream } = await callWithFallbackStream(
+        "claude",
+        [{ role: "user", content: synthUser }],
+        synthSystem,
+        PROVIDER_KEYS,
+      );
 
-      if (!synthesisHandled) {
-      const synthesisRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-          "anthropic-beta": "messages-2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 4096,
-          stream: true,
-          system: synthSystem,
-          messages: [{ role: "user", content: synthUser }],
-        }),
-      });
-
-      if (!synthesisRes.ok || !synthesisRes.body) {
-        const errText = await synthesisRes.text();
-        throw new Error(`Claude synthesis error ${synthesisRes.status}: ${errText}`);
-      }
-
-      // Stream Anthropic SSE → our SSE
-      const reader = synthesisRes.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
+      const synthReader = synthStream.getReader();
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await synthReader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data:")) continue;
-          const payload = trimmed.slice(5).trim();
-          if (payload === "[DONE]") continue;
-          try {
-            const event = JSON.parse(payload);
-            const delta = event?.delta?.text;
-            if (delta) {
-              await sendToken(delta);
-            }
-          } catch { /* skip malformed events */ }
-        }
+        if (value) await sendToken(value);
       }
-      } // end if (!synthesisHandled)
 
       await writer.write(enc.encode("data: [DONE]\n\n"));
       await writer.close();

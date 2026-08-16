@@ -11,10 +11,17 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -108,29 +115,7 @@ async function scoreWithClaude(pairs: ConvoPair[]): Promise<RubricScores & { not
     `Conversation sample:\n${sampleText}\n\n` +
     `Reply ONLY with JSON: {"relevance": N, "accuracy": N, "action_correctness": N, "calibration": N, "tone": N, "notes": "brief observations"}`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
-      temperature: 0,
-      messages: [{ role: "user", content: prompt }],
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-
-  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
-
-  const data = await res.json() as any;
-  const rawText = (data.content ?? [])
-    .filter((b: any) => b.type === "text")
-    .map((b: any) => b.text as string)
-    .join("");
+  const rawText = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content;
 
   const jsonMatch = rawText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("No JSON in Claude response");
