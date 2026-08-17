@@ -7,6 +7,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +17,13 @@ const corsHeaders = {
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 interface EvolutionPlan {
   rules_to_strengthen: Array<{ key: string; reason: string; confidence_boost: number }>;
@@ -93,8 +101,9 @@ async function evolveFor(userId: string, sb: ReturnType<typeof createClient>): P
     return `  ${type}: ${accuracy}% accuracy (${stats.confirmed} confirmed, ${stats.failed} failed, ${stats.partial} partial of ${stats.total} total)`;
   }).join("\n") || "  No outcome data available yet.";
 
-  // ── Step 3: Claude Opus + extended thinking analysis ─────────────────────
-  if (!ANTHROPIC_KEY || tacit.length === 0) {
+  // ── Step 3: Free-first cascade analysis (Gemini/Groq before Claude thinking) ─
+  const hasAnyKey = PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok;
+  if (!hasAnyKey || tacit.length === 0) {
     return { rules_strengthened: 0, rules_weakened: 0, rules_pruned: 0, rules_added: 0, insights: "Skipped: no API key or no tacit rules." };
   }
 
@@ -127,31 +136,19 @@ Based on this evidence, generate a JSON evolution plan:
 
 Be conservative: strengthen rules that have ≥70% outcome accuracy. Prune only rules that are actively hurting performance or have <30% accuracy AND ≥5 data points. Add rules only when there is strong evidence (≥3 consistent data points). Prefer boosting existing rules over adding new ones.`;
 
-  const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "interleaved-thinking-2025-05-14",
-    },
-    body: JSON.stringify({
-      model: "claude-opus-4-8",
-      max_tokens: 8000,
-      thinking: { type: "enabled", budget_tokens: 6000 },
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
-  });
-
-  if (!claudeRes.ok) {
-    const errText = await claudeRes.text();
-    console.error("[self-evolve] Claude error:", errText);
-    return { rules_strengthened: 0, rules_weakened: 0, rules_pruned: 0, rules_added: 0, insights: "Claude API error." };
+  let rawText = "";
+  try {
+    rawText = (await callWithFallback(
+      "claude",
+      [{ role: "user", content: userPrompt }],
+      systemPrompt,
+      PROVIDER_KEYS,
+      true, // useThinking — Claude Sonnet tier uses extended thinking, same as the free Gemini tiers' own reasoning
+    )).content;
+  } catch (err) {
+    console.error("[self-evolve] Provider cascade error:", err);
+    return { rules_strengthened: 0, rules_weakened: 0, rules_pruned: 0, rules_added: 0, insights: "All AI providers unavailable." };
   }
-
-  const claudeData = await claudeRes.json();
-  const rawText = claudeData.content?.find((b: any) => b.type === "text")?.text ?? "";
 
   // Parse JSON from response
   let plan: EvolutionPlan = {

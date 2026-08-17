@@ -10,6 +10,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,6 +22,15 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const EMBEDDING_DIMS = 1536; // mavis_notes.embedding is a fixed vector(1536) column
+const PROVIDER_KEYS = {
+  openai: OPENAI_KEY,
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: GEMINI_KEY,
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -155,34 +165,18 @@ async function fallbackSummary(videoId: string, url: string): Promise<Transcript
 
 async function summariseTranscript(transcript: string): Promise<string> {
   const truncated = transcript.slice(0, 12000);
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      system:
-        "You are a concise research assistant. When given a video transcript, produce a structured summary.",
-      messages: [
-        {
-          role: "user",
-          content: `Summarize this transcript in 3-5 bullet points of key insights. Then write a 2-paragraph summary.\n\nTranscript:\n${truncated}`,
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    console.error("[mavis-youtube-ingest] Anthropic summarise error:", res.status);
+  try {
+    const text = (await callWithFallback(
+      "claude",
+      [{ role: "user", content: `Summarize this transcript in 3-5 bullet points of key insights. Then write a 2-paragraph summary.\n\nTranscript:\n${truncated}` }],
+      "You are a concise research assistant. When given a video transcript, produce a structured summary.",
+      PROVIDER_KEYS,
+    )).content;
+    return text.trim();
+  } catch (err) {
+    console.error("[mavis-youtube-ingest] Summarise error:", err);
     return "";
   }
-
-  const data = await res.json();
-  return data.content?.[0]?.text?.trim() ?? "";
 }
 
 // ── Chunking ──────────────────────────────────────────────────────────────────
@@ -202,9 +196,35 @@ function chunkText(
   return chunks.filter((c) => c.length > 0);
 }
 
-// ── OpenAI embedding ──────────────────────────────────────────────────────────
+// ── Embedding — free Gemini tier first, OpenAI fallback ────────────────────────
 
-async function generateEmbedding(text: string): Promise<number[] | null> {
+async function generateEmbeddingWithGemini(text: string): Promise<number[] | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-001",
+          content: { parts: [{ text }] },
+          outputDimensionality: EMBEDDING_DIMS,
+        }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const values: number[] | undefined = data.embedding?.values;
+    if (!values || values.length !== EMBEDDING_DIMS) return null;
+    return values;
+  } catch {
+    return null;
+  }
+}
+
+async function generateEmbeddingWithOpenAI(text: string): Promise<number[] | null> {
   if (!OPENAI_KEY) return null;
   try {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
@@ -221,6 +241,10 @@ async function generateEmbedding(text: string): Promise<number[] | null> {
   } catch {
     return null;
   }
+}
+
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  return (await generateEmbeddingWithGemini(text)) ?? (await generateEmbeddingWithOpenAI(text));
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -260,7 +284,7 @@ serve(async (req) => {
 
   // Summarise
   let summary = "";
-  if (ANTHROPIC_KEY) {
+  if (PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok) {
     try {
       summary = await summariseTranscript(fullTranscript);
     } catch (err) {

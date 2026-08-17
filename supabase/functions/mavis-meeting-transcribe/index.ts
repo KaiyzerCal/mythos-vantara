@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +12,13 @@ const SB_KEY        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_KEY    = (Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API")) ?? "";
 const WHISPER_URL   = Deno.env.get("WHISPER_URL") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: OPENAI_KEY,
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 interface ActionItem {
   owner: string;
@@ -62,22 +70,11 @@ async function transcribeAudio(audioBytes: Uint8Array, mimeType: string): Promis
 }
 
 async function extractStructure(transcript: string): Promise<MeetingStructure> {
-  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY is not configured.");
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2048,
-      system: "You are a meeting analyst. Extract structured data from meeting transcripts and return ONLY valid JSON — no markdown, no explanation.",
-      messages: [{
-        role: "user",
-        content: `Extract from this meeting transcript:
+  const rawText = (await callWithFallback(
+    "claude",
+    [{
+      role: "user",
+      content: `Extract from this meeting transcript:
 1) Summary (2-3 sentences)
 2) Key decisions (array of strings)
 3) Action items (array of {owner: string, action: string, deadline?: string})
@@ -87,19 +84,13 @@ Return JSON with shape: { "summary": string, "decisions": string[], "action_item
 
 Transcript:
 ${transcript}`,
-      }],
-    }),
-  });
+    }],
+    "You are a meeting analyst. Extract structured data from meeting transcripts and return ONLY valid JSON — no markdown, no explanation.",
+    PROVIDER_KEYS,
+  )).content || "{}";
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Claude API error ${res.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const data    = await res.json();
-  const rawText = data.content?.[0]?.text ?? "{}";
-  const match   = rawText.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("Failed to parse meeting structure JSON from Claude response");
+  const match = rawText.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("Failed to parse meeting structure JSON from AI response");
   return JSON.parse(match[0]) as MeetingStructure;
 }
 

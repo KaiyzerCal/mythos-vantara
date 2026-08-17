@@ -6,6 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,31 +15,22 @@ const corsHeaders = {
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
 async function callClaude(system: string, user: string): Promise<string> {
-  if (!ANTHROPIC_KEY) return "[]";
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "interleaved-thinking-2025-05-14",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4000,
-      thinking: { type: "enabled", budget_tokens: 2000 },
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-  if (!res.ok) return "[]";
-  const d = await res.json();
-  return d.content?.find((b: any) => b.type === "text")?.text ?? "[]";
+  try {
+    return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS, true)).content || "[]";
+  } catch {
+    return "[]";
+  }
 }
 
 function buildTimeSeries(

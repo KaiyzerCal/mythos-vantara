@@ -2,6 +2,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,15 @@ const SUPABASE_URL   = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY     = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
+const GEMINI_KEY     = Deno.env.get("GEMINI_API_KEY") ?? "";
+const EMBEDDING_DIMS = 1536; // mavis_notes.embedding is a fixed vector(1536) column
+const PROVIDER_KEYS = {
+  openai: OPENAI_KEY,
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: GEMINI_KEY,
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -62,8 +72,34 @@ async function getUserId(req: Request): Promise<string | null> {
   }
 }
 
-// ── Embedding generation ───────────────────────────────────────
-async function generateEmbedding(text: string): Promise<number[] | null> {
+// ── Embedding generation — free Gemini tier first, OpenAI fallback ─────
+async function generateEmbeddingWithGemini(text: string): Promise<number[] | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-001",
+          content: { parts: [{ text: text.slice(0, 8000) }] },
+          outputDimensionality: EMBEDDING_DIMS,
+        }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const values: number[] | undefined = data.embedding?.values;
+    if (!values || values.length !== EMBEDDING_DIMS) return null;
+    return values;
+  } catch {
+    return null;
+  }
+}
+
+async function generateEmbeddingWithOpenAI(text: string): Promise<number[] | null> {
   if (!OPENAI_KEY) return null;
   try {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
@@ -85,6 +121,10 @@ async function generateEmbedding(text: string): Promise<number[] | null> {
   }
 }
 
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  return (await generateEmbeddingWithGemini(text)) ?? (await generateEmbeddingWithOpenAI(text));
+}
+
 // ── Structured meeting notes shape ────────────────────────────
 interface ActionItem {
   owner: string;
@@ -104,37 +144,18 @@ interface MeetingNotes {
 
 // ── Extract structured notes via Claude ───────────────────────
 async function extractMeetingNotes(transcript: string): Promise<MeetingNotes> {
-  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY is not configured");
+  const rawText = (await callWithFallback(
+    "claude",
+    [{
+      role: "user",
+      content: `Extract structured meeting notes from this transcript. Return ONLY valid JSON with this exact shape: { title, date, attendees: string[], decisions: string[], action_items: [{owner, task, due_date}], key_points: string[], summary: string }\n\nTranscript:\n${transcript}`,
+    }],
+    "You are a meeting notes extractor. Extract structured meeting notes from transcripts.",
+    PROVIDER_KEYS,
+  )).content;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2048,
-      system: "You are a meeting notes extractor. Extract structured meeting notes from transcripts.",
-      messages: [
-        {
-          role: "user",
-          content: `Extract structured meeting notes from this transcript. Return ONLY valid JSON with this exact shape: { title, date, attendees: string[], decisions: string[], action_items: [{owner, task, due_date}], key_points: string[], summary: string }\n\nTranscript:\n${transcript}`,
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Claude extraction error ${res.status}: ${errText}`);
-  }
-
-  const data    = await res.json();
-  const rawText = data.content?.[0]?.text ?? "";
-  const match   = rawText.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("Failed to parse meeting notes JSON from Claude response");
+  const match = rawText.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("Failed to parse meeting notes JSON from AI response");
   return JSON.parse(match[0]) as MeetingNotes;
 }
 

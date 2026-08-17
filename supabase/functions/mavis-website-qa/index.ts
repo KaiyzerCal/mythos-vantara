@@ -14,10 +14,17 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,16 +102,8 @@ async function fetchHtml(url: string, timeoutMs = 15_000): Promise<{ html: strin
 
 // ── Claude helpers ────────────────────────────────────────────────────────────
 
-async function callClaude(systemPrompt: string, userPrompt: string, model = "claude-haiku-4-5-20251001", maxTokens = 1024): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) throw new Error(`Claude error: ${res.status}`);
-  const data = await res.json();
-  return String(data.content?.[0]?.text ?? "").trim();
+async function callClaude(systemPrompt: string, userPrompt: string, _model = "claude-haiku-4-5-20251001", _maxTokens = 1024): Promise<string> {
+  return (await callWithFallback("claude", [{ role: "user", content: userPrompt }], systemPrompt, PROVIDER_KEYS)).content.trim();
 }
 
 async function pickBestLinks(links: string[], question: string, limit = 5): Promise<string[]> {

@@ -10,6 +10,7 @@
 //          get_me | upload_media | generate_tweet
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,14 @@ const corsHeaders = {
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 const API_KEY       = Deno.env.get("TWITTER_API_KEY") ?? "";
 const API_SECRET    = Deno.env.get("TWITTER_API_SECRET") ?? "";
 const ACCESS_TOKEN  = Deno.env.get("TWITTER_ACCESS_TOKEN") ?? "";
@@ -317,7 +326,7 @@ serve(async (req) => {
         //   Persona mode (niche+style+inspiration) — influencer viral tweet; mirrors n8n influencer auto-poster
         //   Hashtag mode (hashtags+topic)           — hashtag-seeded content; mirrors n8n hashtag generator
         // Both modes retry up to max_retries times if the tweet exceeds 280 chars.
-        if (!ANTHROPIC_KEY) return json({ error: "ANTHROPIC_API_KEY not configured" }, 503);
+        if (!HAS_ANY_PROVIDER_KEY) return json({ error: "No AI provider key configured" }, 503);
 
         const maxChars   = Math.min(Number(body.max_chars ?? 280), 280);
         const maxRetries = Math.min(Number(body.max_retries ?? 3), 5);
@@ -378,21 +387,14 @@ serve(async (req) => {
             ? ` IMPORTANT: The previous attempt was too long (>${maxChars} chars). Write a shorter version.`
             : "";
 
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
-            method:  "POST",
-            headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-            body:    JSON.stringify({
-              model:      "claude-haiku-4-5-20251001",
-              max_tokens: 300,
-              system:     systemBase + retryHint,
-              messages:   [{ role: "user", content: userMsg }],
-            }),
-            signal: AbortSignal.timeout(20000),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(`Claude error: ${JSON.stringify(data?.error).slice(0, 200)}`);
+          const text = (await callWithFallback(
+            "claude",
+            [{ role: "user", content: userMsg }],
+            systemBase + retryHint,
+            PROVIDER_KEYS,
+          )).content;
 
-          lastCandidate = validateTweet((data.content?.[0]?.text ?? "").trim());
+          lastCandidate = validateTweet(text.trim());
           if (lastCandidate.length <= maxChars) {
             tweet = lastCandidate;
             break;

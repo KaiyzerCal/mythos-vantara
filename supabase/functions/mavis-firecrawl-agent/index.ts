@@ -6,6 +6,7 @@
 // Actions: scrape | crawl | map | search | extract
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -207,7 +208,14 @@ serve(async (req) => {
 
         if (!indexUrl) return json({ error: "url required" }, 400);
 
-        const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+        const providerKeys = {
+          openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+          claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+          grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+          gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+          groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+        };
+        const hasAnyKey = providerKeys.gemini || providerKeys.groq || providerKeys.claude || providerKeys.openai || providerKeys.grok;
         let baseUrl: URL;
         try { baseUrl = new URL(indexUrl); } catch { return json({ error: "Invalid url" }, 400); }
 
@@ -293,27 +301,14 @@ serve(async (req) => {
           const readingTime = Math.max(1, Math.ceil(wordCount / 200));
           const truncated   = content.slice(0, 8000);
 
-          let summary = "(no summary — ANTHROPIC_API_KEY not set)";
-          if (ANTHROPIC_KEY) {
-            const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "x-api-key":         ANTHROPIC_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type":      "application/json",
-              },
-              body: JSON.stringify({
-                model:      "claude-haiku-4-5-20251001",
-                max_tokens: 512,
-                messages: [{
-                  role:    "user",
-                  content: `Title: ${title}\nURL: ${articleUrl}\n\n${truncated}\n\n---\n${summaryPrompt}`,
-                }],
-              }),
-              signal: AbortSignal.timeout(20000),
-            });
-            const cd = await claudeRes.json();
-            summary = cd.content?.[0]?.text ?? "";
+          let summary = "(no summary — no AI provider key configured)";
+          if (hasAnyKey) {
+            summary = (await callWithFallback(
+              "claude",
+              [{ role: "user", content: `Title: ${title}\nURL: ${articleUrl}\n\n${truncated}\n\n---\n${summaryPrompt}` }],
+              "",
+              providerKeys,
+            )).content;
           }
 
           return { url: articleUrl, title, summary, reading_time_minutes: readingTime, word_count: wordCount };

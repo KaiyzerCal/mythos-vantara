@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +16,15 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+
+// mavis_notes.embedding is a fixed vector(1536) column (sized for OpenAI's
+// text-embedding-3-small). Gemini's gemini-embedding-001 supports MRL
+// truncation to 1536 dims via outputDimensionality, which is what lets it
+// slot into the same column — any other dim would be rejected by pgvector
+// on insert, so we verify the length before trusting the Gemini result.
+const EMBEDDING_DIMS = 1536;
+const MAX_BYTES_FOR_INLINE = 18 * 1024 * 1024; // Gemini inline_data cap (~20MB)
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -43,64 +53,53 @@ async function resolveUserId(req: Request, body: Record<string, unknown>): Promi
   }
 }
 
-function base64Encode(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
+const EXTRACT_PROMPT = "Extract and return the complete text content of this document as clean markdown. Preserve headings, lists, tables, and structure. Return only the extracted text, no commentary.";
 
-// Extract text from PDF using free Gemini 2.0 Flash (images + PDFs)
-async function extractPdfWithGemini(fileUrl: string): Promise<string> {
-  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "";
-  if (!geminiKey) throw new Error("GEMINI_API_KEY not configured");
+// Extract text from PDF using free Gemini 2.0 Flash first (inline base64),
+// falling back to Claude's document-URL block if Gemini is unavailable,
+// unhealthy, or the file is too large to send inline.
+async function extractPdfWithGemini(fileUrl: string): Promise<string | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const fileRes = await fetch(fileUrl);
+    if (!fileRes.ok) return null;
+    const buf = await fileRes.arrayBuffer();
+    if (buf.byteLength > MAX_BYTES_FOR_INLINE) return null;
+    const b64 = base64Encode(buf);
 
-  const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(30_000) });
-  if (!fileRes.ok) throw new Error(`Failed to fetch PDF: ${fileRes.status}`);
-  const buf = await fileRes.arrayBuffer();
-  const b64 = base64Encode(buf);
-
-  const prompt = "Extract and return the complete text content of this PDF as clean markdown. Preserve headings, lists, tables, and structure. Return only the extracted text, no commentary.";
-
-  for (const model of ["gemini-2.0-flash", "gemini-2.5-flash-preview-05-20"]) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{
-              role: "user",
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: "application/pdf", data: b64 } },
-              ],
-            }],
-            generationConfig: { maxOutputTokens: 8192 },
-          }),
-          signal: AbortSignal.timeout(60_000),
-        },
-      );
-      if (!res.ok) {
-        const err = await res.text();
-        console.warn(`[gemini ${model}] ${res.status}: ${err.slice(0, 200)}`);
-        continue;
-      }
-      const data = await res.json();
-      const parts: any[] = data.candidates?.[0]?.content?.parts ?? [];
-      const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
-      if (text.length > 20) return text;
-    } catch (e: any) {
-      console.warn(`[gemini extractPdf] model failed:`, e.message);
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: EXTRACT_PROMPT },
+              { inline_data: { mime_type: "application/pdf", data: b64 } },
+            ],
+          }],
+          generationConfig: { maxOutputTokens: 8192 },
+        }),
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    if (!res.ok) {
+      console.warn(`[mavis-doc-extract] Gemini extraction failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+      return null;
     }
+    const j = await res.json();
+    const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+    const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+    return text.length > 0 ? text : null;
+  } catch (err) {
+    console.warn("[mavis-doc-extract] Gemini extraction error:", err);
+    return null;
   }
-  throw new Error("Gemini PDF extraction failed");
 }
 
-// Extract text from PDF using Claude document block (fallback)
+// Extract text from PDF using Claude document block
 async function extractPdfWithClaude(fileUrl: string): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -122,7 +121,7 @@ async function extractPdfWithClaude(fileUrl: string): Promise<string> {
             },
             {
               type: "text",
-              text: "Extract and return the complete text content of this document as clean markdown. Preserve headings, lists, tables, and structure. Return only the extracted text, no commentary.",
+              text: EXTRACT_PROMPT,
             },
           ],
         },
@@ -136,46 +135,55 @@ async function extractPdfWithClaude(fileUrl: string): Promise<string> {
   return data.content?.[0]?.text ?? "";
 }
 
-// Generate embedding via free Gemini text-embedding-004 first, fallback to OpenAI
-async function generateEmbedding(text: string): Promise<number[] | null> {
-  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "";
-  if (geminiKey) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: { parts: [{ text: text.slice(0, 8192) }] } }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const vec = data.embedding?.values ?? null;
-        if (Array.isArray(vec) && vec.length > 0) return vec;
-      }
-    } catch (e) {
-      console.warn("[mavis-doc-extract] Gemini embedding failed:", e);
-    }
-  }
-
-  const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-  if (openaiKey) {
-    try {
-      const res = await fetch("https://api.openai.com/v1/embeddings", {
+// Generate embedding: try Gemini's gemini-embedding-001 (free tier) truncated
+// to 1536 dims via MRL first, then fall back to OpenAI text-embedding-3-small.
+async function generateEmbeddingWithGemini(text: string): Promise<number[] | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_KEY}`,
+      {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-        body: JSON.stringify({ model: "text-embedding-3-small", input: text }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.data?.[0]?.embedding ?? null;
-      }
-    } catch (e) {
-      console.warn("[mavis-doc-extract] OpenAI embedding failed:", e);
-    }
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-001",
+          content: { parts: [{ text }] },
+          outputDimensionality: EMBEDDING_DIMS,
+        }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const values: number[] | undefined = data.embedding?.values;
+    if (!values || values.length !== EMBEDDING_DIMS) return null;
+    return values;
+  } catch {
+    return null;
   }
-  return null;
+}
+
+async function generateEmbeddingWithOpenAI(text: string): Promise<number[] | null> {
+  if (!OPENAI_KEY) return null;
+  try {
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_KEY}`,
+      },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: text }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.data?.[0]?.embedding ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  return (await generateEmbeddingWithGemini(text)) ?? (await generateEmbeddingWithOpenAI(text));
 }
 
 // Chunk text into ~1200 char chunks with 150 char overlap
@@ -239,14 +247,14 @@ serve(async (req) => {
 
   // Extract text based on file type
   if (ext === "pdf") {
-    try {
-      extractedText = await extractPdfWithGemini(fileUrl);
-    } catch (err) {
-      console.warn("[mavis-doc-extract] Gemini PDF extraction failed, trying Claude:", err);
+    const geminiText = await extractPdfWithGemini(fileUrl);
+    if (geminiText) {
+      extractedText = geminiText;
+    } else {
       try {
         extractedText = await extractPdfWithClaude(fileUrl);
-      } catch (claudeErr) {
-        console.error("[mavis-doc-extract] Claude PDF extraction failed, trying plain text fallback:", claudeErr);
+      } catch (err) {
+        console.error("[mavis-doc-extract] Claude PDF extraction failed, trying plain text fallback:", err);
         // Fallback: fetch as text
         try {
           const fallbackRes = await fetch(fileUrl);

@@ -7,31 +7,32 @@
 //   "consolidate_memories"  — cluster near-duplicate memories by embedding similarity and merge
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 async function callClaude(systemPrompt: string, userContent: string): Promise<string> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userContent }],
-    }),
-  });
-  const data = await response.json();
-  return data?.content?.[0]?.text ?? "";
+  try {
+    return (await callWithFallback(
+      "claude",
+      [{ role: "user", content: userContent }],
+      systemPrompt,
+      PROVIDER_KEYS,
+    )).content;
+  } catch {
+    return "";
+  }
 }
 
 const EXTRACTION_PROMPT = `You are MAVIS's memory consolidation system. Analyze this conversation transcript and extract durable knowledge.

@@ -10,6 +10,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveAuthedUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +20,13 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_API_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -270,10 +278,6 @@ async function generateBriefWithClaude(
   taskData: TaskSummary,
   memoryData: MemorySummary,
 ): Promise<Brief> {
-  if (!ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY not configured");
-  }
-
   const dataContext = JSON.stringify(
     {
       email: {
@@ -299,28 +303,12 @@ async function generateBriefWithClaude(
 
   const userMessage = `Here is the operator's current data for the morning briefing:\n\n${dataContext}\n\nGenerate a morning brief. Return ONLY valid JSON matching this schema:\n{\n  "summary": "2-3 sentence overview of the day",\n  "urgent_items": ["item 1", "item 2"],\n  "suggested_actions": [{ "type": "string (e.g. draft_email, schedule_event, create_task)", "description": "what to do", "priority": 1-5 }],\n  "calendar_preview": "1-2 sentence calendar summary"\n}`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
-      system: "You are MAVIS generating a morning briefing. Be concise and actionable. Always return valid JSON only — no markdown, no explanation.",
-      messages: [{ role: "user", content: userMessage }],
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Claude API error (${res.status}): ${errText}`);
-  }
-
-  const claudeData = await res.json();
-  const rawText: string = claudeData.content?.[0]?.text ?? "";
+  const rawText: string = (await callWithFallback(
+    "claude",
+    [{ role: "user", content: userMessage }],
+    "You are MAVIS generating a morning briefing. Be concise and actionable. Always return valid JSON only — no markdown, no explanation.",
+    PROVIDER_KEYS,
+  )).content;
 
   // Strip markdown code fences if present
   const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();

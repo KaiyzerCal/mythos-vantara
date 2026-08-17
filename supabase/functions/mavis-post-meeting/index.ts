@@ -6,6 +6,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const sb = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -14,7 +15,14 @@ const sb = createClient(
 
 const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const CHAT_ID          = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
-const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 async function sendTelegram(text: string): Promise<void> {
   if (!BOT_TOKEN || !CHAT_ID) return;
@@ -57,7 +65,7 @@ async function draftFollowUp(
   attendeeNames: string[],
   contactNotes: string,
 ): Promise<{ subject: string; body: string; actionItems: string[] }> {
-  if (!ANTHROPIC_KEY) {
+  if (!HAS_ANY_PROVIDER_KEY) {
     return {
       subject: `Following up on: ${eventTitle}`,
       body: `Hi,\n\nGreat connecting today regarding "${eventTitle}". Looking forward to next steps.\n\nBest,\nCalvin`,
@@ -65,33 +73,21 @@ async function draftFollowUp(
     };
   }
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 800,
-      system: `You are MAVIS drafting a post-meeting follow-up email on behalf of Calvin.
-Be warm but professional. Keep it under 150 words. Extract any clear action items.
-Respond ONLY with valid JSON: { "subject": "...", "body": "...", "actionItems": ["..."] }`,
-      messages: [{
-        role: "user",
-        content: `Meeting: ${eventTitle}
+  const text = (await callWithFallback(
+    "claude",
+    [{
+      role: "user",
+      content: `Meeting: ${eventTitle}
 Attendees: ${attendeeNames.join(", ") || "unknown"}
 ${contactNotes ? `Context: ${contactNotes}` : ""}
 
 Draft a follow-up email and list any action items you can infer.`,
-      }],
-    }),
-    signal: AbortSignal.timeout(18_000),
-  });
-
-  const data = await res.json();
-  const text = data.content?.[0]?.text ?? "{}";
+    }],
+    `You are MAVIS drafting a post-meeting follow-up email on behalf of Calvin.
+Be warm but professional. Keep it under 150 words. Extract any clear action items.
+Respond ONLY with valid JSON: { "subject": "...", "body": "...", "actionItems": ["..."] }`,
+    PROVIDER_KEYS,
+  )).content || "{}";
   try {
     return JSON.parse(text.replace(/```json\n?|\n?```/g, "").trim());
   } catch {

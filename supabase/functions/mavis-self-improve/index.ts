@@ -13,6 +13,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,6 +24,13 @@ const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OLLAMA_BASE_URL = Deno.env.get("OLLAMA_BASE_URL") ?? "";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_API_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const MAVIS_SYSTEM =
   `You are MAVIS, a sovereign AI life OS — an advanced personal intelligence system. ` +
@@ -143,11 +151,6 @@ async function extractLessonsFromStats(
   stats: TraceStats,
   lookback_hours: number,
 ): Promise<string[]> {
-  if (!ANTHROPIC_API_KEY) {
-    console.warn("[analyze_traces] ANTHROPIC_API_KEY not set — skipping Haiku call");
-    return [];
-  }
-
   const prompt =
     `You are analyzing the agent execution traces of an AI agent called MAVIS. ` +
     `Based on the statistics below, identify 2-5 specific, actionable lessons about how MAVIS ` +
@@ -156,28 +159,12 @@ async function extractLessonsFromStats(
     `Format as a JSON array of strings: ["lesson 1", "lesson 2", ...].` +
     `\n\nTRACE STATS (last ${lookback_hours}h):\n${JSON.stringify(stats, null, 2)}`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "(unreadable)");
-    throw new Error(`Haiku API error ${res.status}: ${errText}`);
-  }
-
-  const data = await res.json();
-  const rawText: string = data?.content?.[0]?.text ?? "[]";
+  const rawText: string = (await callWithFallback(
+    "claude",
+    [{ role: "user", content: prompt }],
+    "",
+    PROVIDER_KEYS,
+  )).content || "[]";
 
   // Extract the JSON array from the response (Haiku may wrap it in prose)
   const match = rawText.match(/\[[\s\S]*\]/);

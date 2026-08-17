@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,8 +13,14 @@ const corsHeaders = {
 };
 
 const KA_API_BASE = "https://www.khanacademy.org/api/v1";
-const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -60,78 +67,16 @@ interface Message {
   content: string;
 }
 
-async function callGemini(systemPrompt: string, messages: Message[]): Promise<string> {
-  const GEMINI_URL =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
-
-  // Merge system prompt into first user message for Gemini
-  const contents = messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-
-  const res = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: systemPrompt }] },
-      contents,
-      generationConfig: {
-        maxOutputTokens: 512,
-        temperature: 0.7,
-      },
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
-  const data = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-}
-
-async function callOpenAI(systemPrompt: string, messages: Message[]): Promise<string> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
-      max_tokens: 512,
-      temperature: 0.7,
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
-  const data = await res.json() as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  return data.choices?.[0]?.message?.content ?? "";
-}
-
 async function callLLM(systemPrompt: string, messages: Message[]): Promise<string> {
-  // Try Gemini first, fall back to OpenAI
-  if (GEMINI_KEY) {
-    try {
-      return await callGemini(systemPrompt, messages);
-    } catch (err) {
-      console.warn("[mavis-khanmigo] Gemini failed, trying OpenAI:", err instanceof Error ? err.message : String(err));
-    }
+  if (!HAS_ANY_PROVIDER_KEY) {
+    throw new Error("No LLM provider configured. Set GEMINI_API_KEY, GROQ_API_KEY, ANTHROPIC_API_KEY, OPENAI_API, or GROK_API_KEY.");
   }
-
-  if (OPENAI_KEY) {
-    return await callOpenAI(systemPrompt, messages);
-  }
-
-  throw new Error("No LLM provider configured. Set GEMINI_API_KEY or OPENAI_API_KEY.");
+  const chatMessages = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+  const text = (await callWithFallback("claude", chatMessages, systemPrompt, PROVIDER_KEYS)).content;
+  if (!text) throw new Error("All AI providers unavailable");
+  return text;
 }
 
 // ─────────────────────────────────────────────────────────────

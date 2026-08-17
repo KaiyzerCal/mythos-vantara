@@ -196,7 +196,43 @@ async function downloadFileContent(fileId: string, fileName?: string): Promise<F
   }
 }
 
-// Analyze a PDF or binary doc via Claude's document block (base64 source — keeps bot token private).
+// Analyze a PDF or binary doc: try free Gemini 2.0 Flash first (inline base64),
+// falling back to Claude's document block (base64 source — keeps bot token private).
+async function extractDocWithGemini(base64: string, mediaType: string, prompt: string): Promise<string | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: prompt || "Read this document and provide a concise, useful summary of its key points." },
+              { inline_data: { mime_type: mediaType, data: base64 } },
+            ],
+          }],
+          generationConfig: { maxOutputTokens: 2048 },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    if (!res.ok) {
+      console.warn("[telegram-bot] Gemini doc extract failed:", res.status, await res.text().catch(() => ""));
+      return null;
+    }
+    const d = await res.json();
+    const parts: any[] = d.candidates?.[0]?.content?.parts ?? [];
+    const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+    return text || null;
+  } catch (err) {
+    console.error("[telegram-bot] Gemini doc extract error:", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
 async function extractDocWithClaude(base64: string, mediaType: string, prompt: string): Promise<string | null> {
   if (!ANTHROPIC_KEY) return null;
   try {
@@ -2743,24 +2779,15 @@ async function handleSpeak(chatId: string | number, uid: string, args: string) {
 
   await typing(chatId);
 
-  // 1. Translate via Claude Haiku
-  let translated = textToSpeak;
-  if (ANTHROPIC_KEY) {
-    const langName = LANG_NAMES[targetLang] ?? targetLang;
-    const tRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 512,
-        system: `Translate the user's text into ${langName}. Return ONLY the translated text, nothing else — no quotes, no explanation.`,
-        messages: [{ role: "user", content: textToSpeak }],
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    const tData = await tRes.json().catch(() => ({}));
-    translated = (tData as any).content?.[0]?.text?.trim() ?? textToSpeak;
-  }
+  // 1. Translate via the free-first cascade (Gemini/Groq before Claude Haiku)
+  const langName = LANG_NAMES[targetLang] ?? targetLang;
+  const translatedRaw = await callLLM(
+    "claude-haiku-4-5-20251001",
+    `Translate the user's text into ${langName}. Return ONLY the translated text, nothing else — no quotes, no explanation.`,
+    [{ role: "user", content: textToSpeak }],
+    512,
+  );
+  let translated = translatedRaw.trim() || textToSpeak;
 
   if (!OPENAI_KEY) {
     // Fallback: text-only translation
@@ -3537,7 +3564,10 @@ Deno.serve(async (req) => {
       }
       if (result.isPdf && result.pdfBase64) {
         await send(chatId, `📄 _Reading ${fileName}…_`);
-        const extracted = await extractDocWithClaude(result.pdfBase64, result.mediaType ?? "application/pdf", text || `Analyze this document (${fileName}) and explain its key points.`);
+        const docPrompt = text || `Analyze this document (${fileName}) and explain its key points.`;
+        const docMediaType = result.mediaType ?? "application/pdf";
+        const extracted = (await extractDocWithGemini(result.pdfBase64, docMediaType, docPrompt))
+          ?? (await extractDocWithClaude(result.pdfBase64, docMediaType, docPrompt));
         if (!extracted) {
           await send(chatId, `⚠️ Couldn't read ${fileName}. The document may be too large, encrypted, or unsupported.`);
           return;

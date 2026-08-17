@@ -1,12 +1,20 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 const GUMROAD_TOKEN = Deno.env.get("GUMROAD_ACCESS_TOKEN");
 const STRIPE_KEY    = Deno.env.get("STRIPE_SECRET_KEY");
 const STORAGE_BUCKET = "mavis-products";
@@ -29,20 +37,9 @@ async function generateProductContent(
     mini_course: "a 5-module mini course. Each: ## Module N: Title, learning objective, 200-word lesson, and one exercise.",
   };
 
-  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
+  if (!HAS_ANY_PROVIDER_KEY) throw new Error("No AI provider key configured");
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    signal: AbortSignal.timeout(90_000),
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 8000,
-      system: `You are creating a premium digital product. Write with authority, specificity, and practical depth. No filler. Target: ${audience || "ambitious builders"}. Format: ${formats[category] ?? formats.guide}
+  const system = `You are creating a premium digital product. Write with authority, specificity, and practical depth. No filler. Target: ${audience || "ambitious builders"}. Format: ${formats[category] ?? formats.guide}
 
 After major sections embed visual infographic blocks using EXACTLY this syntax (each on its own line, valid JSON only, no trailing commas):
 [VISUAL:callout:{"type":"tip","title":"Key Insight","content":"One concise actionable sentence under 100 chars"}]
@@ -56,22 +53,19 @@ Placement rules:
 - Add stat_boxes when mentioning outcomes, results, or metrics
 - Add comparison when contrasting two approaches
 - Total: 4-6 visual blocks distributed throughout the document
-- Keep all text SHORT to fit cleanly in the PDF`,
-      messages: [{
-        role: "user",
-        content: `Create the complete content for:\n\nTitle: ${title}\nDescription: ${description}\n\nWrite the full product now with embedded visual infographics.`,
-      }],
-    }),
-  });
+- Keep all text SHORT to fit cleanly in the PDF`;
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Claude API ${res.status}: ${errText.slice(0, 300)}`);
-  }
+  const text = (await callWithFallback(
+    "claude",
+    [{
+      role: "user",
+      content: `Create the complete content for:\n\nTitle: ${title}\nDescription: ${description}\n\nWrite the full product now with embedded visual infographics.`,
+    }],
+    system,
+    PROVIDER_KEYS,
+  )).content.trim();
 
-  const data = await res.json();
-  const text = (data?.content?.[0]?.text ?? "").trim();
-  if (!text) throw new Error(`Claude returned empty content (finish_reason: ${data?.stop_reason ?? "unknown"})`);
+  if (!text) throw new Error("AI provider returned empty content");
   return text;
 }
 

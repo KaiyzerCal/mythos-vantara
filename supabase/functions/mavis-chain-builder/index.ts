@@ -21,10 +21,17 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SB_URL  = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const CLAUDE_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,20 +39,7 @@ const corsHeaders = {
 };
 
 async function callClaude(system: string, user: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": CLAUDE_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 8192,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-    signal: AbortSignal.timeout(90_000), // 82 quests / 86 skills = large prompt; Haiku needs 40-70s
-  });
-  if (!res.ok) throw new Error(`Claude error: ${res.status}`);
-  const d = await res.json();
-  return String(d.content?.[0]?.text ?? "").trim();
+  return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS)).content.trim();
 }
 
 serve(async (req) => {

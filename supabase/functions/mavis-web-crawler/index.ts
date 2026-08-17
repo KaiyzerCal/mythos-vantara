@@ -21,12 +21,19 @@
 //   GEMINI_API_KEY                — for PDF text extraction fallback
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SB_URL       = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_KEY   = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const GEMINI_KEY   = Deno.env.get("GEMINI_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: OPENAI_KEY,
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const FUNCTIONS_URL = SB_URL + "/functions/v1";
 
@@ -138,13 +145,13 @@ function extractPageData(html: string, baseDomain: string): PageData {
 // ── PDF text extraction via Claude ────────────────────────────────────────────
 
 async function extractPdfText(pdfUrl: string): Promise<string> {
-  if (!ANTHROPIC_KEY) return `[PDF at ${pdfUrl} — add ANTHROPIC_API_KEY to extract text]`;
+  if (!PROVIDER_KEYS.claude) return `[PDF at ${pdfUrl} — add ANTHROPIC_API_KEY to extract text]`;
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
+        "x-api-key": PROVIDER_KEYS.claude,
         "anthropic-version": "2023-06-01",
         "anthropic-beta": "pdfs-2024-09-25",
       },

@@ -6,6 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,7 +15,14 @@ const corsHeaders = {
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const sb = () => createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
@@ -43,7 +51,7 @@ async function buildNarrative(userId: string): Promise<{
   const rank = profile?.rank ?? "Initiate";
   const level = profile?.level ?? 1;
 
-  if (!ANTHROPIC_KEY) {
+  if (!HAS_ANY_PROVIDER_KEY) {
     return {
       narrative: `${name} is a ${rank} (Level ${level}) building their path through ${quests.filter((q: any) => q.status === "active").length} active quests.`,
       identity_summary: `${name} — ${rank} L${level}, focused on building and growth.`,
@@ -81,14 +89,7 @@ Return JSON:
 Be specific, insightful, and authentic. Return ONLY valid JSON.`;
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 2048, messages: [{ role: "user", content: prompt }] }),
-    });
-    if (!res.ok) throw new Error(`Claude error: ${res.status}`);
-    const d = await res.json();
-    const text = d.content?.find((b: any) => b.type === "text")?.text ?? "{}";
+    const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content || "{}";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error("No JSON");
     const parsed = JSON.parse(jsonMatch[0]);

@@ -9,6 +9,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,20 +21,21 @@ const SB_SRK     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHRO_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const BOT_TOKEN  = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const CHAT_ID    = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHRO_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 async function callClaude(system: string, user: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": ANTHRO_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-opus-4-8",
-      max_tokens: 2048,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-  const data = await res.json();
-  return data.content?.[0]?.text ?? "";
+  return (await callWithFallback(
+    "claude",
+    [{ role: "user", content: user }],
+    system,
+    PROVIDER_KEYS,
+  )).content;
 }
 
 async function sendTelegram(text: string): Promise<void> {

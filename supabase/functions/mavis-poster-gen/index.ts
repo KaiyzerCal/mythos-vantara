@@ -13,8 +13,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { generateImageCascade } from "../_shared/providers.ts";
-
+import { callWithFallback, generateImageCascade } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,6 +24,14 @@ const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const FAL_KEY       = Deno.env.get("FAL_API_KEY") ?? "";
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -65,27 +72,15 @@ interface PosterFields {
 }
 
 async function parseBrief(brief: string, platform: string): Promise<PosterFields> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      messages: [{
-        role: "user",
-        content: `Extract design fields from this poster brief. Return ONLY valid JSON, no markdown.\n\nBrief: "${brief}"\n\nReturn:\n{"brand_name":"...","headline":"...","sub_headline":"...or null","body_copy":"...or null","cta":"...or null","colors":"...or null","style":"...or null","format_type":"poster or flyer or social graphic or banner"}`,
-      }],
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!res.ok) throw new Error(`Claude parse failed: ${res.status}`);
-  const data = await res.json();
-  const text: string = data.content?.[0]?.text ?? "{}";
+  const text: string = (await callWithFallback(
+    "claude",
+    [{
+      role: "user",
+      content: `Extract design fields from this poster brief. Return ONLY valid JSON, no markdown.\n\nBrief: "${brief}"\n\nReturn:\n{"brand_name":"...","headline":"...","sub_headline":"...or null","body_copy":"...or null","cta":"...or null","colors":"...or null","style":"...or null","format_type":"poster or flyer or social graphic or banner"}`,
+    }],
+    "",
+    PROVIDER_KEYS,
+  )).content || "{}";
 
   try {
     const parsed = JSON.parse(text.replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim());
@@ -139,25 +134,12 @@ HTML REQUIREMENTS:
 
 Output ONLY the complete HTML file.`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-5",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
-    signal: AbortSignal.timeout(45000),
-  });
-
-  if (!res.ok) throw new Error(`Claude HTML generation failed: ${res.status}`);
-  const data = await res.json();
-  let html: string = data.content?.[0]?.text ?? "";
+  let html: string = (await callWithFallback(
+    "claude",
+    [{ role: "user", content: userPrompt }],
+    systemPrompt,
+    PROVIDER_KEYS,
+  )).content;
   html = html.replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim();
   if (!html.startsWith("<!DOCTYPE") && !html.startsWith("<html")) {
     throw new Error("Claude did not return valid HTML");
@@ -272,8 +254,8 @@ serve(async (req) => {
 
     let fields: PosterFields;
     if (body.brief?.trim()) {
-      if (!ANTHROPIC_KEY) {
-        return json({ error: "ANTHROPIC_API_KEY required for brief parsing" }, 503);
+      if (!HAS_ANY_PROVIDER_KEY) {
+        return json({ error: "No AI provider key configured for brief parsing" }, 503);
       }
       fields = await parseBrief(body.brief, platform);
       // Allow structured overrides on top of parsed brief
@@ -301,7 +283,7 @@ serve(async (req) => {
 
     // Run HTML and image generation in parallel
     const [html, imageUrl] = await Promise.all([
-      ANTHROPIC_KEY ? generateHTML(fields, specs).catch(err => { console.error(err); return null; }) : null,
+      HAS_ANY_PROVIDER_KEY ? generateHTML(fields, specs).catch(err => { console.error(err); return null; }) : null,
       generateIdeogramImage(fields, specs.ideogram_ratio, specs.width, specs.height),
     ]);
 

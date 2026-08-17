@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,6 +10,14 @@ const corsHeaders = {
 const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const PRIORITY_SCORE: Record<string, number> = { urgent: 9, high: 7, medium: 5, low: 2 };
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
@@ -30,9 +39,9 @@ serve(async (req) => {
     const { data: { user }, error } = await sb.auth.getUser(auth.replace("Bearer ", ""));
     if (error || !user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-    if (!ANTHROPIC_KEY) {
+    if (!HAS_ANY_PROVIDER_KEY) {
       return new Response(
-        JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured." }),
+        JSON.stringify({ error: "No AI provider key configured." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -91,33 +100,14 @@ serve(async (req) => {
     const replyField = draftReplies ? ', suggested_reply (string, optional)' : '';
     const systemPrompt = `You are an intelligent email triage assistant. Analyze emails and return a JSON array. Each element must have: email_id (string), priority ("urgent"|"high"|"medium"|"low"), category ("action_required"|"reply_needed"|"fyi"|"newsletter"|"spam"), summary (1-2 sentences)${replyField}, suggested_action (string, optional). Return ONLY valid JSON — no markdown, no explanation.`;
 
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{
-          role: "user",
-          content: `Triage these ${emails.length} emails:\n\n${emailList}`,
-        }],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text();
-      throw new Error(`Claude API error ${claudeRes.status}: ${errText.slice(0, 300)}`);
-    }
-
-    const claudeData = await claudeRes.json();
-    const rawText    = claudeData.content?.[0]?.text ?? "[]";
+    const rawText = (await callWithFallback(
+      "claude",
+      [{ role: "user", content: `Triage these ${emails.length} emails:\n\n${emailList}` }],
+      systemPrompt,
+      PROVIDER_KEYS,
+    )).content || "[]";
     const jsonMatch  = rawText.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error("Failed to parse triage JSON from Claude response");
+    if (!jsonMatch) throw new Error("Failed to parse triage JSON from AI response");
 
     let triaged: TriageResult[] = JSON.parse(jsonMatch[0]);
 

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +12,14 @@ const SB_KEY        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const TAVILY_KEY    = Deno.env.get("TAVILY_API_KEY") ?? "";
 const BROWSER_URL   = Deno.env.get("BROWSER_URL") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -19,25 +28,8 @@ function json(data: unknown, status = 200) {
   });
 }
 
-async function claude(system: string, user: string, maxTokens = 1024): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-  if (!res.ok) throw new Error(`Anthropic error ${res.status}: ${await res.text()}`);
-  const d = await res.json();
-  return d.content?.[0]?.text ?? "";
+async function claude(system: string, user: string, _maxTokens = 1024): Promise<string> {
+  return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS)).content;
 }
 
 function extractJson(text: string): unknown {
@@ -159,7 +151,7 @@ serve(async (req) => {
 
     // action = "research" (default)
     if (!company) return json({ error: "company is required" }, 400);
-    if (!ANTHROPIC_KEY) return json({ error: "ANTHROPIC_API_KEY not configured" }, 500);
+    if (!HAS_ANY_PROVIDER_KEY) return json({ error: "No AI provider key configured" }, 500);
 
     const searchContext = await webSearch(company);
 

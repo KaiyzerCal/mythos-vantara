@@ -15,6 +15,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,34 +24,25 @@ const corsHeaders = {
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 function createSb() {
   return createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 }
 
-// ── Claude Haiku helper ──────────────────────────────────────────────────────
+// ── Free-first cascade helper ────────────────────────────────────────────────
 
-async function callHaiku(system: string, user: string, maxTokens = 200): Promise<string> {
-  if (!ANTHROPIC_KEY) return "";
+async function callHaiku(system: string, user: string, _maxTokens = 200): Promise<string> {
+  if (!HAS_ANY_PROVIDER_KEY) return "";
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: maxTokens,
-        system,
-        messages: [{ role: "user", content: user }],
-      }),
-    });
-    if (!res.ok) return "";
-    const d = await res.json();
-    return d.content?.find((b: any) => b.type === "text")?.text ?? "";
+    return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS)).content;
   } catch {
     return "";
   }
@@ -108,7 +100,7 @@ async function evalPrediction(event: OutcomeEvent, sb: ReturnType<typeof createS
     questUpdate = (quests?.length ?? 0) > 0;
   } catch { /* non-fatal */ }
 
-  if (!ANTHROPIC_KEY) {
+  if (!HAS_ANY_PROVIDER_KEY) {
     // Fallback without AI: acted_on or quest activity = confirmed
     if (predRow?.acted_on || questUpdate) {
       return { outcome_status: "confirmed", actual_outcome: "Prediction acted on or related activity detected.", confidence_score: 0.70 };
@@ -307,7 +299,7 @@ async function evalOpportunityOrCausalAction(event: OutcomeEvent, sb: ReturnType
     taskContext = (tasks ?? []).map((t: any) => `${t.title}(${t.status})`).join(", ");
   } catch { /* non-fatal */ }
 
-  if (!ANTHROPIC_KEY) {
+  if (!HAS_ANY_PROVIDER_KEY) {
     return { outcome_status: "failed", actual_outcome: "No AI key to evaluate opportunity/action.", confidence_score: 0.40 };
   }
 

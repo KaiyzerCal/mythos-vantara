@@ -6,6 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,20 +15,24 @@ const corsHeaders = {
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const sb = createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
 
-async function callClaude(system: string, user: string, maxTokens = 400): Promise<string> {
-  if (!ANTHROPIC_KEY) return "";
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }),
-  });
-  if (!res.ok) return "";
-  const d = await res.json();
-  return d.content?.find((b: any) => b.type === "text")?.text ?? "";
+async function callClaude(system: string, user: string, _maxTokens = 400): Promise<string> {
+  if (!HAS_ANY_PROVIDER_KEY) return "";
+  try {
+    return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS)).content;
+  } catch {
+    return "";
+  }
 }
 
 async function computeScore(userId: string): Promise<{
@@ -170,7 +175,7 @@ async function computeScore(userId: string): Promise<{
   const trendArrow = trend === "improving" ? "↑" : trend === "declining" ? "↓" : "→";
   let recommendation = `Performance score ${score}/100 ${trendArrow}. Focus on your peak window: ${optimal_window}.`;
 
-  if (ANTHROPIC_KEY) {
+  if (HAS_ANY_PROVIDER_KEY) {
     const rec = await callClaude(
       "You are a performance coach. Generate a single, specific, actionable recommendation for today based on the operator's performance data. 1-2 sentences max. Be direct and specific — no generic advice.",
       `Score: ${score}/100 (${trend}). Components: sleep ${components.sleep}, energy ${components.energy}, tasks ${components.tasks}, habits ${components.habits}. Peak window: ${optimal_window}. Wearable HRV: ${components.hrv}.`,

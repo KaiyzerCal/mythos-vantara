@@ -1956,10 +1956,14 @@ ${telosData
                     const linkInput = `ACTIVE PLANS:\n${planList}\n\nCONVERSATION:\nUser: ${lastUserText.slice(0, 600)}\nMAVIS: ${accumulated.slice(0, 600)}`;
 
                     let linkRaw = "";
-                    if (claudeKey) {
-                      const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 200, system: linkPrompt, messages: [{ role: "user", content: linkInput }] }), signal: AbortSignal.timeout(10_000) });
-                      if (r.ok) { const d = await r.json(); linkRaw = d.content?.[0]?.text ?? ""; }
-                    }
+                    try {
+                      linkRaw = (await callWithFallback(
+                        "claude",
+                        [{ role: "user", content: linkInput }],
+                        linkPrompt,
+                        { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey },
+                      )).content;
+                    } catch { /* non-critical */ }
 
                     const jsonMatch = linkRaw.match(/\{[\s\S]*\}/);
                     if (!jsonMatch) return;

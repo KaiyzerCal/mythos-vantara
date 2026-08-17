@@ -7,6 +7,7 @@
 //          search_records | list_bases | list_tables | enrich_record
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +19,13 @@ const AT_KEY        = Deno.env.get("AIRTABLE_API_KEY") ?? "";
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const AT_API    = "https://api.airtable.com/v0";
 const AT_META   = "https://api.airtable.com/v0/meta";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 function requireAirtable() {
   if (!AT_KEY) throw new Error("Airtable not configured. Set AIRTABLE_API_KEY in Supabase secrets.");
@@ -38,21 +46,8 @@ async function atReq(path: string, method = "GET", body?: unknown): Promise<any>
   return data;
 }
 
-async function callClaude(system: string, user: string, model = "claude-haiku-4-5-20251001", maxTokens = 512): Promise<string> {
-  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type":      "application/json",
-      "x-api-key":         ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: user }] }),
-    signal: AbortSignal.timeout(30000),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`Claude API error: ${JSON.stringify(data?.error).slice(0, 200)}`);
-  return data.content?.[0]?.text ?? "";
+async function callClaude(system: string, user: string, _model = "claude-haiku-4-5-20251001", _maxTokens = 512): Promise<string> {
+  return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS)).content;
 }
 
 async function atMetaReq(path: string): Promise<any> {

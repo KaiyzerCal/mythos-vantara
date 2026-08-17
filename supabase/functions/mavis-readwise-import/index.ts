@@ -11,6 +11,10 @@ const corsHeaders = {
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_KEY    = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
+const GEMINI_KEY    = Deno.env.get("GEMINI_API_KEY") ?? "";
+// mavis_notes.embedding is a fixed vector(1536) column — verify Gemini's
+// MRL-truncated output actually lands on 1536 dims before trusting it.
+const EMBEDDING_DIMS = 1536;
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -61,8 +65,34 @@ async function getUserId(req: Request): Promise<string | null> {
   }
 }
 
-// ── Embedding generation ───────────────────────────────────────
-async function generateEmbedding(text: string): Promise<number[] | null> {
+// ── Embedding generation — free Gemini tier first, OpenAI fallback ─────
+async function generateEmbeddingWithGemini(text: string): Promise<number[] | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-001",
+          content: { parts: [{ text: text.slice(0, 8000) }] },
+          outputDimensionality: EMBEDDING_DIMS,
+        }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const values: number[] | undefined = data.embedding?.values;
+    if (!values || values.length !== EMBEDDING_DIMS) return null;
+    return values;
+  } catch {
+    return null;
+  }
+}
+
+async function generateEmbeddingWithOpenAI(text: string): Promise<number[] | null> {
   if (!OPENAI_KEY) return null;
   try {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
@@ -82,6 +112,10 @@ async function generateEmbedding(text: string): Promise<number[] | null> {
   } catch {
     return null;
   }
+}
+
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  return (await generateEmbeddingWithGemini(text)) ?? (await generateEmbeddingWithOpenAI(text));
 }
 
 // ── Highlight shape ────────────────────────────────────────────

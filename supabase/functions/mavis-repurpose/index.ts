@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,8 +13,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const OPENAI_KEY    = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 // ─────────────────────────────────────────────────────────────
 // Platform prompt map
@@ -40,60 +46,7 @@ async function callAI(systemPrompt: string, userContent: string, brandVoice?: st
   const voiceNote = brandVoice ? `\n\nTone/brand voice: ${brandVoice}` : "";
   const fullPrompt = `${systemPrompt}${voiceNote}\n\nCONTENT:\n${userContent}`;
 
-  // Try Claude Haiku first
-  if (ANTHROPIC_KEY) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 1500,
-          messages: [{ role: "user", content: fullPrompt }],
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (res.ok) {
-        const d = await res.json() as any;
-        const text = d?.content?.[0]?.text ?? "";
-        if (text) return text;
-      } else {
-        console.warn("[mavis-repurpose] Claude error:", res.status);
-      }
-    } catch (e: any) {
-      console.warn("[mavis-repurpose] Claude timeout/error:", e?.message);
-    }
-  }
-
-  // Fallback: GPT-4o-mini
-  if (OPENAI_KEY) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${OPENAI_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: fullPrompt }],
-        max_tokens: 1500,
-        temperature: 0.7,
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`OpenAI error (${res.status}): ${errText.slice(0, 200)}`);
-    }
-    const d = await res.json() as any;
-    return d?.choices?.[0]?.message?.content ?? "";
-  }
-
-  throw new Error("No AI key configured. Set ANTHROPIC_API_KEY or OPENAI_API.");
+  return (await callWithFallback("claude", [{ role: "user", content: fullPrompt }], "", PROVIDER_KEYS)).content;
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -44,8 +45,15 @@ serve(async (req) => {
     const uid = resolveOperatorUid(req);
     if (!uid) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
 
-    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
+    const PROVIDER_KEYS = {
+      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
+    const hasAnyKey = PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok;
+    if (!hasAnyKey) throw new Error("No LLM provider key configured");
 
     // Compute time windows
     const now = new Date();
@@ -216,31 +224,13 @@ JOURNAL: ${journalCount} entries this week.
 VAULT: ${newNotesCount} new notes captured.
 GOALS: ${goals.map((g: { objective: string }) => g.objective.slice(0, 60)).join(" | ") || "none active"}.`;
 
-    // Call Claude Sonnet for the retrospective
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 600,
-        system: "You are MAVIS — an AI personal OS. Generate a structured weekly retrospective for your operator. Be analytical, direct, and forward-looking. Use military precision. Format: 3 sections — WINS (bullet points of what went well), GAPS (what fell short, no judgment, just data), NEXT WEEK (3 specific action recommendations). Max 400 words total. No fluff.",
-        messages: [
-          { role: "user", content: contextStr },
-        ],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      const err = await claudeRes.text();
-      throw new Error(`Claude API error: ${claudeRes.status} — ${err}`);
-    }
-
-    const claudeJson    = await claudeRes.json();
-    const claudeReview: string = claudeJson.content?.[0]?.text ?? "(no review generated)";
+    // Call the free-first provider cascade for the retrospective
+    const claudeReview: string = (await callWithFallback(
+      "claude",
+      [{ role: "user", content: contextStr }],
+      "You are MAVIS — an AI personal OS. Generate a structured weekly retrospective for your operator. Be analytical, direct, and forward-looking. Use military precision. Format: 3 sections — WINS (bullet points of what went well), GAPS (what fell short, no judgment, just data), NEXT WEEK (3 specific action recommendations). Max 400 words total. No fluff.",
+      PROVIDER_KEYS,
+    )).content || "(no review generated)";
 
     // Build Telegram message
     const revDeltaStr = revenueDeltaPct !== null

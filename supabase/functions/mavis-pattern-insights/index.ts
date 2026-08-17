@@ -6,6 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,8 +20,15 @@ const supabase = createClient(
   { auth: { persistSession: false } },
 );
 
-const OPENAI_KEY = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
 const BOT_TOKEN  = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 // ─────────────────────────────────────────────────────────────
 // Telegram helper
@@ -115,8 +123,8 @@ async function analyzeUser(userId: string): Promise<number> {
 
   const dataBlock = [ritualSummary, taskSummary, moodSummary, energySummary, tacitSummary].join("\n");
 
-  if (!OPENAI_KEY) {
-    console.warn("[mavis-pattern-insights] OPENAI_API not set, skipping AI analysis");
+  if (!HAS_ANY_PROVIDER_KEY) {
+    console.warn("[mavis-pattern-insights] No AI provider key set, skipping AI analysis");
     return 0;
   }
 
@@ -128,29 +136,13 @@ ${dataBlock}
 Return ONLY a valid JSON array with no prose:
 [{"title": "...", "insight": "...", "category": "habit|energy|mood|streak|opportunity", "severity": "info|warning|critical"}]`;
 
-  const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 1200,
-      temperature: 0.4,
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!aiRes.ok) {
-    const errText = await aiRes.text();
-    console.error("[mavis-pattern-insights] OpenAI error:", aiRes.status, errText.slice(0, 200));
+  let rawContent = "";
+  try {
+    rawContent = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content;
+  } catch (err) {
+    console.error("[mavis-pattern-insights] AI provider error:", err);
     return 0;
   }
-
-  const aiData = await aiRes.json() as any;
-  const rawContent: string = aiData?.choices?.[0]?.message?.content ?? "";
 
   // Parse the JSON array from AI response
   const jsonMatch = rawContent.match(/\[[\s\S]*\]/);

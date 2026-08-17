@@ -14,6 +14,12 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_KEY = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+// mavis_notes.embedding is a fixed vector(1536) column (sized for OpenAI's
+// text-embedding-3-small). Gemini's gemini-embedding-001 supports MRL
+// truncation to 1536 dims via outputDimensionality — verify the length
+// before trusting it, since a mismatch would be rejected by pgvector anyway.
+const EMBEDDING_DIMS = 1536;
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -119,8 +125,35 @@ function chunkText(text: string, chunkSize = 1200, overlap = 150): string[] {
   return chunks.filter((c) => c.length > 0);
 }
 
-// Generate embedding via OpenAI text-embedding-3-small
-async function generateEmbedding(text: string): Promise<number[] | null> {
+// Generate embedding: try Gemini's gemini-embedding-001 (free tier) truncated
+// to 1536 dims via MRL first, then fall back to OpenAI text-embedding-3-small.
+async function generateEmbeddingWithGemini(text: string): Promise<number[] | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-001",
+          content: { parts: [{ text }] },
+          outputDimensionality: EMBEDDING_DIMS,
+        }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const values: number[] | undefined = data.embedding?.values;
+    if (!values || values.length !== EMBEDDING_DIMS) return null;
+    return values;
+  } catch {
+    return null;
+  }
+}
+
+async function generateEmbeddingWithOpenAI(text: string): Promise<number[] | null> {
   if (!OPENAI_KEY) return null;
   try {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
@@ -137,6 +170,10 @@ async function generateEmbedding(text: string): Promise<number[] | null> {
   } catch {
     return null;
   }
+}
+
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  return (await generateEmbeddingWithGemini(text)) ?? (await generateEmbeddingWithOpenAI(text));
 }
 
 serve(async (req) => {

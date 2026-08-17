@@ -9,10 +9,17 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY")!;
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,17 +48,10 @@ interface PlanResult {
 
 // ── Planner: Claude decomposes the goal into sub-tasks ────────────────────────
 async function planGoal(goal: string): Promise<PlanResult> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type":      "application/json",
-      "x-api-key":          ANTHROPIC_KEY,
-      "anthropic-version":  "2023-06-01",
-    },
-    body: JSON.stringify({
-      model:      "claude-sonnet-4-6",
-      max_tokens: 1024,
-      system: `You are the MAVIS Orchestrator Planner. Break the goal into 2–5 concrete sub-tasks for specialist agents. Prefer parallel execution — only add depends_on when a task truly needs another's output.
+  const raw = (await callWithFallback(
+    "claude",
+    [{ role: "user", content: goal }],
+    `You are the MAVIS Orchestrator Planner. Break the goal into 2–5 concrete sub-tasks for specialist agents. Prefer parallel execution — only add depends_on when a task truly needs another's output.
 
 Domains:
 - email:    read, search, draft via Gmail
@@ -75,16 +75,8 @@ Return ONLY valid JSON — no prose, no markdown:
   ],
   "synthesis_goal": "One sentence: what to tell the operator after completion"
 }`,
-      messages: [{ role: "user", content: goal }],
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-
-  if (!res.ok) throw new Error(`Planner error ${res.status}: ${await res.text()}`);
-
-  const data = await res.json();
-  const raw  = (data.content as Array<{ type: string; text?: string }>)
-    ?.find((b) => b.type === "text")?.text ?? "{}";
+    PROVIDER_KEYS,
+  )).content || "{}";
 
   try {
     const clean = raw.replace(/^```[a-z]*\n?/m, "").replace(/\n?```$/m, "").trim();
@@ -161,30 +153,17 @@ async function synthesizeResults(
     .map((r) => `[${r.domain.toUpperCase()} — ${r.ok ? "✓" : "✗ failed"}]\n${r.result}`)
     .join("\n\n");
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type":      "application/json",
-      "x-api-key":          ANTHROPIC_KEY,
-      "anthropic-version":  "2023-06-01",
-    },
-    body: JSON.stringify({
-      model:      "claude-sonnet-4-6",
-      max_tokens: 512,
-      system: "You are MAVIS. Synthesize specialist agent results into one concise, actionable operator summary: what was completed, what actions need approval, any issues. Direct and specific — no filler.",
-      messages: [{
-        role:    "user",
-        content: `Original goal: ${originalGoal}\n\nSpecialist results:\n${resultsText}\n\nSynthesis directive: ${synthesisGoal}`,
-      }],
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-
-  if (!res.ok) return resultsText;
-
-  const data = await res.json();
-  return (data.content as Array<{ type: string; text?: string }>)
-    ?.find((b) => b.type === "text")?.text ?? resultsText;
+  try {
+    const text = (await callWithFallback(
+      "claude",
+      [{ role: "user", content: `Original goal: ${originalGoal}\n\nSpecialist results:\n${resultsText}\n\nSynthesis directive: ${synthesisGoal}` }],
+      "You are MAVIS. Synthesize specialist agent results into one concise, actionable operator summary: what was completed, what actions need approval, any issues. Direct and specific — no filler.",
+      PROVIDER_KEYS,
+    )).content;
+    return text || resultsText;
+  } catch {
+    return resultsText;
+  }
 }
 
 // ── Main handler ───────────────────────────────────────────────────────────────

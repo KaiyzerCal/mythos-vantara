@@ -8,6 +8,7 @@
 // Each cron run advances one step. Claude observes results and replans if needed.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,7 +20,13 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 // Module-level constants — read once, reuse in all handlers
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -95,24 +102,11 @@ async function sendTelegram(text: string): Promise<void> {
 }
 
 async function callClaude(systemPrompt: string, userContent: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1500,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userContent }],
-    }),
-    signal: AbortSignal.timeout(30000), // prevent indefinite hang
-  });
-  if (!res.ok) return "";
-  const data = await res.json();
-  return data?.content?.[0]?.text ?? "";
+  try {
+    return (await callWithFallback("claude", [{ role: "user", content: userContent }], systemPrompt, PROVIDER_KEYS)).content;
+  } catch {
+    return "";
+  }
 }
 
 async function markRunning(taskId: string) {

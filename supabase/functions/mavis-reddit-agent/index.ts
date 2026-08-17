@@ -7,6 +7,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +19,14 @@ const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const REDDIT_BASE   = "https://www.reddit.com";
 const UA            = "MAVIS/1.0 (business-opportunity-scanner)";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: ANTHROPIC_KEY,
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 // ── Reddit public JSON API ─────────────────────────────────────
 
@@ -75,19 +84,11 @@ function isUsablePost(p: RedditPost, minUpvotes: number, cutoff: number): boolea
 
 async function callClaude(
   prompt: string,
-  maxTokens = 300,
-  model = "claude-haiku-4-5-20251001",
+  _maxTokens = 300,
+  _model = "claude-haiku-4-5-20251001",
 ): Promise<string> {
-  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method:  "POST",
-    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body:    JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
-    signal:  AbortSignal.timeout(20000),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`Anthropic: ${data.error?.message ?? JSON.stringify(data)}`);
-  return (data.content?.[0]?.text ?? "").trim();
+  const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content;
+  return text.trim();
 }
 
 async function runBatch<T, R>(
@@ -229,7 +230,7 @@ serve(async (req) => {
       // ── Full AI pipeline ──────────────────────────────────────
 
       case "analyze_opportunities": {
-        if (!ANTHROPIC_KEY) return json({ error: "ANTHROPIC_API_KEY required" }, 503);
+        if (!HAS_ANY_PROVIDER_KEY) return json({ error: "No AI provider key configured" }, 503);
 
         const subreddit     = String(body.subreddit ?? "smallbusiness");
         const keyword       = String(body.keyword ?? "looking for a solution");

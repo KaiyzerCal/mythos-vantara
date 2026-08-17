@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,32 +10,16 @@ const corsHeaders = {
 };
 
 async function callClaude(
-  apiKey: string,
+  providerKeys: { openai: string; claude: string; grok: string; gemini: string; groq: string },
   systemPrompt: string,
   userMessage: string,
 ): Promise<string> {
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5",
-      max_tokens: 300,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userMessage }],
-    }),
-  });
-
-  if (!resp.ok) {
-    const err = await resp.text().catch(() => "");
-    throw new Error(`Anthropic API error ${resp.status}: ${err}`);
-  }
-
-  const json = await resp.json();
-  return json.content?.[0]?.text ?? "";
+  return (await callWithFallback(
+    "claude",
+    [{ role: "user", content: userMessage }],
+    systemPrompt,
+    providerKeys,
+  )).content;
 }
 
 async function sendTelegram(
@@ -78,7 +63,14 @@ serve(async (req: Request) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
     const TELEGRAM_OPERATOR_CHAT_ID = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
-    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    const PROVIDER_KEYS = {
+      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
+    const hasAnyProviderKey = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
     const uid = resolveOperatorUid(req);
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_OPERATOR_CHAT_ID || !uid) {
@@ -87,9 +79,9 @@ serve(async (req: Request) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    if (!ANTHROPIC_API_KEY) {
+    if (!hasAnyProviderKey) {
       return new Response(
-        JSON.stringify({ error: "Missing ANTHROPIC_API_KEY" }),
+        JSON.stringify({ error: "No AI provider key configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -327,7 +319,7 @@ serve(async (req: Request) => {
 
     let nudgeText: string;
     try {
-      nudgeText = await callClaude(ANTHROPIC_API_KEY, systemPrompt, contextString);
+      nudgeText = await callClaude(PROVIDER_KEYS, systemPrompt, contextString);
     } catch (claudeErr) {
       console.error("Claude call failed:", claudeErr);
       // Fallback: plain urgency list
