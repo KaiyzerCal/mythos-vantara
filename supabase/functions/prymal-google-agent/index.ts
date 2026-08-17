@@ -20,6 +20,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -28,7 +29,13 @@ const CORS = {
 
 const SB_URL       = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const CLAUDE       = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 const G_CLIENT_ID  = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID") ?? "";
 const G_CLIENT_SEC = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET") ?? "";
 
@@ -174,20 +181,7 @@ Reviewer: ${review.reviewer || "a customer"}
 Star rating: ${stars}/5
 Review: "${review.comment || "(no comment — just a star rating)"}"`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": CLAUDE, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) throw new Error(`Claude ${res.status}: ${await res.text()}`);
-  const d = await res.json();
-  return d.content?.[0]?.text?.trim() ?? "";
+  return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS)).content.trim();
 }
 
 // ── Claude: draft a GBP post ───────────────────────────────────────────────
@@ -205,20 +199,12 @@ Rules:
 - No markdown formatting.
 - One crisp paragraph. End with a natural call to action if appropriate.`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": CLAUDE, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 500,
-      system,
-      messages: [{ role: "user", content: `Write a GBP post for ${client.business_name}.\n\nBrief: ${brief}` }],
-    }),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) throw new Error(`Claude ${res.status}: ${await res.text()}`);
-  const d = await res.json();
-  return d.content?.[0]?.text?.trim() ?? "";
+  return (await callWithFallback(
+    "claude",
+    [{ role: "user", content: `Write a GBP post for ${client.business_name}.\n\nBrief: ${brief}` }],
+    system,
+    PROVIDER_KEYS,
+  )).content.trim();
 }
 
 // ── Queue helper — sends to prymal-approval-flow ───────────────────────────
