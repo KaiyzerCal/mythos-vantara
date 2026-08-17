@@ -60,19 +60,13 @@ export default function Dashboard() {
   const { user } = useAuth();
   const { profile, quests, questStats, journalEntries } = useAppData();
 
-  if (!profile) return (
-    <div className="flex items-center justify-center h-full">
-      <LoadingState label="Loading profile…" size="lg" />
-    </div>
-  );
-
-
-  const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
-  const xpPct = profile.xp_to_next_level > 0
-    ? Math.round((profile.xp / profile.xp_to_next_level) * 100)
-    : 0;
-
-  const activeQuests = quests.filter((q) => q.status === "active").slice(0, 4);
+  // Every hook in this component must run before the `if (!profile)` bail-out
+  // further down. `profile` is null on the first render and populated on a
+  // later one, so a guard placed above these would mean React sees three
+  // hooks on the first render and thirteen on the next — "Rendered more hooks
+  // than during the previous render", which takes the whole page down rather
+  // than degrading. The bail-out is now below them, where it only skips
+  // rendering.
 
   // ── Morning Brief ──
   const [morningBrief, setMorningBrief] = useState<{
@@ -200,6 +194,21 @@ export default function Dashboard() {
         .catch((e: unknown) => { console.error("Failed to load performance score", e); toast.error("Failed to load Performance Score"); }),
     ]).finally(() => setIsLoading(false));
   }, []);
+
+  // All hooks have run by this point, so bailing out here is safe: the hook
+  // order is identical whether or not the profile has loaded yet.
+  if (!profile) return (
+    <div className="flex items-center justify-center h-full">
+      <LoadingState label="Loading profile…" size="lg" />
+    </div>
+  );
+
+  const rankColor = RANK_COLORS[profile.rank as keyof typeof RANK_COLORS] ?? "#FFD700";
+  const xpPct = profile.xp_to_next_level > 0
+    ? Math.round((profile.xp / profile.xp_to_next_level) * 100)
+    : 0;
+
+  const activeQuests = quests.filter((q) => q.status === "active").slice(0, 4);
 
   const scoreColor =
     perfScore === null
