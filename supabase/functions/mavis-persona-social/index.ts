@@ -15,6 +15,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,6 +24,13 @@ const corsHeaders = {
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 // ─────────────────────────────────────────────────────────────
 // OAUTH 1.0a HELPERS (verbatim from mavis-nora-post)
@@ -220,28 +228,12 @@ async function dispatchToplatform(
 // ─────────────────────────────────────────────────────────────
 
 async function generateWithClaude(systemPrompt: string, userPrompt: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
-      "anthropic-version": "2023-06-01",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 500,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
-    signal: AbortSignal.timeout(20_000),
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(`Anthropic ${res.status}: ${data.error?.message ?? JSON.stringify(data).slice(0, 200)}`);
-  }
-
-  return data.content?.[0]?.text ?? "";
+  return (await callWithFallback(
+    "claude",
+    [{ role: "user", content: userPrompt }],
+    systemPrompt,
+    PROVIDER_KEYS,
+  )).content;
 }
 
 function buildSystemPrompt(persona: any, platform: string): string {
