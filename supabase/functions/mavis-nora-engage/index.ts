@@ -16,6 +16,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,29 +98,19 @@ async function buildOAuthHeader(
 async function generateReply(
   incomingText: string,
   context: "mention" | "dm",
-  anthropicKey: string,
+  providerKeys: { openai: string; claude: string; grok: string; gemini: string; groq: string },
 ): Promise<string | null> {
   const systemSuffix = context === "dm"
     ? "You're responding to a direct message. Be personal and concise (2-3 sentences)."
     : "You're replying to a public tweet mention. Stay under 260 characters. Be sharp.";
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 120,
-        system: `${NORA_PERSONA}\n\n${systemSuffix}`,
-        messages: [{ role: "user", content: `Reply to this as Nora Vale:\n\n"${incomingText}"` }],
-      }),
-    });
-    const data = await res.json();
-    const text: string = data.content?.[0]?.text?.trim() ?? "";
+    const text = (await callWithFallback(
+      "claude",
+      [{ role: "user", content: `Reply to this as Nora Vale:\n\n"${incomingText}"` }],
+      `${NORA_PERSONA}\n\n${systemSuffix}`,
+      providerKeys,
+    )).content.trim();
     if (!text) return null;
     // Hard-cap mentions at 279 chars (leave 1 for safety)
     return context === "mention" ? text.slice(0, 279) : text;
@@ -184,7 +175,13 @@ serve(async (req) => {
   const API_SECRET = Deno.env.get("TWITTER_API_SECRET");
   const ACC_TOKEN  = Deno.env.get("TWITTER_NORA_ACCESS_TOKEN");
   const ACC_SECRET = Deno.env.get("TWITTER_NORA_ACCESS_SECRET");
-  const ANTHROPIC  = Deno.env.get("ANTHROPIC_API_KEY")!;
+  const PROVIDER_KEYS = {
+    openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+    claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+    grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+    gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+    groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+  };
 
   if (!API_KEY || !API_SECRET || !ACC_TOKEN || !ACC_SECRET) {
     return new Response(JSON.stringify({ skipped: "Twitter credentials not configured" }), {
@@ -268,7 +265,7 @@ serve(async (req) => {
         // Skip if the mention is from Nora herself
         if (mention.author_id === noraUserId) continue;
 
-        const replyText = await generateReply(mention.text, "mention", ANTHROPIC);
+        const replyText = await generateReply(mention.text, "mention", PROVIDER_KEYS);
         if (!replyText) {
           await supabase.from("nora_engagement_log").insert({
             type: "mention", source_id: mention.id, source_author_id: mention.author_id,
@@ -341,7 +338,7 @@ serve(async (req) => {
           .maybeSingle();
         if (existing) continue;
 
-        const replyText = await generateReply(event.text, "dm", ANTHROPIC);
+        const replyText = await generateReply(event.text, "dm", PROVIDER_KEYS);
         if (!replyText) {
           await supabase.from("nora_engagement_log").insert({
             type: "dm", source_id: event.id, source_author_id: event.sender_id,

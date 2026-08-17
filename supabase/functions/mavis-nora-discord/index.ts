@@ -13,6 +13,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,7 +25,14 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const DISCORD_WEBHOOK_URL = Deno.env.get("DISCORD_NORA_WEBHOOK_URL") ?? "";
 const DISCORD_PUBLIC_KEY = Deno.env.get("DISCORD_PUBLIC_KEY") ?? "";
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -93,31 +101,16 @@ async function generateDiscordMessage(prompt?: string): Promise<string> {
     ? prompt
     : "Share a quick insight or thought as Nora Vale — something useful for founders or operators in the Discord community.";
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
-      system: `You are Nora Vale — business strategist, founder, AI automation builder.
+  const text = (await callWithFallback(
+    "claude",
+    [{ role: "user", content: userPrompt }],
+    `You are Nora Vale — business strategist, founder, AI automation builder.
 You're writing in a Discord server for builders and founders.
 Casual but sharp tone. Can use Discord markdown (**bold**, *italic*, \`code\`, > quotes).
 1-2 paragraphs max. Add genuine value. Skip generic intros.`,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Anthropic API error (${res.status}): ${err}`);
-  }
-
-  const data = await res.json();
-  return data.content?.[0]?.text?.trim() ?? "";
+    PROVIDER_KEYS,
+  )).content;
+  return text.trim();
 }
 
 // ── Post action handler ───────────────────────────────────────────────────────
@@ -137,8 +130,8 @@ async function handlePost(
   const shouldGenerate = body.generate === true || !content;
 
   if (shouldGenerate) {
-    if (!ANTHROPIC_KEY) {
-      return json({ ok: false, error: "ANTHROPIC_API_KEY is not configured for generation" }, 400);
+    if (!HAS_ANY_PROVIDER_KEY) {
+      return json({ ok: false, error: "No AI provider key configured for generation" }, 400);
     }
     try {
       content = await generateDiscordMessage(body.generate_prompt);
@@ -214,7 +207,7 @@ async function handleInteract(req: Request, rawBody: string): Promise<Response> 
     const options = interaction.data?.options ?? [];
 
     let reply = "";
-    if (ANTHROPIC_KEY) {
+    if (HAS_ANY_PROVIDER_KEY) {
       try {
         const optionsText = options.length > 0
           ? ` with options: ${options.map((o) => `${o.name}=${o.value}`).join(", ")}`
@@ -226,7 +219,7 @@ async function handleInteract(req: Request, rawBody: string): Promise<Response> 
         reply = "Hey! I'm Nora Vale. I'm here to talk revenue systems, AI automation, and founder strategy. What's on your mind?";
       }
     } else {
-      reply = `Command /${commandName} received. ANTHROPIC_API_KEY is not configured for response generation.`;
+      reply = `Command /${commandName} received. No AI provider key is configured for response generation.`;
     }
 
     return new Response(

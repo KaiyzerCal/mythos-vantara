@@ -16,6 +16,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,7 +26,16 @@ const corsHeaders = {
 
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const EMBEDDING_DIMS = 1536; // mavis_notes.embedding is a fixed vector(1536) column
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: GEMINI_KEY,
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 // ── MCP Tool definitions ──────────────────────────────────────────────────────
 
@@ -249,36 +259,68 @@ async function execAskMavis(
   question: string,
   mode = "ARCH",
 ): Promise<string> {
-  if (!ANTHROPIC_KEY) return "MAVIS: ANTHROPIC_API_KEY not configured.";
+  if (!HAS_ANY_PROVIDER_KEY) return "MAVIS: No AI provider key configured.";
 
   const system =
     "You are MAVIS — a sovereign-class AI assistant. " +
     "Answer the question directly, precisely, and comprehensively. " +
     "Mode: " + mode;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4096,
-      system,
-      messages: [{ role: "user", content: question }],
-    }),
-  });
+  try {
+    const text = (await callWithFallback("claude", [{ role: "user", content: question }], system, PROVIDER_KEYS)).content;
+    return text || "No response";
+  } catch (err) {
+    return `MAVIS error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
 
-  if (!res.ok) return `MAVIS error: ${res.status}`;
-  const d = await res.json();
-  const blocks = Array.isArray(d.content) ? d.content : [];
-  return blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("") || "No response";
+async function embedQueryWithGemini(query: string): Promise<number[] | null> {
+  if (!GEMINI_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "models/gemini-embedding-001",
+          content: { parts: [{ text: query }] },
+          outputDimensionality: EMBEDDING_DIMS,
+        }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const values: number[] | undefined = data.embedding?.values;
+    if (!values || values.length !== EMBEDDING_DIMS) return null;
+    return values;
+  } catch {
+    return null;
+  }
+}
+
+async function embedQueryWithOpenAI(query: string): Promise<number[] | null> {
+  const openaiKey = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) return null;
+  try {
+    const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
+    });
+    if (!embedRes.ok) return null;
+    const embedData = await embedRes.json();
+    return embedData.data?.[0]?.embedding ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function execSearchMemory(userId: string, query: string, limit = 8): Promise<string> {
-  if (!(Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY"))) {
+  const embedding = (await embedQueryWithGemini(query)) ?? (await embedQueryWithOpenAI(query));
+
+  if (!embedding) {
     // Fallback: text search in mavis_memory
     const { data } = await sb()
       .from("mavis_memory")
@@ -290,16 +332,6 @@ async function execSearchMemory(userId: string, query: string, limit = 8): Promi
     if (!data?.length) return "No memories found matching that query.";
     return data.map((m: any) => `[${m.role}] ${m.content}`).join("\n\n");
   }
-
-  // Semantic search via OpenAI embeddings + pgvector
-  const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${(Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY"))}` },
-    body: JSON.stringify({ model: "text-embedding-3-small", input: query }),
-  });
-  if (!embedRes.ok) return "Memory search unavailable.";
-  const embedData = await embedRes.json();
-  const embedding = embedData.data?.[0]?.embedding;
 
   const { data } = await sb().rpc("match_mavis_notes", {
     query_embedding: embedding,
