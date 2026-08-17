@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,7 +25,13 @@ serve(async (req) => {
     );
 
     const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+    const providerKeys = {
+      openai: openaiKey,
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
 
     // Find all (persona_id, user_id) combos with unconsolidated episodic memories.
     const { data: candidates } = await supabase
@@ -102,50 +109,16 @@ Rules:
 
         let summaries: { content: string; importance: number }[] = [];
 
-        // Prefer Lovable AI Gateway (free), fall back to OpenAI
-        if (lovableKey) {
-          try {
-            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${lovableKey}` },
-              body: JSON.stringify({
-                model: "google/gemini-2.5-flash",
-                messages: [
-                  { role: "system", content: "Output only minified JSON matching the requested schema." },
-                  { role: "user", content: consolidationPrompt },
-                ],
-                temperature: 0.3,
-              }),
-            });
-            if (r.ok) {
-              const d = await r.json();
-              const raw = (d?.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-              summaries = JSON.parse(raw).summaries ?? [];
-            }
-          } catch (e) {
-            console.warn(`[consolidator] Lovable failed for ${group.persona_id}:`, e);
-          }
-        }
-
-        if (!summaries.length && openaiKey) {
-          const r = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
-            body: JSON.stringify({
-              model: "gpt-4o-mini",
-              messages: [
-                { role: "system", content: "Output only minified JSON matching the requested schema." },
-                { role: "user", content: consolidationPrompt },
-              ],
-              temperature: 0.3,
-              max_tokens: 512,
-            }),
-          });
-          if (r.ok) {
-            const d = await r.json();
-            const raw = (d?.choices?.[0]?.message?.content ?? "").replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-            summaries = JSON.parse(raw).summaries ?? [];
-          }
+        try {
+          const raw = (await callWithFallback(
+            "claude",
+            [{ role: "user", content: consolidationPrompt }],
+            "Output only minified JSON matching the requested schema.",
+            providerKeys,
+          )).content.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+          summaries = JSON.parse(raw).summaries ?? [];
+        } catch (e) {
+          console.warn(`[consolidator] AI cascade failed for ${group.persona_id}:`, e);
         }
 
         if (!summaries.length) {

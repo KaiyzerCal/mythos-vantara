@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,10 +28,15 @@ serve(async (req) => {
       { auth: { persistSession: false } },
     );
 
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
-    const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
     const botToken   = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
     const chatId     = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
+    const providerKeys = {
+      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
 
     // Load all relationships with sufficient bond and a known last interaction
     const { data: relationships } = await supabase
@@ -138,36 +144,14 @@ Requirements:
 Return ONLY the message text. No quotes, no JSON, no explanation.`;
 
         let message = "";
-
-        if (lovableKey) {
-          try {
-            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${lovableKey}` },
-              body: JSON.stringify({
-                model: "google/gemini-2.5-flash",
-                messages: [{ role: "user", content: heartbeatPrompt }],
-                temperature: 0.85,
-                max_tokens: 150,
-              }),
-            });
-            if (r.ok) message = (await r.json())?.choices?.[0]?.message?.content?.trim() ?? "";
-          } catch { /* fallback */ }
-        }
-
-        if (!message && openaiKey) {
-          const r = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openaiKey}` },
-            body: JSON.stringify({
-              model: "gpt-4o-mini",
-              messages: [{ role: "user", content: heartbeatPrompt }],
-              temperature: 0.85,
-              max_tokens: 150,
-            }),
-          });
-          if (r.ok) message = (await r.json())?.choices?.[0]?.message?.content?.trim() ?? "";
-        }
+        try {
+          message = (await callWithFallback(
+            "claude",
+            [{ role: "user", content: heartbeatPrompt }],
+            "",
+            providerKeys,
+          )).content.trim();
+        } catch { /* fallback */ }
 
         // Fallback message if LLM unavailable
         if (!message) {

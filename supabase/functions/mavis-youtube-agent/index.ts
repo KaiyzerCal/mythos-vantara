@@ -7,6 +7,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,7 +17,14 @@ const corsHeaders = {
 const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const YT_KEY        = Deno.env.get("YOUTUBE_API_KEY") ?? "";
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 const YT_API        = "https://www.googleapis.com/youtube/v3";
 
 function videoId(input: string): string {
@@ -198,7 +206,7 @@ serve(async (req) => {
         const uid  = body.userId ? String(body.userId) : null;
 
         if (!vid) return json({ error: "video_id or url required" }, 400);
-        if (!ANTHROPIC_KEY) return json({ error: "ANTHROPIC_API_KEY not configured" }, 503);
+        if (!HAS_ANY_PROVIDER_KEY) return json({ error: "No AI provider key configured" }, 503);
 
         const ytUrl = `https://www.youtube.com/watch?v=${vid}`;
 
@@ -257,29 +265,12 @@ Rules:
 - Keep the total response under 800 words
 - Write as if briefing someone who hasn't seen the video`;
 
-        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "x-api-key":         ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type":      "application/json",
-          },
-          body: JSON.stringify({
-            model:      body.model ?? "claude-haiku-4-5-20251001",
-            max_tokens: 1200,
-            system:     `You are summarizing a YouTube video titled: "${title}"${channel ? ` by ${channel}` : ""}. URL: ${ytUrl}`,
-            messages: [{
-              role:    "user",
-              content: `${summaryPrompt}\n\nTranscript:\n${transcript.slice(0, 12000)}`,
-            }],
-          }),
-          signal: AbortSignal.timeout(30000),
-        });
-        const claudeData = await claudeRes.json();
-        if (!claudeRes.ok) {
-          throw new Error(`Claude: ${claudeData.error?.message ?? JSON.stringify(claudeData).slice(0, 200)}`);
-        }
-        const summary = claudeData.content?.[0]?.text ?? "";
+        const summary = (await callWithFallback(
+          "claude",
+          [{ role: "user", content: `${summaryPrompt}\n\nTranscript:\n${transcript.slice(0, 12000)}` }],
+          `You are summarizing a YouTube video titled: "${title}"${channel ? ` by ${channel}` : ""}. URL: ${ytUrl}`,
+          PROVIDER_KEYS,
+        )).content;
 
         // Step 4: Store full transcript in mavis_memory so operator can Q&A later
         let storedInMemory = false;
