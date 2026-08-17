@@ -8,6 +8,14 @@ on:
       - "supabase/config.toml"
       - ".github/workflows/deploy-mavis-functions.yml"
   workflow_dispatch:
+    inputs:
+      functions:
+        description: >-
+          Optional space/comma-separated list of non-core functions to deploy.
+          When set, overrides the usual "changed since last push" detection —
+          use it to retry functions that previously failed to deploy.
+        required: false
+        type: string
 
 jobs:
   deploy:
@@ -126,18 +134,30 @@ jobs:
           )
           printf '%s\n' "${CORE[@]}" > /tmp/core-fns.txt
 
-          BEFORE_SHA="${{ github.event.before }}"
-          if [ -z "$BEFORE_SHA" ] || ! git cat-file -e "$BEFORE_SHA" 2>/dev/null; then
-            BEFORE_SHA="HEAD~1"
+          # An explicit workflow_dispatch list wins over change detection, so a
+          # batch that failed to deploy (e.g. tripped the project's function
+          # cap) can be retried without having to touch its source files.
+          EXPLICIT="${{ github.event.inputs.functions }}"
+          if [ -n "$EXPLICIT" ]; then
+            mapfile -t REMAINING < <(
+              printf '%s' "$EXPLICIT" | tr ', ' '\n\n' | sed '/^$/d' | sort -u \
+                | grep -vxFf /tmp/core-fns.txt | grep -vx '_archive'
+            )
+            echo "Deploying ${#REMAINING[@]} explicitly requested non-core functions with 8 parallel workers..."
+          else
+            BEFORE_SHA="${{ github.event.before }}"
+            if [ -z "$BEFORE_SHA" ] || ! git cat-file -e "$BEFORE_SHA" 2>/dev/null; then
+              BEFORE_SHA="HEAD~1"
+            fi
+            mapfile -t REMAINING < <(
+              git diff --name-only "$BEFORE_SHA" HEAD -- 'supabase/functions/*/**' \
+                | cut -d/ -f3 | sort -u \
+                | grep -vxFf /tmp/core-fns.txt | grep -vx '_archive'
+            )
+            echo "Deploying ${#REMAINING[@]} changed non-core functions with 8 parallel workers..."
           fi
-          mapfile -t REMAINING < <(
-            git diff --name-only "$BEFORE_SHA" HEAD -- 'supabase/functions/*/**' \
-              | cut -d/ -f3 | sort -u \
-              | grep -vxFf /tmp/core-fns.txt | grep -vx '_archive'
-          )
-          echo "Deploying ${#REMAINING[@]} changed non-core functions with 8 parallel workers..."
           if [ "${#REMAINING[@]}" -eq 0 ]; then
-            echo "No non-core function files changed in this push."
+            echo "No non-core functions selected for deployment."
             exit 0
           fi
 
@@ -148,9 +168,19 @@ jobs:
             local fn="$1" attempt
             # See the retry comment on deploy_with_retry in the core-functions
             # step above — same non-deterministic 402 applies here.
+            #
+            # Attempts 2-3 add --use-api, which bundles server-side instead of
+            # via the local Docker bundler. The default path failed a whole
+            # batch with `create function status 402: Max number of functions
+            # reached` even though every one of those functions already exists
+            # in the project — so it's worth retrying these through the API
+            # path, which may treat an existing function as an update rather
+            # than a create.
             for attempt in 1 2 3; do
-              if supabase functions deploy "$fn" --project-ref "$PROJECT_REF" 2>&1; then
-                echo "✓ $fn"
+              local extra=""
+              [ "$attempt" -gt 1 ] && extra="--use-api"
+              if supabase functions deploy "$fn" --project-ref "$PROJECT_REF" $extra 2>&1; then
+                echo "✓ $fn${extra:+ (via --use-api)}"
                 return 0
               fi
               echo "  retry $attempt/3 failed for $fn, waiting..."
