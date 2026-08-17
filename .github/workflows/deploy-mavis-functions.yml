@@ -169,18 +169,14 @@ jobs:
             # See the retry comment on deploy_with_retry in the core-functions
             # step above — same non-deterministic 402 applies here.
             #
-            # Attempts 2-3 add --use-api, which bundles server-side instead of
-            # via the local Docker bundler. The default path failed a whole
-            # batch with `create function status 402: Max number of functions
-            # reached` even though every one of those functions already exists
-            # in the project — so it's worth retrying these through the API
-            # path, which may treat an existing function as an update rather
-            # than a create.
+            # Note: --use-api (server-side bundling) does NOT get past a
+            # genuine function-count 402 — tested 2026-08-17, run 32045650448,
+            # all attempts still rejected. It only returns a fuller message
+            # ("please upgrade Plan or disable spend cap"). Not worth the extra
+            # round trips here; resolve the cap at the project level instead.
             for attempt in 1 2 3; do
-              local extra=""
-              [ "$attempt" -gt 1 ] && extra="--use-api"
-              if supabase functions deploy "$fn" --project-ref "$PROJECT_REF" $extra 2>&1; then
-                echo "✓ $fn${extra:+ (via --use-api)}"
+              if supabase functions deploy "$fn" --project-ref "$PROJECT_REF" 2>&1; then
+                echo "✓ $fn"
                 return 0
               fi
               echo "  retry $attempt/3 failed for $fn, waiting..."
