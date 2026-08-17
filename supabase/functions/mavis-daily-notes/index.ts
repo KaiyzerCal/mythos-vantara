@@ -9,33 +9,27 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
-import { callWithFallback } from "../_shared/providers.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const LOVABLE_KEY      = Deno.env.get("LOVABLE_API_KEY") ?? "";
+const OPENAI_KEY       = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const CHAT_ID          = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
-const PROVIDER_KEYS = {
-  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
-  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
-  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
-  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
-  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
-};
 
 // ─────────────────────────────────────────────────────────────
-// AI — free-first cascade (Gemini/Groq before Claude/OpenAI)
+// AI (cascade: Gemini Flash → Claude Haiku → OpenAI mini)
 // ─────────────────────────────────────────────────────────────
 
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
 async function callAI(system: string, userMsg: string): Promise<string> {
-  try {
-    return (await callWithFallback("claude", [{ role: "user", content: userMsg }], system, PROVIDER_KEYS)).content;
-  } catch {
-    return "";
-  }
+  const { content } = await aiComplete({ system, user: userMsg });
+  return content;
 }
 
 // ─────────────────────────────────────────────────────────────

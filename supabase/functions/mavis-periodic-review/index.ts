@@ -5,7 +5,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
-import { callWithFallback } from "../_shared/providers.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -15,21 +15,13 @@ const supabase = createClient(
 const BOT_TOKEN        = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const CHAT_ID          = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
 const ANTHROPIC_KEY    = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const LOVABLE_KEY      = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const OPENAI_KEY       = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-const PROVIDER_KEYS = {
-  openai: OPENAI_KEY,
-  claude: ANTHROPIC_KEY,
-  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
-  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
-  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
-};
 
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
 async function callAI(system: string, userMsg: string): Promise<string> {
-  try {
-    return (await callWithFallback("claude", [{ role: "user", content: userMsg }], system, PROVIDER_KEYS)).content;
-  } catch {
-    return "";
-  }
+  const { content } = await aiComplete({ system, user: userMsg });
+  return content;
 }
 
 function isoWeek(d: Date): number {
@@ -192,9 +184,27 @@ Deno.serve(async (req) => {
     if (synthesis) {
       (async () => {
         try {
+          let raw = "";
           const extractSystem = `Extract 1-3 actionable lessons or patterns from this ${reviewType} review synthesis. Only extract genuinely new insights worth retaining long-term. Respond with ONLY a JSON array (may be empty):
 [{"category":"lesson_learned|preference|workflow_habit","key":"short identifier","value":"concise actionable statement"}]`;
-          const raw = await callAI(extractSystem, synthesis);
+          if (LOVABLE_KEY) {
+            const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${LOVABLE_KEY}` },
+              body: JSON.stringify({ model: "google/gemini-2.5-flash", max_tokens: 300,
+                messages: [{ role: "system", content: extractSystem }, { role: "user", content: synthesis }] }),
+            });
+            if (r.ok) { const d = await r.json(); raw = d.choices?.[0]?.message?.content ?? ""; }
+          }
+          if (!raw && ANTHROPIC_KEY) {
+            const r = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 300, system: extractSystem,
+                messages: [{ role: "user", content: synthesis }] }),
+            });
+            if (r.ok) { const d = await r.json(); raw = d.content?.[0]?.text ?? ""; }
+          }
           const arrMatch = raw.match(/\[[\s\S]*\]/);
           if (!arrMatch) return;
           const items = JSON.parse(arrMatch[0]) as any[];

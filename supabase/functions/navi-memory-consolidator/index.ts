@@ -5,7 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { callWithFallback } from "../_shared/providers.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,13 +25,7 @@ serve(async (req) => {
     );
 
     const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-    const providerKeys = {
-      openai: openaiKey,
-      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
-      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
-      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
-      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
-    };
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
     // Find all (persona_id, user_id) combos with unconsolidated episodic memories.
     const { data: candidates } = await supabase
@@ -109,16 +103,16 @@ Rules:
 
         let summaries: { content: string; importance: number }[] = [];
 
+        // Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
         try {
-          const raw = (await callWithFallback(
-            "claude",
-            [{ role: "user", content: consolidationPrompt }],
-            "Output only minified JSON matching the requested schema.",
-            providerKeys,
-          )).content.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+          const { content } = await aiComplete({
+            system: "Output only minified JSON matching the requested schema.",
+            user: consolidationPrompt,
+          });
+          const raw = content.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
           summaries = JSON.parse(raw).summaries ?? [];
         } catch (e) {
-          console.warn(`[consolidator] AI cascade failed for ${group.persona_id}:`, e);
+          console.warn(`[consolidator] AI unavailable for ${group.persona_id}:`, e instanceof Error ? e.message : e);
         }
 
         if (!summaries.length) {

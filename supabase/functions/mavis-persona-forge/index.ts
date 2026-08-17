@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { callWithFallback } from "../_shared/providers.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,23 +51,76 @@ IMPORTANT — model selection is the persona's SIGNATURE FALLBACK voice. Every p
 
 Make the system_prompt rich, specific, and in-character. Make the persona feel like a real distinct personality.`;
 
-    // Free-first cascade (Gemini/Groq before Claude/OpenAI) — so a single
-    // exhausted key (credits, rate limit) doesn't take down persona forging.
-    const providerKeys = {
-      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
-      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
-      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
-      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
-      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
-    };
+    // Anthropic first, then whatever else is configured — mirrors the
+    // provider cascade mavis-agent already uses, so a single exhausted key
+    // (credits, rate limit) doesn't take down persona forging entirely.
+    async function callAnthropic(): Promise<string> {
+      const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+      if (!claudeKey) throw new Error("ANTHROPIC_API_KEY not configured");
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
+        signal: AbortSignal.timeout(45_000),
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 2000,
+          system: FORGE_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: description }],
+        }),
+      });
+      if (!res.ok) throw new Error(`anthropic ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const data = await res.json();
+      return data.content[0].text;
+    }
+
+    async function callOpenAICompat(url: string, key: string, model: string, authHeader: Record<string, string>): Promise<string> {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader },
+        signal: AbortSignal.timeout(45_000),
+        body: JSON.stringify({
+          model,
+          max_tokens: 2000,
+          messages: [{ role: "system", content: FORGE_SYSTEM_PROMPT }, { role: "user", content: description }],
+        }),
+      });
+      if (!res.ok) throw new Error(`${url} ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content ?? "";
+    }
+
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+    const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API") ?? "";
+
+    const providers: Array<() => Promise<string>> = [
+      // Free-first: shared cascade (free Gemini → Groq → Lovable gateway → paid tiers).
+      async () => (await aiComplete({ system: FORGE_SYSTEM_PROMPT, user: description })).content,
+      callAnthropic,
+      ...(lovableKey ? [() => callOpenAICompat(
+        "https://ai.gateway.lovable.dev/v1/chat/completions",
+        lovableKey,
+        Deno.env.get("GATEWAY_MODEL") ?? "google/gemini-3.6-flash",
+        { "Lovable-API-Key": lovableKey },
+      )] : []),
+      ...(openaiKey ? [() => callOpenAICompat(
+        "https://api.openai.com/v1/chat/completions",
+        openaiKey,
+        Deno.env.get("OPENAI_MODEL") ?? "gpt-5-mini",
+        { Authorization: `Bearer ${openaiKey}` },
+      )] : []),
+    ];
 
     let rawText = "";
-    try {
-      rawText = (await callWithFallback("claude", [{ role: "user", content: description }], FORGE_SYSTEM_PROMPT, providerKeys)).content;
-    } catch (err: any) {
-      throw new Error(`All providers failed — ${err.message}`);
+    const providerErrors: string[] = [];
+    for (const call of providers) {
+      try {
+        rawText = await call();
+        break;
+      } catch (err: any) {
+        providerErrors.push(err.message);
+      }
     }
-    if (!rawText) throw new Error("All providers failed — empty response");
+    if (!rawText) throw new Error(`All providers failed — ${providerErrors.join(" | ")}`);
 
     // Strip markdown code fences if Claude wraps the JSON
     const cleaned = rawText

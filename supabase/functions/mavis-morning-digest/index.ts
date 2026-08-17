@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveAuthedUid } from "../_shared/auth.ts";
-import { callWithFallback } from "../_shared/providers.ts";
+import { aiComplete } from "../_shared/providers.ts";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
 serve(async (req) => {
@@ -11,12 +11,6 @@ serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const claudeKey   = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-  const openaiKey   = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-  const grokKey     = Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "";
-  const geminiKey   = Deno.env.get("GEMINI_API_KEY") ?? "";
-  const groqKey     = Deno.env.get("GROQ_API_KEY") ?? "";
-  const providerKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey };
   const adminSb     = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
   // Step 1 — Determine uid (real user JWT, or trusted internal caller via service-role key)
@@ -187,12 +181,20 @@ Rules:
 - Total length: 150-200 words.
 - Tone: calm authority, tactical clarity.`;
 
-  // Step 6 — Generate via free-first provider cascade (Gemini/Groq free tiers
-  // before falling through to Claude Sonnet)
-  const digestMessages: any[] = [
-    { role: "user", content: `Generate the morning briefing from this data:\n${dataBlock}` },
-  ];
-  let digest: string = (await callWithFallback("claude", digestMessages, systemPrompt, providerKeys)).content;
+  // Step 6 — Generate via free-first AI cascade
+  const userPrompt = `Generate the morning briefing from this data:\n${dataBlock}`;
+  let digest = "";
+  try {
+    const { content, provider } = await aiComplete({
+      system: systemPrompt,
+      user: userPrompt,
+      mode: "SOVEREIGN",
+    });
+    digest = content;
+    console.log(`[mavis-morning-digest] generated via ${provider}`);
+  } catch (e: any) {
+    return new Response(JSON.stringify({ error: "AI generation failed", details: e.message }), { status: 502, headers: corsHeaders });
+  }
 
   // Step 7 — Quality evaluation (regenerate once if below threshold)
   let evalData: { score?: number; feedback?: string; passed?: boolean } = { passed: true };
@@ -216,17 +218,23 @@ Rules:
 
   if (!evalData.passed) {
     // Regenerate with feedback appended
-    const regenMessages: any[] = [
-      ...digestMessages,
-      { role: "assistant", content: digest },
-      {
-        role: "user",
-        content: `Quality feedback: ${evalData.feedback ?? "improve quality"}. Please regenerate the briefing addressing this feedback while keeping the same structure and data.`,
-      },
-    ];
     try {
-      const regenText = (await callWithFallback("claude", regenMessages, systemPrompt, providerKeys)).content;
-      if (regenText) digest = regenText;
+      const { content: regenText, provider } = await aiComplete({
+        system: systemPrompt,
+        messages: [
+          { role: "user", content: userPrompt },
+          { role: "assistant", content: digest },
+          {
+            role: "user",
+            content: `Quality feedback: ${evalData.feedback ?? "improve quality"}. Please regenerate the briefing addressing this feedback while keeping the same structure and data.`,
+          },
+        ],
+        mode: "SOVEREIGN",
+      });
+      if (regenText) {
+        digest = regenText;
+        console.log(`[mavis-morning-digest] regenerated via ${provider}`);
+      }
     } catch {
       // Keep original digest if regen fails
     }

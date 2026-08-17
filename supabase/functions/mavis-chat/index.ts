@@ -1236,7 +1236,7 @@ ${telosData
           };
           const sysA = mkSys(entA, !!pA.data?.[0]);
           const sysB = mkSys(entB, !!pB.data?.[0]);
-          const keysObj = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey };
+          const keysObj = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey, lovable: Deno.env.get("LOVABLE_API_KEY") ?? "" };
           const turn1Res = await Promise.race([
             callWithFallback("gemini", [{ role:"user" as const, content:`Topic: ${multiTopic}. Share your thoughts directly.` }], sysA, keysObj, false, "PRIME"),
             new Promise<null>(r => setTimeout(() => r(null), 8_000)),
@@ -1342,7 +1342,7 @@ ${telosData
               { role: "user" as const, content: a2aQuestion },
             ];
             try {
-              const a2aKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey };
+              const a2aKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey, lovable: Deno.env.get("LOVABLE_API_KEY") ?? "" };
               // Hard 8-second timeout — A2A must not block the main response
               const A2A_TIMEOUT = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
               const a2aResult = await Promise.race([
@@ -1627,7 +1627,7 @@ ${telosData
     const modeUpper = (mode ?? "PRIME").toUpperCase();
     const useThinking = ["ARCH", "SOVEREIGN"].includes(modeUpper);
     const provider = routeToProvider(mode ?? "PRIME", lastUserMsg?.content ?? "");
-    const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey };
+    const aiKeys = { openai: openaiKey, claude: claudeKey, grok: grokKey, gemini: geminiKey, groq: groqKey, lovable: Deno.env.get("LOVABLE_API_KEY") ?? "" };
 
     // ── Native tool-use pre-pass (Prymal pattern) ──────────
     // Run a lightweight tool-detection call BEFORE streaming so MAVIS can

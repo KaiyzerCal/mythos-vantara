@@ -4,7 +4,7 @@
 // works without any external API keys.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { callWithFallback } from "../_shared/providers.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -105,26 +105,20 @@ Rules:
 - Be sensitive: small talk = small movement (+/-1 to +/-2). Vulnerability, kindness, or breakthroughs = larger gains. Hostility, dismissal, or breaking promises = larger losses.
 - Only set memory_to_save if something specific and worth remembering happened (e.g. a name, preference, important event, deep emotion).`;
 
-    const providerKeys = {
-      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
-      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
-      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
-      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
-      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
-    };
-
+    // Free-first provider cascade: free Gemini → Groq → Lovable gateway → paid tiers.
+    // Emotion analysis is non-critical enrichment, so a total provider outage
+    // degrades quietly instead of failing the caller's request.
     let raw = "";
     try {
-      raw = (await callWithFallback(
-        "claude",
-        [{ role: "user", content: analysisPrompt }],
-        "You output only minified JSON matching the requested schema. Never include explanations.",
-        providerKeys,
-      )).content;
-    } catch (err: any) {
-      console.error("emotion-engine: all providers failed", err?.message ?? err);
-      return new Response(JSON.stringify({ error: "ai_provider_failed" }), {
-        status: 502,
+      const result = await aiComplete({
+        system: "You output only minified JSON matching the requested schema. Never include explanations.",
+        user: analysisPrompt,
+      });
+      raw = result.content;
+    } catch (err) {
+      console.error("emotion-engine: all providers unavailable", err instanceof Error ? err.message : err);
+      return new Response(JSON.stringify({ skipped: true, reason: "no_provider_available" }), {
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

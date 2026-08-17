@@ -1,16 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { callWithFallback } from "../_shared/providers.ts";
-
-function providerKeys() {
-  return {
-    openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
-    claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
-    grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
-    gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
-    groq:   Deno.env.get("GROQ_API_KEY") ?? "",
-  };
-}
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -286,14 +276,15 @@ async function handleNewsBrief(sb: any): Promise<any> {
     }
   }
 
-  const keys = providerKeys();
-  const hasAnyKey = keys.gemini || keys.groq || keys.claude || keys.openai || keys.grok;
-  if (!hasAnyKey || articles.length === 0) {
+  // Prefer Lovable AI Gateway; fall back to Anthropic if only that is set.
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if ((!lovableKey && !anthropicKey) || articles.length === 0) {
     const fallback = {
       headline: articles.length === 0 ? "News feed cooling down" : "Intelligence synthesis unavailable",
       body: articles.length === 0
         ? "GDELT rate-limited or returned no articles. Retrying automatically on next cache cycle."
-        : "No LLM provider key configured.",
+        : "No LLM key configured (LOVABLE_API_KEY or ANTHROPIC_API_KEY).",
       risk_level: "low",
       key_themes: [],
       generated_at: new Date().toISOString(),
@@ -309,8 +300,11 @@ async function handleNewsBrief(sb: any): Promise<any> {
 
   let brief: any = null;
   try {
-    const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", keys)).content;
-    const match = text.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
+    const { content } = await aiComplete({
+      system: "You are MAVIS, a global intelligence analyst. Respond with JSON only.",
+      user: prompt,
+    });
+    const match = content.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
     if (match) brief = JSON.parse(match[0]);
   } catch { /* fall through */ }
 
@@ -470,11 +464,10 @@ async function handleCountryBrief(sb: any, country: string): Promise<any> {
   );
 
   const articles = gdeltData?.articles ?? [];
-  const keys = providerKeys();
-  const hasAnyKey = keys.gemini || keys.groq || keys.claude || keys.openai || keys.grok;
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
 
-  if (!hasAnyKey) {
-    return json({ country, brief: "No LLM provider key configured.", risk_level: "low", sources: [] });
+  if (!apiKey) {
+    return json({ country, brief: "No Claude API key configured.", risk_level: "low", sources: [] });
   }
 
   const articleList = articles.slice(0, 20).map((a: any) =>
@@ -487,7 +480,14 @@ async function handleCountryBrief(sb: any, country: string): Promise<any> {
   let risk_level = "low";
 
   try {
-    const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", keys)).content;
+    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: AbortSignal.timeout(30000),
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 512, messages: [{ role: "user", content: prompt }] }),
+    });
+    const claudeData = await claudeRes.json();
+    const text = claudeData?.content?.[0]?.text ?? "";
     const match = text.match(/\{[\s\S]*\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);

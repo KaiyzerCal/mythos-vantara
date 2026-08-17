@@ -12,24 +12,17 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
-import { callWithFallback } from "../_shared/providers.ts";
+import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function callAI(prompt: string, _key: string): Promise<string> {
-  const providerKeys = {
-    openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
-    claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
-    grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
-    gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
-    groq:   Deno.env.get("GROQ_API_KEY") ?? "",
-  };
-  const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", providerKeys)).content;
-  if (!text) throw new Error("No AI key available for self-reflection");
-  return text;
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
+async function callAI(prompt: string, _key?: string): Promise<string> {
+  const { content } = await aiComplete({ system: "You are MAVIS, an analytical subsystem. Answer precisely.", user: prompt });
+  return content;
 }
 
 Deno.serve(async (req) => {

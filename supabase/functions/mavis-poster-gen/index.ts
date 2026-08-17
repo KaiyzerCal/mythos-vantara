@@ -13,7 +13,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { callWithFallback } from "../_shared/providers.ts";
+import { callWithFallback, generateImageCascade } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -147,34 +147,39 @@ Output ONLY the complete HTML file.`;
   return html;
 }
 
-// ── Step 3: Generate AI image via Ideogram V2 on fal.ai ──────────────────────
+// ── Step 3: Generate AI image via Ideogram V2 on fal.ai, with free cascade fallback ───────────
 
 async function generateIdeogramImage(
   fields: PosterFields,
   ideogramRatio: string,
+  width: number,
+  height: number,
 ): Promise<string | null> {
-  if (!FAL_KEY) return null;
+  if (!FAL_KEY) {
+    // No FAL key — go straight to the free/shared image cascade.
+    try {
+      const result = await generateImageCascade({
+        prompt: buildPosterImagePrompt(fields),
+        width,
+        height,
+      });
+      return result.url;
+    } catch (err) {
+      console.error("Shared image cascade failed:", err);
+      return null;
+    }
+  }
 
   const styleType = (fields.style ?? "").toLowerCase().includes("photo") ? "REALISTIC"
     : (fields.style ?? "").toLowerCase().includes("3d") ? "RENDER_3D"
     : "DESIGN";
-
-  const prompt = [
-    `${fields.format_type ?? "marketing poster"} for ${fields.brand_name}.`,
-    `Bold headline text: "${fields.headline}".`,
-    fields.sub_headline ? `Subtext: "${fields.sub_headline}".` : "",
-    fields.cta          ? `Call to action: "${fields.cta}".` : "",
-    fields.colors       ? `Color scheme: ${fields.colors}.` : "",
-    fields.style        ? `Style: ${fields.style}.` : "Modern, premium design.",
-    "Professional marketing material. Clean typography. High visual impact. Award-winning design.",
-  ].filter(Boolean).join(" ");
 
   try {
     const res = await fetch("https://fal.run/fal-ai/ideogram/v2", {
       method: "POST",
       headers: { "Authorization": `Key ${FAL_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt,
+        prompt: buildPosterImagePrompt(fields),
         aspect_ratio: ideogramRatio,
         style_type: styleType,
         magic_prompt_option: "AUTO",
@@ -183,14 +188,38 @@ async function generateIdeogramImage(
     });
     if (!res.ok) {
       console.error(`Ideogram failed: ${res.status} ${await res.text()}`);
-      return null;
+      throw new Error("Ideogram failed");
     }
     const data = await res.json();
-    return data?.images?.[0]?.url ?? null;
+    const url = data?.images?.[0]?.url;
+    if (url) return url;
+    throw new Error("Ideogram returned no image URL");
   } catch (err) {
-    console.error("Ideogram error:", err);
-    return null;
+    console.error("Ideogram error, falling back to shared image cascade:", err);
+    try {
+      const result = await generateImageCascade({
+        prompt: buildPosterImagePrompt(fields),
+        width,
+        height,
+      });
+      return result.url;
+    } catch (cascadeErr) {
+      console.error("Shared image cascade failed:", cascadeErr);
+      return null;
+    }
   }
+}
+
+function buildPosterImagePrompt(fields: PosterFields): string {
+  return [
+    `${fields.format_type ?? "marketing poster"} for ${fields.brand_name}.`,
+    `Bold headline text: "${fields.headline}".`,
+    fields.sub_headline ? `Subtext: "${fields.sub_headline}".` : "",
+    fields.cta          ? `Call to action: "${fields.cta}".` : "",
+    fields.colors       ? `Color scheme: ${fields.colors}.` : "",
+    fields.style        ? `Style: ${fields.style}.` : "Modern, premium design.",
+    "Professional marketing material. Clean typography. High visual impact. Award-winning design.",
+  ].filter(Boolean).join(" ");
 }
 
 // ── Step 4: Store HTML in Supabase Storage ────────────────────────────────────
@@ -255,7 +284,7 @@ serve(async (req) => {
     // Run HTML and image generation in parallel
     const [html, imageUrl] = await Promise.all([
       HAS_ANY_PROVIDER_KEY ? generateHTML(fields, specs).catch(err => { console.error(err); return null; }) : null,
-      generateIdeogramImage(fields, specs.ideogram_ratio),
+      generateIdeogramImage(fields, specs.ideogram_ratio, specs.width, specs.height),
     ]);
 
     // Store HTML in Supabase Storage (non-blocking)

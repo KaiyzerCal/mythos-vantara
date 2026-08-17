@@ -5,38 +5,22 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { aiComplete } from "../_shared/providers.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
+// Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
 async function planWithLLM(goal: string, context: string) {
   try {
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": LOVABLE_API_KEY,
-        "X-Lovable-AIG-SDK": "mavis-autonomy",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-flash-latest",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are MAVIS's autonomy planner. Given a goal, break it into 3-7 concrete, executable steps. " +
-              "Return STRICT JSON: {\"title\":string,\"summary\":string,\"steps\":[{\"title\":string,\"description\":string,\"type\":\"research\"|\"action\"|\"decision\"|\"review\"}]}",
-          },
-          { role: "user", content: `Goal: ${goal}\n\nContext: ${context || "(none)"}` },
-        ],
-        temperature: 0.4,
-      }),
-      signal: AbortSignal.timeout(25000),
+    const { content } = await aiComplete({
+      system:
+        "You are MAVIS's autonomy planner. Given a goal, break it into 3-7 concrete, executable steps. " +
+        "Return STRICT JSON: {\"title\":string,\"summary\":string,\"steps\":[{\"title\":string,\"description\":string,\"type\":\"research\"|\"action\"|\"decision\"|\"review\"}]}",
+      user: `Goal: ${goal}\n\nContext: ${context || "(none)"}`,
     });
-    const j = await res.json();
-    const raw = j?.choices?.[0]?.message?.content ?? "";
-    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const cleaned = content.replace(/```json|```/g, "").trim();
     return JSON.parse(cleaned);
   } catch (err) {
     console.warn("[orchestrator] planner failed:", err instanceof Error ? err.message : err);

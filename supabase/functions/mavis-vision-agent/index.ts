@@ -110,41 +110,59 @@ async function callGeminiVision(
   imageSource: ImageSource,
   prompt: string,
   maxTokens = 4096,
+  model = "gemini-2.0-flash",
 ): Promise<string> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not configured");
 
-  // Resolve base64 from URL if needed
-  let part: Record<string, unknown>;
-  if (imageSource.type === "base64") {
-    part = { inline_data: { mime_type: imageSource.media_type, data: imageSource.data } };
-  } else {
-    // Download URL to base64 for Gemini
-    const res = await fetch(imageSource.url, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
-    const buf = await res.arrayBuffer();
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-    const ct  = res.headers.get("content-type") ?? "image/jpeg";
-    part = { inline_data: { mime_type: ct, data: b64 } };
+  const models = [model];
+  // If caller didn't explicitly ask for a different model, try the free tier first
+  // then fall back to the higher-quality 2.5 Flash preview.
+  if (model === "gemini-2.0-flash") {
+    models.push("gemini-2.5-flash-preview-05-20");
   }
 
-  const res = await fetch(`${GEMINI_URL}?key=${GEMINI_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [part, { text: prompt }] }],
-      generationConfig: { maxOutputTokens: maxTokens },
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini vision failed ${res.status}: ${err.slice(0, 200)}`);
+  let lastErr: Error | undefined;
+  for (const m of models) {
+    try {
+      // Resolve base64 from URL if needed
+      let part: Record<string, unknown>;
+      if (imageSource.type === "base64") {
+        part = { inline_data: { mime_type: imageSource.media_type, data: imageSource.data } };
+      } else {
+        // Download URL to base64 for Gemini
+        const res = await fetch(imageSource.url, { signal: AbortSignal.timeout(15_000) });
+        if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+        const buf = await res.arrayBuffer();
+        const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const ct  = res.headers.get("content-type") ?? "image/jpeg";
+        part = { inline_data: { mime_type: ct, data: b64 } };
+      }
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [part, { text: prompt }] }],
+          generationConfig: { maxOutputTokens: maxTokens },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Gemini vision (${m}) failed ${res.status}: ${err.slice(0, 200)}`);
+      }
+      const j = await res.json();
+      const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
+      const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
+      if (!text) throw new Error("Gemini returned empty response");
+      return text;
+    } catch (e: any) {
+      lastErr = e;
+      console.warn(`[callGeminiVision] ${m} failed:`, e.message);
+    }
   }
-  const j = await res.json();
-  const parts: any[] = j.candidates?.[0]?.content?.parts ?? [];
-  const text = parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("").trim();
-  if (!text) throw new Error("Gemini returned empty response");
-  return text;
+
+  throw lastErr ?? new Error("All Gemini vision models failed");
 }
 
 // Upload a video/audio file to Gemini Files API and return { uri, name }
@@ -233,7 +251,7 @@ serve(async (req) => {
         if (GEMINI_KEY && model === "claude-haiku-4-5-20251001") {
           try {
             const text = await callGeminiVision(imageSource, prompt, 4096);
-            return json({ result: text, model: "gemini-2.5-flash" });
+            return json({ result: text, model: "gemini-2.0-flash" });
           } catch (e: any) {
             console.warn("[analyze] Gemini failed, falling back to Claude:", e.message);
           }
@@ -263,7 +281,7 @@ serve(async (req) => {
         if (GEMINI_KEY && model === "claude-haiku-4-5-20251001") {
           try {
             const text = await callGeminiVision(imageSource, prompt, 2048);
-            return json({ description: text, detail, model: "gemini-2.5-flash" });
+            return json({ description: text, detail, model: "gemini-2.0-flash" });
           } catch (e: any) {
             console.warn("[describe] Gemini failed, falling back to Claude:", e.message);
           }
