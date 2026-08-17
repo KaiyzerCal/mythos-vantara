@@ -9,6 +9,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,7 +18,14 @@ const corsHeaders = {
 
 const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -155,7 +163,7 @@ async function clearSession(sb: ReturnType<typeof createClient>, uid: string) {
 
 /** Optional Claude-generated feedback for variety */
 async function claudeFeedback(correct: boolean, word: VocabItem, chosen?: string): Promise<string> {
-  if (!ANTHROPIC_KEY) {
+  if (!HAS_ANY_PROVIDER_KEY) {
     if (correct) return `✅ Correct! **${word.target}**${word.pinyin ? ` (${word.pinyin})` : ""} means **${word.native}**.`;
     return `❌ Not quite! The correct answer was **${word.target}**${word.pinyin ? ` (${word.pinyin})` : ""} — meaning **${word.native}**.`;
   }
@@ -164,21 +172,16 @@ async function claudeFeedback(correct: boolean, word: VocabItem, chosen?: string
     ? `The user correctly identified "${word.target}"${word.pinyin ? ` (${word.pinyin})` : ""} as "${word.native}". Give a short, enthusiastic 1-sentence congratulation that mentions the word. End with ✅.`
     : `The user chose "${chosen ?? "the wrong answer"}" but the correct answer was "${word.target}"${word.pinyin ? ` (${word.pinyin})` : ""} meaning "${word.native}". Give a brief, encouraging 1-sentence correction. End with ❌.`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001", max_tokens: 150,
-      messages: [{ role: "user", content: prompt }],
-    }),
-    signal: AbortSignal.timeout(8000),
-  });
-  const data = await res.json();
-  return data.content?.[0]?.text ?? (correct
-    ? `✅ Great job! **${word.target}** means **${word.native}**.`
-    : `❌ The correct answer was **${word.target}** (${word.native}).`);
+  try {
+    const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content;
+    return text || (correct
+      ? `✅ Great job! **${word.target}** means **${word.native}**.`
+      : `❌ The correct answer was **${word.target}** (${word.native}).`);
+  } catch {
+    return correct
+      ? `✅ Great job! **${word.target}** means **${word.native}**.`
+      : `❌ The correct answer was **${word.target}** (${word.native}).`;
+  }
 }
 
 /** Fetch vocabulary from Google Sheets via mavis-sheets-agent */
