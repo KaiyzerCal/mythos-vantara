@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,7 +14,14 @@ const corsHeaders = {
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 async function tgSend(chatId: string, text: string): Promise<void> {
   const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
@@ -43,7 +51,7 @@ async function scanOpportunities(userId: string): Promise<number> {
     sb().from("mavis_revenue").select("amount,source,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
   ]);
 
-  if (!ANTHROPIC_KEY) return 0;
+  if (!HAS_ANY_PROVIDER_KEY) return 0;
 
   const quests = questsRes.data ?? [];
   const skills = skillsRes.data ?? [];
@@ -99,14 +107,7 @@ Generate 3-5 specific, non-obvious opportunities as JSON array:
 Be SPECIFIC. Not "improve your habits" but "Your coding skill is at 85% proficiency but your 'Build SaaS' quest doesn't have any code-related tasks — create 3 technical milestones." Return ONLY valid JSON array.`;
 
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 2048, messages: [{ role: "user", content: prompt }] }),
-    });
-    if (!res.ok) return 0;
-    const d = await res.json();
-    const text = d.content?.find((b: any) => b.type === "text")?.text ?? "[]";
+    const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", PROVIDER_KEYS)).content || "[]";
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return 0;
     const opportunities = JSON.parse(jsonMatch[0]);
@@ -186,35 +187,18 @@ Return ONLY valid JSON array, no commentary.`;
     let scoredOpportunities = netNewOpportunities.map((o) => ({ ...o, avgScore: 7 }));
 
     try {
-      const scoreRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": ANTHROPIC_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5",
-          max_tokens: 512,
-          messages: [{ role: "user", content: scoringPrompt }],
-        }),
-      });
-
-      if (scoreRes.ok) {
-        const scoreData = await scoreRes.json();
-        const scoreText = scoreData.content?.find((b: any) => b.type === "text")?.text ?? "[]";
-        const scoreMatch = scoreText.match(/\[[\s\S]*\]/);
-        if (scoreMatch) {
-          const scores: Array<{ goal_alignment: number; feasibility: number; time_sensitivity: number }> =
-            JSON.parse(scoreMatch[0]);
-          scoredOpportunities = netNewOpportunities.map((o, i) => {
-            const s = scores[i];
-            const avg = s
-              ? (Number(s.goal_alignment) + Number(s.feasibility) + Number(s.time_sensitivity)) / 3
-              : 7;
-            return { ...o, avgScore: avg, scores: s };
-          });
-        }
+      const scoreText = (await callWithFallback("claude", [{ role: "user", content: scoringPrompt }], "", PROVIDER_KEYS)).content || "[]";
+      const scoreMatch = scoreText.match(/\[[\s\S]*\]/);
+      if (scoreMatch) {
+        const scores: Array<{ goal_alignment: number; feasibility: number; time_sensitivity: number }> =
+          JSON.parse(scoreMatch[0]);
+        scoredOpportunities = netNewOpportunities.map((o, i) => {
+          const s = scores[i];
+          const avg = s
+            ? (Number(s.goal_alignment) + Number(s.feasibility) + Number(s.time_sensitivity)) / 3
+            : 7;
+          return { ...o, avgScore: avg, scores: s };
+        });
       }
     } catch { /* keep default scores */ }
 

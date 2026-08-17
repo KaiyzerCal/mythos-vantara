@@ -12,6 +12,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,7 +23,14 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TIKTOK_ACCESS_TOKEN = Deno.env.get("TIKTOK_NORA_ACCESS_TOKEN") ?? "";
 const TIKTOK_OPEN_ID = Deno.env.get("TIKTOK_NORA_OPEN_ID") ?? "";
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 
 const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -50,34 +58,13 @@ async function resolveUserId(req: Request): Promise<string | null> {
 const NORA_TT_SYSTEM = `You are Nora Vale. Write a TikTok caption/hook (max 2200 chars). Start with a strong hook line (first 3 words matter). Talk about founder life, AI automation, or revenue secrets. Use line breaks. Max 5 hashtags. Conversational, punchy.`;
 
 async function generateTikTokCaption(): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 512,
-      system: NORA_TT_SYSTEM,
-      messages: [
-        {
-          role: "user",
-          content: "Generate a TikTok post about a contrarian insight from Nora's world.",
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Anthropic API error (${res.status}): ${err}`);
-  }
-
-  const data = await res.json();
-  const text: string = data.content?.[0]?.text?.trim() ?? "";
-  if (!text) throw new Error("Empty response from Claude");
+  const text = (await callWithFallback(
+    "claude",
+    [{ role: "user", content: "Generate a TikTok post about a contrarian insight from Nora's world." }],
+    NORA_TT_SYSTEM,
+    PROVIDER_KEYS,
+  )).content.trim();
+  if (!text) throw new Error("Empty response from AI provider");
   return text.slice(0, 2200);
 }
 
@@ -239,11 +226,11 @@ serve(async (req) => {
 
   try {
     if (shouldGenerate) {
-      if (!ANTHROPIC_KEY) {
+      if (!HAS_ANY_PROVIDER_KEY) {
         return json(
           {
             success: false,
-            error: "ANTHROPIC_API_KEY is not configured for generation",
+            error: "No AI provider key configured for generation",
           },
           400,
         );

@@ -7,11 +7,17 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const GEMINI_KEY    = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -49,50 +55,9 @@ const DEFAULT_SPEAKERS = [
 // ── LLM (Gemini-first, Anthropic fallback) ────────────────────────────────────
 
 async function callLLM(system: string, prompt: string): Promise<string> {
-  // Try Gemini 2.0 Flash first (free tier)
-  if (GEMINI_KEY) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: "POST",
-          signal: AbortSignal.timeout(55000),
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            systemInstruction: { parts: [{ text: system }] },
-            generationConfig: { maxOutputTokens: 2048 },
-          }),
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) return text;
-      }
-    } catch { /* fall through */ }
-  }
-
-  // Anthropic fallback
-  if (!ANTHROPIC_KEY) throw new Error("No LLM provider configured");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    signal: AbortSignal.timeout(55000),
-    headers: {
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2048,
-      system,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message ?? `Anthropic ${res.status}`);
-  return data.content?.[0]?.text ?? "";
+  const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], system, PROVIDER_KEYS)).content;
+  if (!text) throw new Error("No LLM provider available");
+  return text;
 }
 
 // ── Script parser ─────────────────────────────────────────────────────────────
