@@ -12,58 +12,24 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function callAI(prompt: string, key: string): Promise<string> {
-  // Try Lovable gateway (Gemini Flash) first, fallback to Claude Haiku
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-  if (lovableKey) {
-    try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 2000,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        return d?.choices?.[0]?.message?.content ?? "";
-      }
-    } catch { /* fall through */ }
-  }
-
-  // Fallback: Claude Haiku
-  const claudeKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (claudeKey) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": claudeKey,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 2000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (res.ok) {
-      const d = await res.json();
-      return d?.content?.[0]?.text ?? "";
-    }
-  }
-
-  throw new Error("No AI key available for self-reflection");
+async function callAI(prompt: string, _key: string): Promise<string> {
+  const providerKeys = {
+    openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+    claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+    grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+    gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+    groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+  };
+  const text = (await callWithFallback("claude", [{ role: "user", content: prompt }], "", providerKeys)).content;
+  if (!text) throw new Error("No AI key available for self-reflection");
+  return text;
 }
 
 Deno.serve(async (req) => {

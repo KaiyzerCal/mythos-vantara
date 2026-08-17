@@ -16,11 +16,18 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const SB_URL       = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BOT_TOKEN    = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
-const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -108,17 +115,12 @@ async function generateAndSendBriefing(sb: any, userId: string, signalType: stri
 
   const context = `Signal type: ${signalType}\nSignal name: ${signalName}\nSignal data: ${JSON.stringify(signalData).slice(0, 800)}\n\nOperator world model summary: ${(wm as any)?.summary?.slice(0, 400) ?? "N/A"}\n\nActive plans: ${(plans ?? []).map((p: any) => p.title).join(", ") || "None"}`;
 
-  const briefing = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 600,
-      system: "You are MAVIS, a sovereign personal AI agent. Generate a proactive intelligence briefing about a detected signal. Be direct, specific, and action-oriented. Format for Telegram HTML. 3-5 paragraphs max.",
-      messages: [{ role: "user", content: `Generate a briefing for this signal:\n\n${context}` }],
-    }),
-    signal: AbortSignal.timeout(25_000),
-  }).then(r => r.json()).then(d => d.content?.[0]?.text ?? "").catch(() => "");
+  const briefing = await callWithFallback(
+    "claude",
+    [{ role: "user", content: `Generate a briefing for this signal:\n\n${context}` }],
+    "You are MAVIS, a sovereign personal AI agent. Generate a proactive intelligence briefing about a detected signal. Be direct, specific, and action-oriented. Format for Telegram HTML. 3-5 paragraphs max.",
+    PROVIDER_KEYS,
+  ).then(r => r.content).catch(() => "");
 
   const chatId = (profile as any)?.telegram_chat_id;
 
