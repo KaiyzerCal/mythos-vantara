@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { callWithFallback } from "../_shared/providers.ts";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
 interface HealthMetric {
@@ -98,26 +99,20 @@ serve(async (req) => {
 
     const contextStr = contextLines.join("\n");
 
-    // Call Claude Sonnet
-    const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 400,
-        system:
-          "You are MAVIS acting as a recovery and performance coach. Analyze the operator's biometric data and give 3-4 specific, actionable recommendations for today. Categories: training intensity (high/moderate/rest), sleep optimization, energy management. Be direct and data-driven. Reference specific numbers.",
-        messages: [{ role: "user", content: contextStr }],
-      }),
-    });
-
-    const anthropicData = await anthropicRes.json();
-    const coachingText: string =
-      anthropicData.content?.[0]?.text ?? "No coaching generated.";
+    // Call MAVIS via the free-first provider cascade
+    const providerKeys = {
+      openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+      claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+      grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+      gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+      groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+    };
+    const coachingText: string = (await callWithFallback(
+      "claude",
+      [{ role: "user", content: contextStr }],
+      "You are MAVIS acting as a recovery and performance coach. Analyze the operator's biometric data and give 3-4 specific, actionable recommendations for today. Categories: training intensity (high/moderate/rest), sleep optimization, energy management. Be direct and data-driven. Reference specific numbers.",
+      providerKeys,
+    )).content || "No coaching generated.";
 
     // Format summary values for Telegram footer
     const todayScore = today.sleep_score ?? "N/A";

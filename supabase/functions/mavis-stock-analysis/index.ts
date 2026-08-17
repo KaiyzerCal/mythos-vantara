@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -151,22 +152,27 @@ serve(async (req: Request) => {
         const valid = results.filter(r => r.status === "fulfilled").map(r => (r as PromiseFulfilledResult<QuoteData>).value);
         if (!valid.length) return fail("Could not fetch quote data", 502);
 
-        const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-        if (!apiKey) {
+        const providerKeys = {
+          openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+          claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+          grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+          gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+          groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+        };
+        const hasAnyProviderKey = !!(providerKeys.gemini || providerKeys.groq || providerKeys.claude || providerKeys.openai || providerKeys.grok);
+        if (!hasAnyProviderKey) {
           const q = valid[0];
           const sig = computeSignal(q.closes ?? []);
           return ok({ stock: q.code, summary: `${q.name} is currently trading at $${q.price?.toFixed(2)} (${q.change_pct > 0 ? "+" : ""}${q.change_pct?.toFixed(2)}%). Momentum signal: ${sig.signal}. ${sig.reason}.`, recommendation: sig.signal, confidence: sig.strength, target_price: null, risk_level: "medium", key_points: [sig.reason, `Volume: ${q.volume?.toLocaleString() ?? "N/A"}`, `Market: ${q.market ?? "N/A"}`] });
         }
 
         const stockList = valid.map(q => `${q.code} (${q.name}): $${q.price?.toFixed(2)}, ${q.change_pct > 0 ? "+" : ""}${q.change_pct?.toFixed(2)}% today, ${q.closes?.length ?? 0} days of data`).join("\n");
-        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          signal: AbortSignal.timeout(30000),
-          headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 800, messages: [{ role: "user", content: `Analyze these stocks for an investment outlook. Be concise and direct.\n\n${stockList}\n\nRespond in JSON only:\n{"stock":"${stocks[0]}","summary":"2-3 sentence analysis with price context","recommendation":"buy|sell|hold","confidence":0.0-1.0,"target_price":number_or_null,"risk_level":"low|medium|high","key_points":["point1","point2","point3"]}` }] })
-        });
-        const claudeData = await claudeRes.json();
-        const text = claudeData?.content?.[0]?.text ?? "";
+        const text = (await callWithFallback(
+          "claude",
+          [{ role: "user", content: `Analyze these stocks for an investment outlook. Be concise and direct.\n\n${stockList}\n\nRespond in JSON only:\n{"stock":"${stocks[0]}","summary":"2-3 sentence analysis with price context","recommendation":"buy|sell|hold","confidence":0.0-1.0,"target_price":number_or_null,"risk_level":"low|medium|high","key_points":["point1","point2","point3"]}` }],
+          "",
+          providerKeys,
+        )).content;
         const match = text.match(/\{[\s\S]*\}/);
         return ok(match ? JSON.parse(match[0]) : { raw: text });
       }
@@ -179,21 +185,26 @@ serve(async (req: Request) => {
         const results = await Promise.allSettled(marketTickers.map(s => yahooQuote(s)));
         const valid = results.filter(r => r.status === "fulfilled").map(r => (r as PromiseFulfilledResult<QuoteData>).value);
 
-        const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-        if (!apiKey || !valid.length) {
-          const brief = { summary: "Market data fetched. Claude API key required for AI synthesis.", sentiment: "neutral", highlights: valid.map(q => `${q.name || q.code}: $${q.price?.toFixed(2)} (${q.change_pct > 0 ? "+" : ""}${q.change_pct?.toFixed(2)}%)`), updated_at: new Date().toISOString() };
+        const providerKeys2 = {
+          openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+          claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+          grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+          gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+          groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+        };
+        const hasAnyProviderKey2 = !!(providerKeys2.gemini || providerKeys2.groq || providerKeys2.claude || providerKeys2.openai || providerKeys2.grok);
+        if (!hasAnyProviderKey2 || !valid.length) {
+          const brief = { summary: "Market data fetched. AI provider key required for AI synthesis.", sentiment: "neutral", highlights: valid.map(q => `${q.name || q.code}: $${q.price?.toFixed(2)} (${q.change_pct > 0 ? "+" : ""}${q.change_pct?.toFixed(2)}%)`), updated_at: new Date().toISOString() };
           return ok(brief);
         }
 
         const marketStr = valid.map(q => `${q.name || q.code}: $${q.price?.toFixed(2)} (${q.change_pct > 0 ? "+" : ""}${q.change_pct?.toFixed(2)}%)`).join("\n");
-        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          signal: AbortSignal.timeout(30000),
-          headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 600, messages: [{ role: "user", content: `Current market data:\n${marketStr}\n\nWrite a brief market intelligence report.\n\nJSON only:\n{"summary":"2-3 sentences on overall market condition","sentiment":"bullish|bearish|neutral|mixed","highlights":["key point 1","key point 2","key point 3"],"updated_at":"${new Date().toISOString()}"}` }] })
-        });
-        const claudeData = await claudeRes.json();
-        const text = claudeData?.content?.[0]?.text ?? "";
+        const text = (await callWithFallback(
+          "claude",
+          [{ role: "user", content: `Current market data:\n${marketStr}\n\nWrite a brief market intelligence report.\n\nJSON only:\n{"summary":"2-3 sentences on overall market condition","sentiment":"bullish|bearish|neutral|mixed","highlights":["key point 1","key point 2","key point 3"],"updated_at":"${new Date().toISOString()}"}` }],
+          "",
+          providerKeys2,
+        )).content;
         const match = text.match(/\{[\s\S]*\}/);
         const result = match ? JSON.parse(match[0]) : { summary: "Analysis unavailable", sentiment: "neutral", highlights: [], updated_at: new Date().toISOString() };
         await sb.from("mavis_worldmonitor_cache").upsert({ cache_key: "stock_intelligence", data: result, fetched_at: new Date().toISOString(), expires_at: new Date(Date.now() + 1800000).toISOString() }, { onConflict: "cache_key" });

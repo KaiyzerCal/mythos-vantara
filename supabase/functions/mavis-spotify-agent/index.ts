@@ -17,6 +17,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,7 +26,14 @@ const corsHeaders = {
 
 const SB_URL            = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK            = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_KEY     = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const PROVIDER_KEYS = {
+  openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",
+  claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+  grok:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "",
+  gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+  groq:   Deno.env.get("GROQ_API_KEY") ?? "",
+};
+const HAS_ANY_PROVIDER_KEY = !!(PROVIDER_KEYS.gemini || PROVIDER_KEYS.groq || PROVIDER_KEYS.claude || PROVIDER_KEYS.openai || PROVIDER_KEYS.grok);
 const SPOTIFY_CLIENT_ID = Deno.env.get("SPOTIFY_CLIENT_ID") ?? "";
 const SPOTIFY_SECRET    = Deno.env.get("SPOTIFY_CLIENT_SECRET") ?? "";
 const SPOTIFY_API       = "https://api.spotify.com/v1";
@@ -93,23 +101,16 @@ function spotifyErr(r: SpotifyResponse, label: string): never {
 // ── Claude track extractor ────────────────────────────────────────────────────
 
 async function extractTrackInfo(text: string): Promise<{ track: string; artist: string }> {
-  if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({
-      model:      "claude-haiku-4-5-20251001",
-      max_tokens: 100,
-      messages: [{
-        role:    "user",
-        content: `Extract the artist and song name from this request: "${text}"\nReply ONLY in this exact format:\ntrack:song name\nartist:artist name\nIf you cannot determine one, leave it blank after the colon.`,
-      }],
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
-  const d = await res.json();
-  if (!res.ok) throw new Error(`Claude error: ${JSON.stringify(d?.error).slice(0, 100)}`);
-  const out    = String(d.content?.[0]?.text ?? "");
+  if (!HAS_ANY_PROVIDER_KEY) throw new Error("No AI provider key configured");
+  const out = (await callWithFallback(
+    "claude",
+    [{
+      role:    "user",
+      content: `Extract the artist and song name from this request: "${text}"\nReply ONLY in this exact format:\ntrack:song name\nartist:artist name\nIf you cannot determine one, leave it blank after the colon.`,
+    }],
+    "",
+    PROVIDER_KEYS,
+  )).content;
   const track  = out.match(/track:(.*)/i)?.[1]?.trim()  ?? "";
   const artist = out.match(/artist:(.*)/i)?.[1]?.trim() ?? "";
   return { track, artist };
