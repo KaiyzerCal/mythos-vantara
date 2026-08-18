@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { edgeErrorMessage } from "@/lib/edgeFunctionError";
 
 export interface RelationshipState {
   bond_level: number;
@@ -30,7 +31,14 @@ export function usePersona(personaId: string, userId: string) {
       const { data, error: fnError } = await supabase.functions.invoke("mavis-persona-router", {
         body: { persona_id: personaId, user_id: userId, message, attachment_ids: attachmentIds, channel: "app" },
       });
-      if (fnError) throw new Error(fnError.message);
+      // fnError.message is always "Edge Function returned a non-2xx status
+      // code" regardless of what actually went wrong. mavis-persona-router
+      // returns a real reason in the body for every one of its failure paths
+      // (400 missing fields, 404 persona not found, 500 with err.message), so
+      // read that instead of showing the operator a message that says nothing.
+      if (fnError) throw new Error(await edgeErrorMessage(fnError));
+      // The function can also answer 200 with an error payload.
+      if (data?.error) throw new Error(String(data.error));
       return {
         response: data?.response ?? null,
         actionsExecuted: Number(data?.actions_executed ?? 0),
@@ -93,7 +101,7 @@ export function usePersona(personaId: string, userId: string) {
       const { data, error: fnError } = await supabase.functions.invoke("navi-finetune-pipeline", {
         body: { persona_id: personaId, user_id: userId },
       });
-      if (fnError) throw new Error(fnError.message);
+      if (fnError) throw new Error(await edgeErrorMessage(fnError));
       if (data?.error) throw new Error(data.error);
       return { success: true, message: `Training started with ${data.examples} examples`, job_id: data.job_id, examples: data.examples };
     } catch (e: any) {
