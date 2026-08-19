@@ -10,7 +10,7 @@
 // POST request body:
 //   { userId, content, replyToTweetId? }
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,

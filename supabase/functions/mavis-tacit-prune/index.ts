@@ -9,7 +9,7 @@
 //
 // All changes are non-destructive if AI is unavailable — fallback is pure age/count pruning.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { aiComplete } from "../_shared/providers.ts";
 

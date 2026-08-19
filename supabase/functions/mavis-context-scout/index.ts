@@ -4,7 +4,7 @@
 // and the Hermes-style user profile. Injected into MAVIS's system prompt so it
 // "knows what's going on" before the user says a word.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,

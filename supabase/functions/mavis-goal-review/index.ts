@@ -5,7 +5,7 @@
 //   - Spawns 1-2 replacement quests for stalled goals (>7 days, <50% done)
 //   - Sends Telegram progress report
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { aiComplete } from "../_shared/providers.ts";
 

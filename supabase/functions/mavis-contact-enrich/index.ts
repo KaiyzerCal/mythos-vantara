@@ -4,7 +4,7 @@
 // (POST {} — processes up to 10 contacts that haven't been enriched in 7 days).
 // Stores results in contacts.enrichment JSONB and updates last_enriched_at.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const sb = createClient(

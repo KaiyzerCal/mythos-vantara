@@ -2,7 +2,7 @@
 // Checks env vars, OAuth tokens, and API reachability
 // Upserts results to mavis_health_checks per user
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -2,7 +2,7 @@
 // Actions: create_link_token | exchange_token | sync_transactions | get_accounts
 // Uses Plaid sandbox/development/production depending on PLAID_ENV env var.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,

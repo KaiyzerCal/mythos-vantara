@@ -7,7 +7,7 @@
 // Triggered by: pg_cron every 4 hours  OR  /council Telegram command
 //               OR POST /functions/v1/mavis-council-heartbeat
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { aiComplete } from "../_shared/providers.ts";
 

@@ -4,7 +4,7 @@
 // queueing it in mavis_action_queue (approve tier) and pinging Telegram.
 // Also creates a loose_thread for any action items detected.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { callWithFallback } from "../_shared/providers.ts";
 

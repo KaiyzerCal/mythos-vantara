@@ -3,7 +3,7 @@
 // Prioritises notes tagged #lesson, #insight, #principle, #strategy, #system.
 // Triggered daily at 08:00 UTC via pg_cron, or by /review Telegram command.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const supabase = createClient(

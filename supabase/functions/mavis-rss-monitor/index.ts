@@ -2,7 +2,7 @@
 // Actions: add_feed | list_feeds | remove_feed | fetch | fetch_all (cron)
 // fetch_all is called by mavis-heartbeat with service-role key (no user JWT)
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

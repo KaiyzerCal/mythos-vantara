@@ -6,7 +6,7 @@
 // Runs weekly Sunday 3am. verify_jwt = false (cron + service-role).
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {

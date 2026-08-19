@@ -20,7 +20,7 @@
 //   txt2vid  — text-to-video via /video/text2video
 //   img2vid  — image-to-video via /video/img2video
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const API_KEY       = Deno.env.get("MODELSLAB_API_KEY") ?? "";
 const BASE_URL      = Deno.env.get("MODELSLAB_BASE_URL") ?? "https://modelslab.com/api/v6";

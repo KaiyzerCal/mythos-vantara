@@ -3,7 +3,7 @@
 // Configure in Stripe dashboard: POST /functions/v1/mavis-stripe-webhook
 // Include metadata.user_id and metadata.source on every PaymentIntent.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,

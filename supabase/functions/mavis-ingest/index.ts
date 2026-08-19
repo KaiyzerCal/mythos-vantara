@@ -3,7 +3,7 @@
 // For URLs: fetches + strips HTML → AI summary → saves note + embedding
 // For text/clip: uses content directly → AI summary → saves note + embedding
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { aiComplete } from "../_shared/providers.ts";
 

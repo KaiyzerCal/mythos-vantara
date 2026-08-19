@@ -3,7 +3,7 @@
 // Sends Telegram alerts for quests due in the next 24–48 hours so
 // Calvin never misses a deadline due to lack of awareness.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const supabase = createClient(

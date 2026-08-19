@@ -3,7 +3,7 @@
 // Lookup: agent_telegram_config by chat_id → load agent → build prompt → respond.
 // Council members get full data access. Personas get scoped access (no vault/journal).
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(

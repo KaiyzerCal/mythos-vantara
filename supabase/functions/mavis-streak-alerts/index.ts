@@ -2,7 +2,7 @@
 // Fires at 20:00 UTC daily. Finds daily/weekly habit tasks with active streaks
 // that haven't been completed today, and sends a Telegram nudge before midnight.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const supabase = createClient(

@@ -3,7 +3,7 @@
 // Injects a floating chat button + slide-up panel powered by mavis-agent-serve
 
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const CORS_JS = {
   "Access-Control-Allow-Origin": "*",

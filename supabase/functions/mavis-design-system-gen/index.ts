@@ -4,7 +4,7 @@
 // Returns structured JSON: pattern, style, colors, typography, effects, anti-patterns, checklist.
 // Called from the MAVIS Design Studio page.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import {
   REASONING_RULES, COLOR_PALETTES, TYPOGRAPHY_PAIRINGS, PRODUCT_TYPES,
   type ReasoningRule, type ColorPalette, type Typography,

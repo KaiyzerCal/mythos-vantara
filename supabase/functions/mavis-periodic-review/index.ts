@@ -3,7 +3,7 @@
 // Creates a structured review note in the Knowledge Graph + Telegram notification.
 // Triggered by pg_cron or /weekly / /monthly Telegram commands.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { aiComplete } from "../_shared/providers.ts";
 
