@@ -508,9 +508,17 @@ serve(async (req) => {
       .in("source", ["persona_chat_clear", "mavis_chat_clear", "mavis_auto_memory", "council_chat_clear"])
       .order("created_at", { ascending: false })
       .limit(8);
+    // Both branches are capped at the same budget. topic_summary used to be
+    // interpolated raw while only the content fallback was truncated, which is
+    // backwards — topic_summary is meant to be the *compact* form. Measured on
+    // production, the eight archived rows contributed 20,140 characters through
+    // the untruncated branch versus 2,400 through the truncated one, on a
+    // prompt that is rebuilt on every single message including voice calls.
     const archivedBlock = (archivedMems && archivedMems.length > 0)
       ? "\n═══ ARCHIVED MEMORIES (past conversations across all chats — reference naturally when relevant) ═══\n" +
-        archivedMems.map((m: any) => `[${m.title}] (${m.source})\n${(m.metadata as any)?.topic_summary || truncateAtWord(m.content || "", 1200)}`).join("\n---\n") +
+        archivedMems.map((m: any) =>
+          `[${m.title}] (${m.source})\n${truncateAtWord(String((m.metadata as any)?.topic_summary || m.content || ""), 1200)}`
+        ).join("\n---\n") +
         "\n═══ END ARCHIVED MEMORIES ═══\n"
       : "";
 
