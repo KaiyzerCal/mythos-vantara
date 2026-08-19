@@ -7,6 +7,7 @@ import {
   isUnfundedStatus,
   callGemini,
   callGroq,
+  getProviderKeys,
 } from "../_shared/providers.ts";
 
 const corsHeaders = {
@@ -124,12 +125,24 @@ async function callLovableGateway(model: string, system: string, messages: any[]
 //   2. The persona's MAVIS-chosen `model` (claude / openai / grok) — chosen at forge time as the persona's signature voice
 //   3. Generic safety net: OpenAI mini → Claude Haiku → Claude Sonnet → Grok
 async function callLLM(model: string, system: string, messages: any[]): Promise<string> {
-  const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-  const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-  const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
-  const geminiKey  = Deno.env.get("GEMINI_API_KEY") ?? "";
-  const groqKey    = Deno.env.get("GROQ_API_KEY") ?? "";
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+  // Resolve keys exactly the way MAVIS chat and council chat do.
+  //
+  // These were read inline here, and two of the names had drifted from the
+  // shared resolver: gemini was read as GEMINI_API_KEY only, and grok as
+  // GROK_API_KEY only, where getProviderKeys() also accepts GOOGLE_API_KEY and
+  // XAI_API_KEY respectively. With the secret stored under GOOGLE_API_KEY,
+  // MAVIS and council found it and ran on free Gemini while this function saw
+  // an empty string, skipped its free tier outright, and fell all the way
+  // through to "All AI providers unavailable" — the free tier was present in
+  // the code and simply never reachable.
+  const {
+    openai: openaiKey,
+    claude: claudeKey,
+    grok:   grokKey,
+    gemini: geminiKey,
+    groq:   groqKey,
+    lovable: lovableKey,
+  } = getProviderKeys();
 
   // Tier 0a — Gemini 2.0 Flash (free)
   if (geminiKey) {
