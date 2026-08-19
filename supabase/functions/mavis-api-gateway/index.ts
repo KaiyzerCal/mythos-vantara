@@ -58,7 +58,7 @@ serve(async (req) => {
     sb.from("mavis_api_keys").update({
       last_used_at:   new Date().toISOString(),
       requests_count: (keyRecord.requests_count ?? 0) + 1,
-    }).eq("id", keyRecord.id).then(() => {}).catch(() => {});
+    }).eq("id", keyRecord.id).then(() => {}).then(undefined, () => {});
 
     const serviceHeaders = {
       "Content-Type": "application/json",

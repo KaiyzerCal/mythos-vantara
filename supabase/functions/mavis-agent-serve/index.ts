@@ -119,7 +119,7 @@ serve(async (req) => {
       { agent_id: agent.id, session_id, role: "agent", content: reply   },
     ]).then(() =>
       sb.rpc("increment_agent_stats", { p_agent_id: agent.id, p_conversations: 0, p_messages: 2 })
-        .catch(() => {})
+        .then(undefined, () => {})
     );
 
     return new Response(JSON.stringify({ reply, agent_name: agent.agent_name, brand_color: agent.brand_color }), {

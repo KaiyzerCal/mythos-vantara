@@ -268,7 +268,7 @@ Deno.serve(async (req) => {
         user_id:     uid,
         event_id:    eventId,
         event_start: eventStart,
-      }).catch(() => {});
+      }).then(undefined, () => {});
 
       briefsSent++;
     }

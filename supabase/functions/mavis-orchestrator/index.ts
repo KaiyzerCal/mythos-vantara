@@ -241,7 +241,7 @@ serve(async (req) => {
       agent_response:  summary.slice(0, 1000),
       actions_auto:    0,
       actions_queued:  totalQueued,
-    }).catch(() => {});
+    }).then(undefined, () => {});
 
     return json({
       ok:             true,

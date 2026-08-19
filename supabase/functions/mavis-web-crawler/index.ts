@@ -306,7 +306,7 @@ async function actionProcess(
           }));
           await sb.from("mavis_scrape_queue" as any)
             .upsert(inserts, { onConflict: "user_id,link", ignoreDuplicates: true })
-            .catch(() => {});
+            .then(undefined, () => {});
         }
 
         await sb.from("mavis_scrape_queue" as any)

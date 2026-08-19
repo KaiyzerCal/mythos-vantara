@@ -84,7 +84,7 @@ async function learnFromFeedback(userId: string, actionId: string, approved: boo
     p_user_id: userId,
     p_action_type: actionType,
     p_approval: approved,
-  }).catch(async () => {
+  }).then(undefined, async () => {
     // Fallback: manual read-modify-write if rpc not available
     const { data: settings } = await sb
       .from("mavis_autonomy_settings")
@@ -126,7 +126,7 @@ async function learnFromFeedback(userId: string, actionId: string, approved: boo
         key: `autonomy_tier_${actionType}`,
         value: newTier,
         confidence: 0.9,
-      }, { onConflict: "user_id,key" }).catch(() => {});
+      }, { onConflict: "user_id,key" }).then(undefined, () => {});
     }
   });
 
@@ -163,7 +163,7 @@ async function learnFromFeedback(userId: string, actionId: string, approved: boo
       key: `autonomy_tier_${actionType}`,
       value: newTier,
       confidence: 0.9,
-    }, { onConflict: "user_id,key" }).catch(() => {});
+    }, { onConflict: "user_id,key" }).then(undefined, () => {});
   }
 }
 

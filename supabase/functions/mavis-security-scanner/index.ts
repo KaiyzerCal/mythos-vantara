@@ -420,7 +420,7 @@ serve(async (req) => {
           content:    `[SECURITY SCAN] ${url} → Grade: ${grade} | Critical: ${criticalCount} | Warnings: ${warningCount}`,
           tags:       ["security_scan", "website_audit", "security"],
           importance: 5,
-        }).catch(() => {});
+        }).then(undefined, () => {});
 
         return json(result);
       }

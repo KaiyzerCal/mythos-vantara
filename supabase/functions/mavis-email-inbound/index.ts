@@ -61,7 +61,7 @@ serve(async (req) => {
       .select("user_id")
       .eq("email", fromEmail)
       .maybeSingle()
-      .catch(() => ({ data: null }));
+      .then(undefined, () => ({ data: null }));
 
     const userId = profile?.user_id ?? null;
 
@@ -97,7 +97,7 @@ serve(async (req) => {
         content: memContent,
         importance_score: 6,
         created_at: new Date().toISOString(),
-      }).catch(() => {});
+      }).then(undefined, () => {});
 
       // Auto-create a task for priority emails so MAVIS proactively handles them
       const PRIORITY_KEYWORDS = ["invoice", "contract", "deadline", "urgent", "asap", "legal", "payment", "refund", "complaint", "lawsuit", "offer", "opportunity"];
@@ -118,7 +118,7 @@ serve(async (req) => {
             body_preview: bodyText.slice(0, 500),
           },
           status: "requires_confirmation",
-        }).catch(() => {});
+        }).then(undefined, () => {});
       }
     }
 

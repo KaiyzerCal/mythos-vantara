@@ -1657,7 +1657,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ ...(params as Record<string, unknown>), user_id: userId }),
+        body: JSON.stringify({ ...p, user_id: userId }),
         signal: AbortSignal.timeout(30_000),
       });
       if (!notionRes.ok) throw new Error(`mavis-notion-agent error: ${notionRes.status}`);
@@ -1687,7 +1687,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ user_id: userId, ...(params as Record<string, unknown>) }),
+        body: JSON.stringify({ user_id: userId, ...p }),
         signal: AbortSignal.timeout(45_000),
       });
       if (!syncRes.ok) throw new Error(`mavis-notion-sync error: ${syncRes.status}`);
@@ -1702,7 +1702,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        body: JSON.stringify({ ...p }),
         signal: AbortSignal.timeout(30000),
       });
       if (!arRes.ok) throw new Error(`mavis-agent-reach error: ${arRes.status}`);
@@ -1717,7 +1717,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        body: JSON.stringify({ ...p }),
         signal: AbortSignal.timeout(60000),
       });
       if (!vbRes.ok) throw new Error(`mavis-voicebox error: ${vbRes.status}`);
@@ -1735,7 +1735,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        body: JSON.stringify({ ...p }),
         signal: AbortSignal.timeout(30000),
       });
       if (!wmRes.ok) throw new Error(`mavis-worldmonitor error: ${wmRes.status}`);
@@ -1750,7 +1750,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        body: JSON.stringify({ ...p }),
         signal: AbortSignal.timeout(30000),
       });
       if (!pvRes.ok) throw new Error(`mavis-prompt-vault error: ${pvRes.status}`);
@@ -1765,7 +1765,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
         },
-        body: JSON.stringify({ ...(params as Record<string, unknown>) }),
+        body: JSON.stringify({ ...p }),
         signal: AbortSignal.timeout(180000),
       });
       if (!saRes.ok) throw new Error(`mavis-stock-analysis error: ${saRes.status}`);

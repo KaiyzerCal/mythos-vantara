@@ -59,7 +59,7 @@ serve(async (req) => {
         .eq("user_id", uid)
         .gte("start_time", startOfDay)
         .then((r) => ({ data: r.data ?? [], error: null }))
-        .catch(() => ({ data: [], error: null })),
+        .then(undefined, () => ({ data: [], error: null })),
 
       // Meetings today (graceful, limit 3)
       supabase
@@ -69,7 +69,7 @@ serve(async (req) => {
         .gte("created_at", startOfDay)
         .limit(3)
         .then((r) => ({ data: r.data ?? [], error: null }))
-        .catch(() => ({ data: [], error: null })),
+        .then(undefined, () => ({ data: [], error: null })),
 
       // Revenue today (graceful)
       supabase
@@ -78,7 +78,7 @@ serve(async (req) => {
         .eq("user_id", uid)
         .gte("created_at", startOfDay)
         .then((r) => ({ data: r.data ?? [], error: null }))
-        .catch(() => ({ data: [], error: null })),
+        .then(undefined, () => ({ data: [], error: null })),
 
       // Habits with streak > 0 updated today
       supabase
@@ -97,7 +97,7 @@ serve(async (req) => {
         .eq("status", "active")
         .limit(3)
         .then((r) => ({ data: r.data ?? [], error: null }))
-        .catch(() => ({ data: [], error: null })),
+        .then(undefined, () => ({ data: [], error: null })),
     ]);
 
     const tasks = tasksResult.data ?? [];

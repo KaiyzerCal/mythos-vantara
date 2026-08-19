@@ -196,7 +196,7 @@ Rules:
       tags:             ["event-router", classification.category, "system"],
       timestamp:        Date.now(),
       consolidated:     false,
-    }).catch(() => {});
+    }).then(undefined, () => {});
 
     return new Response(JSON.stringify({
       classified_as:  classification.category,

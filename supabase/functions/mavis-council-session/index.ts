@@ -466,7 +466,7 @@ serve(async (req) => {
         supabase.from("councils")
           .update({ last_used_at: new Date().toISOString() })
           .in("id", respondingIds)
-          .then(() => {}).catch(() => {});
+          .then(() => {}).then(undefined, () => {});
       }
 
       // Lifecycle sweep: mark stale/archived members based on inactivity (non-blocking)

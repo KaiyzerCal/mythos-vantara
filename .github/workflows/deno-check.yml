@@ -1,0 +1,119 @@
+name: Type-check Edge Functions
+
+# Why this exists
+#
+# supabase/functions/** is deliberately excluded from `bun run lint` — it is
+# Deno, not browser, and linting it with browser globals produced ~2400 reports
+# that said nothing about correctness. The side effect was that NOTHING checked
+# these files, and errors the compiler was reporting accumulated unnoticed:
+#
+#   * `.catch()` chained onto a supabase-js query builder is a TypeError at
+#     runtime (builders are thenable but are not Promises). 107 had built up
+#     across 51 functions. Two were on hot paths and had broken their functions
+#     outright — mavis-trigger-engine and mavis-autonomous-engine answered 500
+#     to every cron invocation, 144 and 288 times a day.
+#   * mavis-actions referenced an undefined `params` in seven agent-delegation
+#     cases (notion_agent, notion_sync, agent_reach, voicebox, worldmonitor,
+#     prompt_vault, stock_analysis), so each threw ReferenceError when used.
+#
+# Why this compares against the base commit instead of a committed baseline
+#
+# A checked-in per-function error budget was tried first and is not sound here.
+# These functions import supabase-js from esm.sh on unpinned specifiers, so the
+# resolved type shapes differ between machines and over time: mavis-agent
+# reported 49 errors locally (deno 2.9.4) and 0 on CI (deno 2.9.5), and mcp 11
+# vs 0. Types that fail to resolve degrade to `any`, which yields *zero*
+# errors — so a baseline comparison fails OPEN exactly when resolution breaks.
+#
+# Comparing HEAD against the merge base inside a single run cancels that out:
+# both sides see the same deno version, the same cache and the same network, so
+# only a real change in the code moves the number.
+#
+# ~330 pre-existing errors remain across the older functions. They are tolerated
+# — this gate only requires that a function you touch is not left worse than you
+# found it.
+
+on:
+  push:
+    branches: ["main", "staging"]
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/deno-check.yml"
+  pull_request:
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/deno-check.yml"
+  workflow_dispatch:
+
+jobs:
+  deno-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Compare type errors against base
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          # First push to a branch, or a force-push, can leave an unusable base.
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          [ -n "$BASE" ] || { echo "No usable base commit; skipping."; exit 0; }
+          echo "Base: $BASE"
+
+          # Which functions to check. A change under _shared/ is bundled into
+          # every dependent at deploy time, so it invalidates all of them.
+          changed="$(git diff --name-only "$BASE" HEAD -- supabase/functions/ || true)"
+          if [ -z "$changed" ]; then echo "No edge-function changes."; exit 0; fi
+
+          if echo "$changed" | grep -q '^supabase/functions/_shared/'; then
+            echo "_shared changed — checking every function."
+            fns="$(ls -d supabase/functions/*/ | xargs -n1 basename | grep -vE '^(_archive|_shared)$')"
+          else
+            fns="$(echo "$changed" | cut -d/ -f3 | sort -u | grep -vE '^(_archive|_shared)$')"
+          fi
+
+          git worktree add -q /tmp/base "$BASE"
+
+          count() {  # count() <path> -> number of TS diagnostics, or "NA" if absent
+            [ -f "$1" ] || { echo "NA"; return; }
+            deno check "$1" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' \
+              | grep -cE '^TS[0-9]+ \[ERROR\]' || true
+          }
+
+          regressions=0; checked=0
+          for fn in $fns; do
+            head_entry="supabase/functions/$fn/index.ts"
+            [ -f "$head_entry" ] || continue
+            checked=$((checked + 1))
+
+            h="$(count "$head_entry")"
+            b="$(count "/tmp/base/supabase/functions/$fn/index.ts")"
+            [ "$b" = "NA" ] && b=0   # newly added function: must be clean
+
+            if [ "$h" -gt "$b" ]; then
+              echo "::error file=$head_entry::$fn: $h type errors, was $b on base"
+              deno check "$head_entry" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' \
+                | grep -E '^TS[0-9]+ \[ERROR\]' | head -20
+              regressions=$((regressions + 1))
+            elif [ "$h" -lt "$b" ]; then
+              echo "::notice file=$head_entry::$fn improved: $h errors, was $b"
+            fi
+          done
+
+          git worktree remove -f /tmp/base || true
+          echo "Checked $checked function(s); $regressions regressed."
+          [ "$regressions" -eq 0 ]

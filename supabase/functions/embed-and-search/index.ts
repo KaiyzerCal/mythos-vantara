@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
     if (Array.isArray(data) && data.length > 0) {
       const topIds = data.slice(0, 3).map((r: any) => r.id).filter(Boolean);
       topIds.forEach((id: string) => {
-        sb.rpc("bump_memory_access", { memory_id: id }).catch(() => {});
+        sb.rpc("bump_memory_access", { memory_id: id }).then(undefined, () => {});
       });
     }
 

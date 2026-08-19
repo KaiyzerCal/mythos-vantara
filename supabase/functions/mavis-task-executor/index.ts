@@ -799,7 +799,7 @@ const handleSendOutreach: TaskHandler = async (task) => {
     await supabase.from("mavis_outreach_drafts" as any)
       .update({ status: "sent", sent_at: new Date().toISOString() })
       .eq("id", draftId)
-      .catch(() => {});
+      .then(undefined, () => {});
   }
 
   await supabase.from("mavis_activities").insert({
@@ -807,7 +807,7 @@ const handleSendOutreach: TaskHandler = async (task) => {
     type: "outreach_sent",
     description: `Outreach sent to ${contactName} via ${channel}`,
     xp_earned: 0,
-  }).catch(() => {});
+  }).then(undefined, () => {});
 
   return { success: sent, output: { contact_name: contactName, channel, draft_id: draftId } };
 };
@@ -941,7 +941,7 @@ const handleEmailReply: TaskHandler = async (task) => {
 
   // Only mark processed when we have confirmation it was handled
   if (emailId && sent) {
-    await supabase.from("mavis_inbound_emails").update({ processed: true }).eq("id", emailId).catch(() => {});
+    await supabase.from("mavis_inbound_emails").update({ processed: true }).eq("id", emailId).then(undefined, () => {});
   }
 
   return { success: sent, output: { to: fromEmail, subject: replySubject, reply_preview: replyText.slice(0, 100) } };
@@ -970,7 +970,7 @@ const handleStandingOrder: TaskHandler = async (task) => {
     })
     .select("id")
     .single()
-    .catch(() => ({ data: null }));
+    .then(undefined, () => ({ data: null }));
 
   const execId: string | null = (execRow as any)?.id ?? null;
 
@@ -993,7 +993,7 @@ const handleStandingOrder: TaskHandler = async (task) => {
         .select("usage_count, success_count")
         .eq("id", templateId)
         .single()
-        .catch(() => ({ data: null }));
+        .then(undefined, () => ({ data: null }));
       if (tpl) {
         updates.usage_count    = ((tpl as any).usage_count   ?? 0) + 1;
         if (status === "completed") updates.success_count = ((tpl as any).success_count ?? 0) + 1;

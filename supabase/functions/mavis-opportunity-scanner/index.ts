@@ -244,7 +244,7 @@ Return ONLY valid JSON array, no commentary.`;
       importance_score: 4,
       tags: ["opportunity", "proactive", "weekly-brief"],
       source: "mavis-opportunity-scanner",
-    }).catch(() => {});
+    }).then(undefined, () => {});
 
     return toInsert.length;
   } catch {

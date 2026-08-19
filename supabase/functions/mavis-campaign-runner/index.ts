@@ -168,7 +168,7 @@ serve(async (req) => {
       run_count: 1,
       expected_interval_min: 240,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "function_name" }).catch(() => {});
+    }, { onConflict: "function_name" }).then(undefined, () => {});
 
     const body = await req.json().catch(() => ({})) as Record<string, string>;
     const action = body.action ?? "run";
@@ -213,7 +213,7 @@ serve(async (req) => {
         run_count: 1,
         expected_interval_min: 240,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "function_name" }).catch(() => {});
+      }, { onConflict: "function_name" }).then(undefined, () => {});
 
       return json({ ok: true, processed: results.length, results });
     }
@@ -249,7 +249,7 @@ serve(async (req) => {
       error_count: 1,
       expected_interval_min: 240,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "function_name" }).catch(() => {});
+    }, { onConflict: "function_name" }).then(undefined, () => {});
     return json({ ok: false, error: _errMsg }, 500);
   }
 });

@@ -234,7 +234,7 @@ async function evaluateConversations(
       tags: ["eval", "quality-drop", "alert"],
       timestamp: Date.now(),
       consolidated: false,
-    }).catch(() => {});
+    }).then(undefined, () => {});
   }
 
   // 9. Write summary to mavis_memory
@@ -251,7 +251,7 @@ async function evaluateConversations(
     tags: ["eval", "quality-metrics"],
     timestamp: Date.now(),
     consolidated: false,
-  }).catch(() => {});
+  }).then(undefined, () => {});
 
   // 10. Return result
   return {

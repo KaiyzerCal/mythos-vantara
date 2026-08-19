@@ -1551,7 +1551,7 @@ serve(async (req) => {
           outcome:     "success",
           hour_of_day: new Date().getUTCHours(),
           day_of_week: new Date().getUTCDay(),
-        }).catch(() => {});
+        }).then(undefined, () => {});
 
         return json({ ok: true, action_type: item.action_type, result });
       } catch (execErr) {
@@ -1600,7 +1600,7 @@ serve(async (req) => {
         action_type: (approveItem as any)?.action_type ?? null,
         hour_of_day: new Date().getUTCHours(),
         day_of_week: new Date().getUTCDay(),
-      }).catch(() => {});
+      }).then(undefined, () => {});
 
       return json({ ok: true });
     }
@@ -1635,7 +1635,7 @@ serve(async (req) => {
         action_type: (rejectItem as any)?.action_type ?? null,
         hour_of_day: new Date().getUTCHours(),
         day_of_week: new Date().getUTCDay(),
-      }).catch(() => {});
+      }).then(undefined, () => {});
 
       return json({ ok: true });
     }

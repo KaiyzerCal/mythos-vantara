@@ -368,7 +368,7 @@ async function checkDormantContacts(
           CREATE INDEX IF NOT EXISTS idx_outreach_drafts_user_created ON public.mavis_outreach_drafts(user_id, created_at DESC);
         EXCEPTION WHEN duplicate_object THEN NULL; END $$;
       `,
-    }).catch(() => {
+    }).then(undefined, () => {
       // rpc may not exist; the migration handles table creation
     });
 
@@ -572,7 +572,7 @@ ${actionLines}`;
             payload: { quest_id: quest.id, quest_title: quest.title, trigger: "stalled_quest_recovery" },
             status: "pending",
           }))
-        ).catch((e: any) => console.error("[ambient-monitor] batch task insert error:", e));
+        ).then(undefined, (e: any) => console.error("[ambient-monitor] batch task insert error:", e));
 
         result.issues++;
         result.actions += actions.length;

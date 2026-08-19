@@ -941,7 +941,7 @@ serve(async (req) => {
           tsx_code:       file.content,
           is_reusable:    true,
           tags:           [String(brief.brand ?? "custom"), inferComponentType(componentName)],
-        }).catch(() => {});
+        }).then(undefined, () => {});
       }
     }
 
@@ -962,7 +962,7 @@ serve(async (req) => {
       event_type: "design_generated",
       description: `Design project generated: ${brief.project_name} (${brief.brand})`,
       xp_amount:  50,
-    }).catch(() => {});
+    }).then(undefined, () => {});
 
     return new Response(JSON.stringify({
       projectId,

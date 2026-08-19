@@ -136,7 +136,7 @@ serve(async (req) => {
             payload:     { url, payload: finalPayload },
             result:      result,
             completed_at: result.success ? new Date().toISOString() : undefined,
-          }).catch(() => {});
+          }).then(undefined, () => {});
         }
 
         return json(result);

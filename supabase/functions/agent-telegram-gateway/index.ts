@@ -197,7 +197,7 @@ ${summary}`;
     await supabase.from("persona_conversations" as any).insert([
       { persona_id: agent_id, user_id: userId, role: "user",      content: userText, created_at: now },
       { persona_id: agent_id, user_id: userId, role: "assistant", content: response, created_at: new Date(Date.now() + 1).toISOString() },
-    ]).catch(() => {});
+    ]).then(undefined, () => {});
 
     // Keep relationship_states in sync (bond/trust/mood) so the app header reflects Telegram activity.
     const { data: relState } = await supabase
@@ -215,19 +215,19 @@ ${summary}`;
       bond_level:  Math.min(100, Math.floor(interactions / 10)),
       trust_level: Math.min(100, Math.floor(interactions / 20)),
       updated_at:  now,
-    }, { onConflict: "persona_id,user_id" }).catch(() => {});
+    }, { onConflict: "persona_id,user_id" }).then(undefined, () => {});
 
     // Also archive in mavis_memory for consolidation / recall pipelines.
     await supabase.from("mavis_memory" as any).insert([
       { user_id: userId, session_id: sessionId, role: "user",      content: userText,  timestamp: ts,     consolidated: false },
       { user_id: userId, session_id: sessionId, role: "assistant", content: response,  timestamp: ts + 1, consolidated: false },
-    ]).catch(() => {});
+    ]).then(undefined, () => {});
   } else {
     // Council: keep existing mavis_memory-only approach.
     await supabase.from("mavis_memory" as any).insert([
       { user_id: userId, session_id: sessionId, role: "user",      content: userText,  timestamp: ts,     consolidated: false },
       { user_id: userId, session_id: sessionId, role: "assistant", content: response,  timestamp: ts + 1, consolidated: false },
-    ]).catch(() => {});
+    ]).then(undefined, () => {});
   }
 
   return new Response(JSON.stringify({ ok: true }), {

@@ -363,7 +363,7 @@ serve(async (req: Request) => {
       category: "nudge",
       severity: urgencies.length > 2 ? "warning" : "info",
       source: "proactive_nudge",
-    }).catch(() => {});
+    }).then(undefined, () => {});
 
     return new Response(
       JSON.stringify({ nudged: true, urgencies }),

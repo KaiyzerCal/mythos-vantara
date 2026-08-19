@@ -189,7 +189,7 @@ Deno.serve(async (req) => {
       content:     `Completed in ${steps.length} steps.\n\n${finalResult}`,
       memory_type: "auto",
       tags:        ["goal_loop", "autonomous"],
-    }).catch(() => {});
+    }).then(undefined, () => {});
 
     return new Response(
       JSON.stringify({ goal, steps, final_result: finalResult, iterations: steps.length }),

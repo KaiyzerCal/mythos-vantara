@@ -746,7 +746,7 @@ async function handleAnalyze(
     period_start: currentMonth,
     analyses_used: analysesUsed + 1,
     updated_at: new Date().toISOString(),
-  }, { onConflict: "user_id,period_start" }).then(() => null).catch(() => null);
+  }, { onConflict: "user_id,period_start" }).then(() => null).then(undefined, () => null);
 
   // Step 1: Create project record with status "analyzing"
   const { data: project, error: projectErr } = await supabase

@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
             source:       `plaid:${item.institution_name}`,
             expense_date: String(tx.date),
           }));
-          await supabase.from("mavis_expenses").upsert(expenses, { onConflict: "user_id,description,expense_date,amount" }).catch(() => {});
+          await supabase.from("mavis_expenses").upsert(expenses, { onConflict: "user_id,description,expense_date,amount" }).then(undefined, () => {});
         }
 
         // Save cursor

@@ -549,7 +549,7 @@ Reply ONLY with JSON: {"action": "click|type|navigate|scroll|done|error", "selec
             params:      { iteration, action_decision: actionDecision, task: task.slice(0, 200) },
             result:      { action_taken: actionTaken },
             ok,
-          }).catch(() => {});
+          }).then(undefined, () => {});
         }
 
         // ── Main loop ──────────────────────────────────────────────────────────
