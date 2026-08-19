@@ -85,10 +85,17 @@ serve(async (req) => {
     }
 
     // Log run
-    await adminSb
+    //
+    // supabase-js query builders are thenable but are NOT Promises, so they have
+    // no .catch method. `.insert(...).catch(() => {})` threw
+    //   "adminSb.from(...).insert(...).catch is not a function"
+    // on every single run, so this function has been answering 500 to its own
+    // cron 288 times a day — verified against production. Errors are returned in
+    // the result object here, not raised by rejection.
+    const { error: runLogErr } = await adminSb
       .from("mavis_autonomous_runs")
-      .insert({ job_name: `autonomous-engine:${task}`, status: "ok", notes: dispatched.join(", ") })
-      .catch(() => {});
+      .insert({ job_name: `autonomous-engine:${task}`, status: "ok", notes: dispatched.join(", ") });
+    if (runLogErr) console.warn("[autonomous-engine] run log insert failed:", runLogErr.message);
 
     return json({ task, dispatched, timestamp: new Date().toISOString() });
 

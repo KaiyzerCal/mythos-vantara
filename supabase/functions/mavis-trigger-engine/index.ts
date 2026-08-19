@@ -412,14 +412,28 @@ serve(async (req) => {
     const adminSb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
     // Heartbeat: mark running
-    adminSb.from("mavis_function_health").upsert({
+    //
+    // This was `.upsert(...).catch(() => {})`. supabase-js query builders are
+    // thenable but are NOT Promises, so they have no .catch — the call threw
+    // a TypeError synchronously, right here at the top of the try block. The
+    // outer catch then ran the same broken pattern again (see below), so the
+    // handler threw out of its own error handler and the platform returned a
+    // bare "Internal Server Error". This function has never completed a single
+    // cron run: 144 failures a day, verified against production.
+    //
+    // Builders do implement .then, so the two-argument form is a safe
+    // fire-and-forget that also surfaces a real error instead of hiding it.
+    void adminSb.from("mavis_function_health").upsert({
       function_name: "mavis-trigger-engine",
       last_started_at: new Date().toISOString(),
       last_status: "running",
       run_count: 1,
       expected_interval_min: 5,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "function_name" }).catch(() => {});
+    }, { onConflict: "function_name" }).then(
+      ({ error }) => { if (error) console.warn("[trigger-engine] heartbeat(running) failed:", error.message); },
+      (e: unknown) => { console.warn("[trigger-engine] heartbeat(running) threw:", e); },
+    );
 
     const body = await req.json().catch(() => ({})) as Record<string, string>;
     const action = body.action ?? "run";
@@ -465,7 +479,7 @@ serve(async (req) => {
 
       const processed = results.filter((r) => r.status === "fulfilled").length;
 
-      adminSb.from("mavis_function_health").upsert({
+      void adminSb.from("mavis_function_health").upsert({
         function_name: "mavis-trigger-engine",
         last_completed_at: new Date().toISOString(),
         last_status: "ok",
@@ -473,7 +487,10 @@ serve(async (req) => {
         run_count: 1,
         expected_interval_min: 5,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "function_name" }).catch(() => {});
+      }, { onConflict: "function_name" }).then(
+        ({ error }) => { if (error) console.warn("[trigger-engine] heartbeat(ok) failed:", error.message); },
+        (e: unknown) => { console.warn("[trigger-engine] heartbeat(ok) threw:", e); },
+      );
 
       return json({ ok: true, processed, results: results.map((r) => r.status === "fulfilled" ? r.value : { error: (r as PromiseRejectedResult).reason }) });
     }
@@ -492,7 +509,7 @@ serve(async (req) => {
     const _errMsg = err instanceof Error ? err.message : String(err);
     console.error("[mavis-trigger-engine]", _errMsg);
     const _errSb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    _errSb.from("mavis_function_health").upsert({
+    void _errSb.from("mavis_function_health").upsert({
       function_name: "mavis-trigger-engine",
       last_completed_at: new Date().toISOString(),
       last_status: "error",
@@ -501,7 +518,10 @@ serve(async (req) => {
       error_count: 1,
       expected_interval_min: 5,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "function_name" }).catch(() => {});
+    }, { onConflict: "function_name" }).then(
+      ({ error }) => { if (error) console.warn("[trigger-engine] heartbeat(error) failed:", error.message); },
+      (e: unknown) => { console.warn("[trigger-engine] heartbeat(error) threw:", e); },
+    );
     return json({ ok: false, error: _errMsg }, 500);
   }
 });
