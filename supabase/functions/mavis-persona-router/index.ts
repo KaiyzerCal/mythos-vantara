@@ -441,10 +441,21 @@ serve(async (req) => {
       tasksRes, contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes, bpmRes, storeRes, currenciesRes, activityRes, vaultMediaRes] = await Promise.all([
       embedMessagePromise,
       supabase.from("relationship_states").select("*").eq("persona_id", persona_id).eq("user_id", user_id).single(),
-      supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(50),
+      // 25 turns rather than 50. The full transcript is still in the DB and the
+      // persona can recall older material through archived memories and
+      // recall_memory; what this bounds is how much is re-sent on every single
+      // message. Voice trims this further, to 8, further down.
+      supabase.from("persona_conversations").select("role, content").eq("persona_id", persona_id).eq("user_id", user_id).order("created_at", { ascending: false }).limit(25),
+      // Attachments explicitly named by the caller are what the operator just
+      // uploaded and expects read, so they keep the full allowance. The
+      // fallback branch is different: it silently re-attaches the last N files
+      // in the thread to EVERY subsequent message forever. At the old limit of
+      // 10 x 6000 chars that is up to 60,000 characters (~15,000 tokens) added
+      // to every turn for files the operator may have discussed days ago, so
+      // it is capped much harder.
       (Array.isArray(attachment_ids) && attachment_ids.length > 0
         ? supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).in("id", attachment_ids)
-        : supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).eq("chat_kind", "persona").eq("thread_ref", persona_id).order("created_at", { ascending: false }).limit(10)),
+        : supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).eq("chat_kind", "persona").eq("thread_ref", persona_id).order("created_at", { ascending: false }).limit(3)),
       supabase.from("profiles").select("*").eq("id", user_id).single(),
       supabase.from("quests").select("id,title,status,type,difficulty,progress_current,progress_target,description").eq("user_id", user_id).order("created_at", { ascending: false }).limit(15),
       supabase.from("skills").select("id,name,category,tier,proficiency,energy_type,unlocked").eq("user_id", user_id).limit(20),
@@ -610,7 +621,11 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
       ? "\n═══ FILES UPLOADED TO THIS CONVERSATION ═══\n" +
         attachments.map((a: any) => {
           const status = a.processing_status === "done" ? "" : ` [${a.processing_status}]`;
-          const txt = (a.extracted_text || "").slice(0, 6000);
+          // Explicitly-requested attachments keep a generous budget; the
+          // auto-attached thread history gets a much smaller one, since it is
+          // re-sent on every turn rather than read once.
+          const explicit = Array.isArray(attachment_ids) && attachment_ids.length > 0;
+          const txt = (a.extracted_text || "").slice(0, explicit ? 6000 : 2000);
           return `\n📎 ${a.file_name} (${a.mime_type})${status}\n${txt || "(no extracted content yet)"}\n---`;
         }).join("") + "\n═══ END FILES ═══\n"
       : "";
