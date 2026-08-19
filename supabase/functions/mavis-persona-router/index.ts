@@ -622,35 +622,19 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
       surface: "persona",
     }).then((t) => t.text, () => "");
 
-    // Standing orders / autonomy settings from the System Settings page —
-    // personas previously had zero visibility into these.
+    // Standing orders / autonomy settings.
+    //
+    // This block used to fetch mavis_tacit itself — 60 rows, split into
+    // hard_rule / preference / standing_order — and interpolate them here.
+    // buildSharedTruth (timeBlock, above) already fetches the same table with
+    // the same ordering and renders it with the same three-way split, so every
+    // persona prompt carried the operator's tacit knowledge twice. Measured on
+    // production, 40 rows is 7,506 characters, so the duplicate cost roughly
+    // 11,000 characters (~2,750 tokens) on every single message, voice or text.
+    //
+    // Dropped in favour of the shared builder, which is the source of truth for
+    // it. Only the scheduler section below is genuinely unique to this file.
     let settingsBlock = "";
-    try {
-      const { data: tacitData } = await supabase
-        .from("mavis_tacit")
-        .select("category,key,value,confidence")
-        .eq("user_id", user_id)
-        .order("confidence", { ascending: false })
-        .limit(60);
-      if (tacitData?.length) {
-        const tacit = tacitData as any[];
-        const hardRules   = tacit.filter((t: any) => t.category === "hard_rule");
-        const preferences = tacit.filter((t: any) => t.category === "preference");
-        const autonomyRows = tacit.filter((t: any) => t.category === "standing_order");
-        const lines: string[] = [];
-        if (hardRules.length)   lines.push(`HARD RULES (obey unconditionally):\n${hardRules.map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
-        if (preferences.length) lines.push(`PREFERENCES:\n${preferences.slice(0, 10).map((r: any) => `  • [${r.key}] ${r.value}`).join("\n")}`);
-        if (autonomyRows.length) {
-          lines.push(`AUTONOMY (from System Settings):\n${autonomyRows.map((r: any) => {
-            const v = Array.isArray(r.value) ? r.value.join(", ") : String(r.value ?? "");
-            return `  • [${r.key}] ${v}`;
-          }).join("\n")}`);
-        }
-        if (lines.length) {
-          settingsBlock = `\n═══ STANDING ORDERS & OPERATOR PREFERENCES ═══\n${lines.join("\n\n")}\n═══ END STANDING ORDERS ═══\n`;
-        }
-      }
-    } catch { /* non-critical */ }
 
     // Scheduler tab — queued/upcoming social posts.
     try {
