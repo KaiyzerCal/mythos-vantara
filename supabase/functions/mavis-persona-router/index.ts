@@ -125,7 +125,7 @@ async function callLovableGateway(model: string, system: string, messages: any[]
 //   1. Lovable Gemini Flash (free) — every persona starts here
 //   2. The persona's MAVIS-chosen `model` (claude / openai / grok) — chosen at forge time as the persona's signature voice
 //   3. Generic safety net: OpenAI mini → Claude Haiku → Claude Sonnet → Grok
-async function callLLM(model: string, system: string, messages: any[]): Promise<string> {
+async function callLLM(model: string, system: string, messages: any[]): Promise<{ content: string; provider: string }> {
   // Resolve keys exactly the way MAVIS chat and council chat do.
   //
   // These were read inline here, and two of the names had drifted from the
@@ -175,7 +175,7 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
   // time a specific version is retired.
   if (geminiKey) {
     try {
-      return await callGemini(messages, system, geminiKey);
+      return { content: await callGemini(messages, system, geminiKey), provider: "gemini-flash-latest" };
     } catch (err: any) {
       note("gemini-flash-latest", err?.message ?? String(err));
     }
@@ -188,7 +188,7 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
   // answered 404 model_not_found here too.
   if (groqKey) {
     try {
-      return await callGroq(messages, system, groqKey);
+      return { content: await callGroq(messages, system, groqKey), provider: GROQ_MODEL };
     } catch (err: any) {
       note(GROQ_MODEL, err?.message ?? String(err));
     }
@@ -199,7 +199,7 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
   // Tier 1 — Lovable Gemini Flash (free)
   if (lovableKey) {
     try {
-      return await callLovableGateway("google/gemini-3.6-flash", system, messages, lovableKey);
+      return { content: await callLovableGateway("google/gemini-3.6-flash", system, messages, lovableKey), provider: "lovable-gateway" };
     } catch (err: any) {
       note("lovable-gateway", err?.message ?? String(err));
     }
@@ -211,13 +211,13 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
   const m = (model || "").toLowerCase();
   try {
     if (m.startsWith("claude") && claudeKey) {
-      return await callClaude(model, system, messages, claudeKey);
+      return { content: await callClaude(model, system, messages, claudeKey), provider: model };
     }
     if ((m.startsWith("gpt") || m.startsWith("openai/") || m.startsWith("ft:")) && openaiKey) {
-      return await callOpenAI(model, system, messages, openaiKey);
+      return { content: await callOpenAI(model, system, messages, openaiKey), provider: model };
     }
     if (m.startsWith("grok") && grokKey) {
-      return await callGrok(model, system, messages, grokKey);
+      return { content: await callGrok(model, system, messages, grokKey), provider: model };
     }
   } catch (err: any) {
     if (!(err instanceof ProviderUnavailableError)) throw err;
@@ -226,26 +226,26 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
 
   // Tier 3 — Generic safety net (skip whichever the persona already tried)
   if (openaiKey && !m.startsWith("gpt") && !m.startsWith("openai/") && !m.startsWith("ft:")) {
-    try { return await callOpenAI("gpt-4o-mini", system, messages, openaiKey); }
+    try { return { content: await callOpenAI("gpt-4o-mini", system, messages, openaiKey), provider: "gpt-4o-mini" }; }
     catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       note("gpt-4o-mini", `unfunded (${err.status})`);
     }
   }
   if (claudeKey && !m.startsWith("claude")) {
-    try { return await callClaude("claude-haiku-4-5-20251001", system, messages, claudeKey); }
+    try { return { content: await callClaude("claude-haiku-4-5-20251001", system, messages, claudeKey), provider: "claude-haiku-4-5-20251001" }; }
     catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       note("claude-haiku", `unfunded (${err.status})`);
     }
-    try { return await callClaude("claude-sonnet-4-6", system, messages, claudeKey); }
+    try { return { content: await callClaude("claude-sonnet-4-6", system, messages, claudeKey), provider: "claude-sonnet-4-6" }; }
     catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       note("claude-sonnet", `unfunded (${err.status})`);
     }
   }
   if (grokKey && !m.startsWith("grok")) {
-    try { return await callGrok("grok-3-mini", system, messages, grokKey); }
+    try { return { content: await callGrok("grok-3-mini", system, messages, grokKey), provider: "grok-3-mini" }; }
     catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       note("grok-3-mini", `unfunded (${err.status})`);
@@ -709,8 +709,22 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
     // ordering when history is fetched, making the AI see malformed context and
     // repeat its previous message.
     const userMsgAt = new Date().toISOString();
-    const rawResponse = await callLLM(activeModel, systemPrompt, llmMessages);
+    const llmStartedAt = Date.now();
+    const { content: rawResponse, provider: servedBy } = await callLLM(activeModel, systemPrompt, llmMessages);
+    const llmMs = Date.now() - llmStartedAt;
     const assistantMsgAt = new Date().toISOString();
+
+    // Which tier actually answered, and how big the request was.
+    //
+    // Without this there is no way to tell from outside whether a reply came
+    // from the free Gemini tier, free Groq, Lovable credits, or a paid model —
+    // so cost attribution was guesswork, and questions like "is this prompt
+    // small enough for Groq's 8k/min limit?" could only be answered by
+    // provoking a failure and reading the error. promptChars is the cheap
+    // proxy: roughly 4 characters per token.
+    const promptChars = systemPrompt.length +
+      llmMessages.reduce((n: number, m: any) => n + (typeof m.content === "string" ? m.content.length : 0), 0);
+    console.log(`[persona-router] served_by=${servedBy} channel=${channel} prompt_chars=${promptChars} llm_ms=${llmMs}`);
 
     // Parse :::PROPOSE_ACTION{...}::: (direct execution) and
     // :::PROPOSE_MAVIS{...}::: (escalate to MAVIS queue) blocks.
@@ -865,7 +879,17 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
       }).catch(() => {});
     }
 
-    return new Response(JSON.stringify({ response, persona_name: persona.name, actions_executed: actionsExecuted, proposals_queued: proposalsQueued }), {
+    return new Response(JSON.stringify({
+      response,
+      persona_name: persona.name,
+      actions_executed: actionsExecuted,
+      proposals_queued: proposalsQueued,
+      // Cost/observability fields. Additive — existing callers that only read
+      // `response` are unaffected.
+      served_by: servedBy,
+      prompt_chars: promptChars,
+      llm_ms: llmMs,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
