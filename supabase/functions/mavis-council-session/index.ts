@@ -82,7 +82,10 @@ async function callLovableGateway(system: string, userMsg: string, key: string, 
 
 // Free-first provider cascade (shared): free Gemini → Groq → Lovable gateway → paid tiers.
 async function callGroupLLM(system: string, userMsg: string, _maxTokens: number): Promise<string> {
-  const { content } = await aiComplete({ system, user: userMsg });
+  // Council discourse is an interactive chat surface — the operator reads this
+  // prose directly, so it keeps the premium model ahead of the cheap paid
+  // tiers. Background jobs on the same cascade deliberately do not.
+  const { content } = await aiComplete({ system, user: userMsg, premiumFirst: true });
   return content;
 }
 

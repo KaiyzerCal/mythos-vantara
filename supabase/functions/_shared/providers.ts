@@ -350,6 +350,19 @@ export async function callWithFallback(
   keys: { openai: string; claude: string; grok: string; gemini: string; groq: string; lovable?: string },
   useThinking = false,
   mode = "PRIME",
+  /**
+   * Try the caller's premium model (tier 2) before the cheap tiers.
+   *
+   * Defaults to false, which is the right default for the ~90 functions using
+   * this cascade: most are background jobs, and paying premium rates for the
+   * first paid attempt is not worth it when nobody reads the output as prose.
+   * Premium models remain reachable either way — with this off they simply sit
+   * at tiers 5 and 6, after gpt-4o-mini and claude-haiku have been tried.
+   *
+   * Interactive chat surfaces pass true, because response quality is the
+   * product there rather than a means to it.
+   */
+  premiumFirst = false,
 ): Promise<{ content: string; provider: string }> {
   const mU = mode.toUpperCase();
 
@@ -409,23 +422,37 @@ export async function callWithFallback(
     }
   }
 
-  // Tier 2 — Mode-designated provider (Claude for deep reasoning, Grok for real-time)
-  if (primary === "claude" && keys.claude && !isProviderUnhealthy("claude")) {
-    try {
-      return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
-    } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
-      markProviderUnhealthy("claude");
-      console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
+  // Tier 2 — Mode-designated premium provider, but only when the caller has
+  // asked for it. See premiumFirst in AiFallbackOpts.
+  //
+  // This tier used to run unconditionally, ahead of the cheap tiers below, and
+  // 45 of the call sites in this repo pass primary "claude" — so essentially
+  // the whole fleet, background crons included, reached for claude-sonnet-4-6
+  // at $3.00/1M input as its FIRST paid attempt, with gpt-4o-mini at $0.15/1M
+  // sitting unused directly beneath it. At roughly 24k input tokens per call
+  // that is $0.072 versus $0.0036 — a 20x difference on work whose output, for
+  // a background job, nobody reads as prose.
+  //
+  // Interactive surfaces still want the premium model: chat quality is the
+  // product there. They opt in with premiumFirst.
+  if (premiumFirst) {
+    if (primary === "claude" && keys.claude && !isProviderUnhealthy("claude")) {
+      try {
+        return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
+      } catch (err: any) {
+        if (!(err instanceof ProviderUnavailableError)) throw err;
+        markProviderUnhealthy("claude");
+        console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
+      }
     }
-  }
-  if (primary === "grok" && keys.grok && !isProviderUnhealthy("grok")) {
-    try {
-      return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
-    } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
-      markProviderUnhealthy("grok");
-      console.warn(`[fallback] grok unfunded (${err.status}) → cascading`);
+    if (primary === "grok" && keys.grok && !isProviderUnhealthy("grok")) {
+      try {
+        return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
+      } catch (err: any) {
+        if (!(err instanceof ProviderUnavailableError)) throw err;
+        markProviderUnhealthy("grok");
+        console.warn(`[fallback] grok unfunded (${err.status}) → cascading`);
+      }
     }
   }
 
@@ -957,6 +984,12 @@ export interface AiCompleteOpts {
   thinking?: boolean;
   /** Try the Lovable AI Gateway before the project's own free keys. */
   preferLovable?: boolean;
+  /**
+   * Try the premium model before the cheap paid tiers. Off by default; set it
+   * on interactive chat surfaces, where answer quality is the product. Leave
+   * it off for background jobs — see callWithFallback's premiumFirst.
+   */
+  premiumFirst?: boolean;
 }
 
 /**
@@ -981,7 +1014,7 @@ export async function aiComplete(opts: AiCompleteOpts): Promise<{ content: strin
     }
   }
 
-  return await callWithFallback(primary, messages, system, keys, !!opts.thinking, mode);
+  return await callWithFallback(primary, messages, system, keys, !!opts.thinking, mode, !!opts.premiumFirst);
 }
 
 /** Streaming variant of `aiComplete`. */
