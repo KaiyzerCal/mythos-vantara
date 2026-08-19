@@ -306,9 +306,9 @@ export async function callGemini(messages: any[], system: string, key: string, o
 }
 
 // Cascade order (free → cheapest → premium):
-//   0a. Gemini 2.0 Flash      (free tier, 15 RPM)
-//   0b. Gemini 2.0 Flash Lite (free tier, 30 RPM, separate quota)
-//   1.  Gemini 2.5 Flash preview (paid, mode-specific tools)
+//   0a. Gemini `gemini-flash-latest` (free tier, mode-specific tools)
+//   0b. Groq   (free tier)
+//   0c. Lovable AI Gateway (workspace credits — first tier that costs money)
 //   2.  Mode-designated provider (Claude Sonnet for ARCH/CODEX, Grok for WATCHTOWER)
 //   3.  OpenAI gpt-4o-mini
 //   4.  Claude Haiku
@@ -324,52 +324,27 @@ export async function callWithFallback(
 ): Promise<{ content: string; provider: string }> {
   const mU = mode.toUpperCase();
 
-  // Tier 0a — Free Gemini 2.0 Flash (no per-token cost, 15 RPM limit)
-  // Skip for DEEP (thinking) mode — only 2.5 supports thinkingConfig.
-  if (keys.gemini && mU !== "DEEP" && !isProviderUnhealthy("gemini-2.0-flash")) {
-    try {
-      return { content: await callGemini(messages, system, keys.gemini, { model: "gemini-2.0-flash" }), provider: "gemini-2.0-flash" };
-    } catch (err: any) {
-      if (err instanceof ProviderUnavailableError) {
-        markProviderUnhealthy("gemini-2.0-flash", err.status === 429 ? 60_000 : 120_000);
-      }
-      console.warn(`[fallback] gemini-2.0-flash failed (${err.message}) → trying flash-lite`);
-    }
-  }
-
-  // Tier 0b — Free Gemini 2.0 Flash Lite (separate rate-limit pool, 30 RPM)
-  if (keys.gemini && mU !== "DEEP" && !isProviderUnhealthy("gemini-2.0-flash-lite")) {
-    try {
-      return { content: await callGemini(messages, system, keys.gemini, { model: "gemini-2.0-flash-lite" }), provider: "gemini-2.0-flash-lite" };
-    } catch (err: any) {
-      if (err instanceof ProviderUnavailableError) {
-        markProviderUnhealthy("gemini-2.0-flash-lite", err.status === 429 ? 60_000 : 120_000);
-      }
-      console.warn(`[fallback] gemini-2.0-flash-lite failed (${err.message}) → escalating to paid tier`);
-    }
-  }
-
-  // Tier 0c — Groq Llama 3.3 70B (~500 tok/s, generous free tier, no thinking overhead)
-  if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-llama")) {
-    try {
-      return { content: await callGroq(messages, system, keys.groq), provider: "groq-llama-70b" };
-    } catch (err: any) {
-      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
-      console.warn(`[fallback] Groq failed (${err.message}) → cascading`);
-    }
-  }
-
-  // Tier 0d — Lovable AI Gateway (workspace credits; broad model coverage)
-  if (keys.lovable && !isProviderUnhealthy("lovable")) {
-    try {
-      return { content: await callLovable(messages, system, keys.lovable, { thinking: mU === "DEEP" }), provider: "lovable-gateway" };
-    } catch (err: any) {
-      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", err.status === 429 ? 60_000 : 300_000);
-      console.warn(`[fallback] Lovable gateway failed (${err.message}) → cascading`);
-    }
-  }
-
-  // Tier 1 — Gemini 2.5 Flash (paid; supports thinking, grounding, code-exec)
+  // Tier 0a — Gemini on the rolling `gemini-flash-latest` alias (free tier).
+  //
+  // This was three consecutive Gemini attempts: gemini-2.0-flash, then
+  // gemini-2.0-flash-lite, then this one. Google has retired both pinned
+  // versions — verified against production, they answer
+  //   404 "This model models/gemini-2.0-flash is no longer available.
+  //        Please update your code to use models/gemini-3.6-flash"
+  // — so the first two tiers could not succeed, only burn a round trip.
+  //
+  // The ordering consequence was the expensive part. Those two dead tiers sat
+  // above the Lovable gateway, and Groq's pinned model is likewise
+  // decommissioned (404 model_not_found), so all three free tiers failed in
+  // sequence and every request in the system landed on Lovable and spent
+  // workspace credits — while the free Gemini tier that does work sat below it
+  // and was never reached. That is the exact inverse of what this cascade
+  // exists to do, and it is what exhausted the workspace credit limit
+  // ("credit_limit_reached", observed in production).
+  //
+  // One Gemini tier now, on the alias rather than a pinned version, so it
+  // cannot rot silently the next time Google retires a model. Kept above every
+  // paid tier, which is the whole point of the ordering.
   if (keys.gemini && !isProviderUnhealthy("gemini")) {
     try {
       const geminiOpts = {
@@ -380,7 +355,28 @@ export async function callWithFallback(
       return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-flash-latest" };
     } catch (err: any) {
       if (err instanceof ProviderUnavailableError) markProviderUnhealthy("gemini");
-      console.warn(`[fallback] Gemini 2.5 Flash failed (${err.message}) → cascading`);
+      console.warn(`[fallback] Gemini failed (${err.message}) → cascading`);
+    }
+  }
+
+  // Tier 0b — Groq (free tier, ~500 tok/s, no thinking overhead)
+  if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-llama")) {
+    try {
+      return { content: await callGroq(messages, system, keys.groq), provider: GROQ_MODEL };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
+      console.warn(`[fallback] Groq failed (${err.message}) → cascading`);
+    }
+  }
+
+  // Tier 0c — Lovable AI Gateway. First tier that costs money (workspace
+  // credits), so it must stay below both free tiers above.
+  if (keys.lovable && !isProviderUnhealthy("lovable")) {
+    try {
+      return { content: await callLovable(messages, system, keys.lovable, { thinking: mU === "DEEP" }), provider: "lovable-gateway" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", err.status === 429 ? 60_000 : 300_000);
+      console.warn(`[fallback] Lovable gateway failed (${err.message}) → cascading`);
     }
   }
 
@@ -715,8 +711,23 @@ export async function callGrokStream(messages: any[], system: string, key: strin
   return oaiSseToTextStream(res.body!);
 }
 
-// ── Groq (Llama 3.3 70B — ~500 tok/s, generous free tier) ─────────────────
-export async function callGroq(messages: any[], system: string, key: string, model = "llama-3.3-70b-versatile"): Promise<string> {
+// ── Groq (~500 tok/s, generous free tier) ─────────────────────────────────
+//
+// `llama-3.3-70b-versatile` was pinned here and Groq has decommissioned it —
+// verified against production, it answers
+//   404 {"error":{"message":"The model `llama-3.3-70b-versatile` does not
+//        exist or you do not have access to it.","code":"model_not_found"}}
+// so this whole tier was dead across every function that uses the cascade.
+//
+// Unlike Gemini, Groq publishes no rolling `-latest` alias, so a pinned ID is
+// unavoidable and will eventually rot again the same way. Reading it from the
+// environment means the next decommission is a secret change in the Supabase
+// dashboard rather than a redeploy of every function that bundles this module
+// — which matters here specifically, because _shared is bundled per-function
+// at deploy time and a change to this file does NOT redeploy its dependents.
+export const GROQ_MODEL = Deno.env.get("GROQ_MODEL") ?? "llama-3.1-8b-instant";
+
+export async function callGroq(messages: any[], system: string, key: string, model = GROQ_MODEL): Promise<string> {
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -737,7 +748,7 @@ export async function callGroq(messages: any[], system: string, key: string, mod
   return d.choices?.[0]?.message?.content ?? "";
 }
 
-export async function callGroqStream(messages: any[], system: string, key: string, model = "llama-3.3-70b-versatile"): Promise<ReadableStream<string>> {
+export async function callGroqStream(messages: any[], system: string, key: string, model = GROQ_MODEL): Promise<ReadableStream<string>> {
   const res = await fetchStreamWithFailover("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -780,9 +791,9 @@ export async function callWithFallbackStream(
       console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading`);
     }
   }
-  // Tier 0b — Groq (fast Llama 3.3 70B, ~500 tok/s)
+  // Tier 0b — Groq (~500 tok/s)
   if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-llama")) {
-    try { return { stream: await callGroqStream(messages, system, keys.groq), provider: "groq-llama-70b" }; }
+    try { return { stream: await callGroqStream(messages, system, keys.groq), provider: GROQ_MODEL }; }
     catch (e: any) {
       if (e instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
       console.warn(`[stream-fallback] Groq: ${e.message} → cascading`);

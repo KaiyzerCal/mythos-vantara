@@ -8,6 +8,7 @@ import {
   callGemini,
   callGroq,
   getProviderKeys,
+  GROQ_MODEL,
 } from "../_shared/providers.ts";
 
 const corsHeaders = {
@@ -157,26 +158,42 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
     console.warn(`[persona-router] ${tier} failed (${reason})`);
   };
 
-  // Tier 0a — Gemini 2.0 Flash (free)
+  // Tier 0a — Gemini on the rolling `gemini-flash-latest` alias (free).
+  //
+  // This pinned `gemini-2.0-flash`, which Google has retired. The tier
+  // therefore could not succeed — it answered
+  //   404 "This model models/gemini-2.0-flash is no longer available.
+  //        Please update your code to use models/gemini-3.6-flash"
+  // on every request, which is precisely why persona chat fell through the
+  // whole cascade to "All AI providers unavailable" while MAVIS chat and
+  // council chat kept working: those go through callWithFallbackStream, whose
+  // Gemini tier omits the model and so gets callGemini's `gemini-flash-latest`
+  // default. Same key, same free tier — only the pinned version differed.
+  //
+  // Omitting the model here uses that same alias, so this tier now matches the
+  // one that is demonstrably working in production and cannot rot the next
+  // time a specific version is retired.
   if (geminiKey) {
     try {
-      return await callGemini(messages, system, geminiKey, { model: "gemini-2.0-flash" });
+      return await callGemini(messages, system, geminiKey);
     } catch (err: any) {
-      note("gemini-2.0-flash", err?.message ?? String(err));
+      note("gemini-flash-latest", err?.message ?? String(err));
     }
   } else {
-    failures.push("gemini-2.0-flash: no key");
+    failures.push("gemini-flash-latest: no key");
   }
 
-  // Tier 0b — Groq Llama 3.3 70B (free)
+  // Tier 0b — Groq (free). Model comes from the shared GROQ_MODEL, since the
+  // previously pinned llama-3.3-70b-versatile has been decommissioned and
+  // answered 404 model_not_found here too.
   if (groqKey) {
     try {
       return await callGroq(messages, system, groqKey);
     } catch (err: any) {
-      note("groq-llama-3.3-70b", err?.message ?? String(err));
+      note(GROQ_MODEL, err?.message ?? String(err));
     }
   } else {
-    failures.push("groq-llama-3.3-70b: no key");
+    failures.push(`${GROQ_MODEL}: no key`);
   }
 
   // Tier 1 — Lovable Gemini Flash (free)
