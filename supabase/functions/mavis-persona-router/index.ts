@@ -144,13 +144,28 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
     lovable: lovableKey,
   } = getProviderKeys();
 
+  // Why each tier was skipped or how it failed. Every tier below logs its own
+  // reason to console.warn and then drops it, so when the whole cascade is
+  // exhausted the caller gets "All AI providers unavailable" and nothing else —
+  // a message that reads as "you have no credits" even when the real cause was
+  // a malformed request or a rate limit on a key that is present and funded.
+  // Function logs are not reachable from the app, so the reasons have to travel
+  // with the error.
+  const failures: string[] = [];
+  const note = (tier: string, reason: string) => {
+    failures.push(`${tier}: ${reason}`);
+    console.warn(`[persona-router] ${tier} failed (${reason})`);
+  };
+
   // Tier 0a — Gemini 2.0 Flash (free)
   if (geminiKey) {
     try {
       return await callGemini(messages, system, geminiKey, { model: "gemini-2.0-flash" });
     } catch (err: any) {
-      console.warn(`[persona-router] Gemini 2.0 Flash failed (${err.message}) → trying Groq`);
+      note("gemini-2.0-flash", err?.message ?? String(err));
     }
+  } else {
+    failures.push("gemini-2.0-flash: no key");
   }
 
   // Tier 0b — Groq Llama 3.3 70B (free)
@@ -158,8 +173,10 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
     try {
       return await callGroq(messages, system, groqKey);
     } catch (err: any) {
-      console.warn(`[persona-router] Groq failed (${err.message}) → falling back to Lovable Gateway`);
+      note("groq-llama-3.3-70b", err?.message ?? String(err));
     }
+  } else {
+    failures.push("groq-llama-3.3-70b: no key");
   }
 
   // Tier 1 — Lovable Gemini Flash (free)
@@ -167,8 +184,10 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
     try {
       return await callLovableGateway("google/gemini-3.6-flash", system, messages, lovableKey);
     } catch (err: any) {
-      console.warn(`[persona-router] Gemini Flash failed (${err.message}) → falling back to persona's chosen model: ${model}`);
+      note("lovable-gateway", err?.message ?? String(err));
     }
+  } else {
+    failures.push("lovable-gateway: no key");
   }
 
   // Tier 2 — Persona's MAVIS-chosen fallback model
@@ -185,26 +204,42 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
     }
   } catch (err: any) {
     if (!(err instanceof ProviderUnavailableError)) throw err;
-    console.warn(`[persona-router] persona-chosen ${err.providerName} unfunded (${err.status}) → safety net`);
+    note(`persona-model:${model}`, `unfunded (${err.status})`);
   }
 
   // Tier 3 — Generic safety net (skip whichever the persona already tried)
   if (openaiKey && !m.startsWith("gpt") && !m.startsWith("openai/") && !m.startsWith("ft:")) {
     try { return await callOpenAI("gpt-4o-mini", system, messages, openaiKey); }
-    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+    catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      note("gpt-4o-mini", `unfunded (${err.status})`);
+    }
   }
   if (claudeKey && !m.startsWith("claude")) {
     try { return await callClaude("claude-haiku-4-5-20251001", system, messages, claudeKey); }
-    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+    catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      note("claude-haiku", `unfunded (${err.status})`);
+    }
     try { return await callClaude("claude-sonnet-4-6", system, messages, claudeKey); }
-    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+    catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      note("claude-sonnet", `unfunded (${err.status})`);
+    }
   }
   if (grokKey && !m.startsWith("grok")) {
     try { return await callGrok("grok-3-mini", system, messages, grokKey); }
-    catch (err: any) { if (!(err instanceof ProviderUnavailableError)) throw err; }
+    catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      note("grok-3-mini", `unfunded (${err.status})`);
+    }
   }
 
-  throw new Error("All AI providers unavailable (no funded keys, no Lovable AI Gateway).");
+  // Carries every tier's reason. "No funded keys" was previously asserted
+  // rather than established — it is only true if the reasons below actually
+  // say so, and they may instead show a rate limit or a rejected request on a
+  // key that is present and working elsewhere.
+  throw new Error(`All AI providers unavailable — ${failures.join(" | ")}`);
 }
 
 // ── System prompt builder ─────────────────────────────────────────────────────
