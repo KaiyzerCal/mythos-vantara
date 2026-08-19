@@ -667,10 +667,36 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
       }
     } catch { /* non-critical */ }
 
-    const systemPrompt = buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + attBlock + archivedBlock;
+    // Voice gets a much smaller prompt than text chat.
+    //
+    // Measured against production, the full prompt is 26,741 tokens — Groq
+    // reports it exactly, as "Limit 8000, Requested 26741". Two consequences,
+    // both of which were showing up as "the persona call just doesn't work":
+    //
+    //   * It is 3.3x Groq's entire free per-minute budget, so the Groq tier
+    //     could never serve a persona call at all no matter which model was
+    //     configured. It answered 413 every time, which read as one more dead
+    //     fallback rather than as a size problem.
+    //   * It is why Gemini went from 7.6s to 25s and started exceeding the 30s
+    //     per-request signal. A prompt that large is slow to process even when
+    //     the provider is healthy.
+    //
+    // A spoken reply is one or two sentences. It needs who the persona is, the
+    // relationship state, recent turns and any hard rules — not a full dump of
+    // quests, skills, inventory, calendar, health and finance, nor the archived
+    // transcripts of every previous conversation. Text chat is unchanged and
+    // still gets everything.
+    const isVoice = channel === "voice";
+    const systemPrompt = isVoice
+      ? buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + settingsBlock + attBlock
+      : buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + attBlock + archivedBlock;
+
+    // Voice also carries far less history — 50 turns of transcript is both
+    // unnecessary for a spoken exchange and a large share of the token count.
+    const historyForLlm = isVoice ? history.slice(-8) : history;
 
     const llmMessages = [
-      ...history.map((h: any) => ({ role: h.role, content: h.content })),
+      ...historyForLlm.map((h: any) => ({ role: h.role, content: h.content })),
       { role: "user", content: message },
     ];
 
