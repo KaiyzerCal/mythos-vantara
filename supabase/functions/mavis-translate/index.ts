@@ -77,7 +77,7 @@ async function translateWithGemini(text: string, source: string, target: string)
     const targetName = LANGUAGE_NAMES[target] ?? target;
     const sourceName = source === "auto" ? "the source language" : (LANGUAGE_NAMES[source] ?? source);
     const prompt = `Translate the following text from ${sourceName} to ${targetName}. Return ONLY the translation, nothing else:\n\n${text}`;
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 2048 } }),

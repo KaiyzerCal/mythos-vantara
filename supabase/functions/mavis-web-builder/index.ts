@@ -842,7 +842,10 @@ interface PageBrief { business_name?: string; business_type?: string; style?: st
 
 async function callAI(prompt: string, maxTokens = 8192): Promise<any> {
   if (GEMINI_KEY) {
-    const GEMINI_MODELS = ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"];
+    // All three previous entries are dead: a retired preview, a retired 2.0,
+    // and the deprecated 1.5 line. The loop below could only 404 three times.
+    // The rolling alias always resolves to the current Flash model.
+    const GEMINI_MODELS = ["gemini-flash-latest"];
     const gemBody = JSON.stringify({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.8, responseMimeType: "application/json", maxOutputTokens: maxTokens },

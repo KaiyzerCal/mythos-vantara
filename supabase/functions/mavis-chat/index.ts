@@ -1890,7 +1890,7 @@ ${telosData
                     const extractPrompt = `You are analyzing a conversation between an operator and MAVIS (their bonded AI). Extract any new preferences, rules, lessons, corrections, or recurring patterns revealed in this exchange. Only extract something if it's genuinely new information about the operator's preferences or principles — not generic facts.\n\nRespond with ONLY a JSON array (may be empty):\n[{"category":"preference|hard_rule|lesson_learned|workflow_habit|correction","key":"short identifier","value":"concise statement"}]`;
                     let raw = "";
                     if (geminiKey) {
-                      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: extractPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserText.slice(0, 800)}\nMAVIS: ${accumulated.slice(0, 800)}` }] }], generationConfig: { maxOutputTokens: 300 } }) });
+                      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: extractPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserText.slice(0, 800)}\nMAVIS: ${accumulated.slice(0, 800)}` }] }], generationConfig: { maxOutputTokens: 300 } }) });
                       if (r.ok) { const d = await r.json(); raw = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
                     }
                     if (!raw && claudeKey) {
@@ -1917,7 +1917,7 @@ ${telosData
                     const factPrompt = `Extract concrete facts, decisions, or commitments from this conversation that would be valuable to remember long-term. Only extract things that are genuinely significant (real decisions, named projects, specific plans, key context). Skip pleasantries and generic statements.\n\nRespond with ONLY a JSON array (may be empty []):\n[{"title":"short fact title","content":"full context in 1-3 sentences","tags":["tag1","tag2"]}]`;
                     let raw = "";
                     if (geminiKey) {
-                      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: factPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserText.slice(0, 1000)}\nMAVIS: ${accumulated.slice(0, 1000)}` }] }], generationConfig: { maxOutputTokens: 400 } }) });
+                      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemInstruction: { parts: [{ text: factPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserText.slice(0, 1000)}\nMAVIS: ${accumulated.slice(0, 1000)}` }] }], generationConfig: { maxOutputTokens: 400 } }) });
                       if (r.ok) { const d = await r.json(); raw = d.candidates?.[0]?.content?.parts?.[0]?.text ?? ""; }
                     }
                     if (!raw && claudeKey) {
@@ -2182,7 +2182,7 @@ Format:
             });
             if (cr.ok) { const d = await cr.json(); criticText = d.content?.[0]?.text ?? ""; }
           } else if (geminiKey) {
-            const cr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+            const cr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -2245,7 +2245,7 @@ Examples:
 
           let raw = "";
           if (geminiKey) {
-            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ systemInstruction: { parts: [{ text: extractPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserContent.slice(0, 800)}\nMAVIS: ${content.slice(0, 800)}` }] }], generationConfig: { maxOutputTokens: 300 } }),
@@ -2293,7 +2293,7 @@ Respond with ONLY a JSON array (may be empty []):
 
           let raw = "";
           if (geminiKey) {
-            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+            const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ systemInstruction: { parts: [{ text: factPrompt }] }, contents: [{ role: "user", parts: [{ text: `Operator: ${lastUserContent.slice(0, 1000)}\nMAVIS: ${content.slice(0, 1000)}` }] }], generationConfig: { maxOutputTokens: 400 } }),

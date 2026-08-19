@@ -77,7 +77,11 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        // Groq decommissioned llama-3.3-70b-versatile (404 model_not_found) and
+        // publishes no rolling alias, so this is read from the environment —
+        // the same GROQ_MODEL secret mavis-agent and _shared/providers.ts use.
+        // A future decommission is then a dashboard change, not a redeploy.
+        model: Deno.env.get("GROQ_MODEL") ?? "llama-3.1-8b-instant",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userMessage },

@@ -202,7 +202,7 @@ async function extractDocWithGemini(base64: string, mediaType: string, prompt: s
   if (!GEMINI_KEY) return null;
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -397,7 +397,7 @@ async function analyzeVideoWithGemini(
     : `Analyze this video completely:\n\n1. VISUAL (with timestamps MM:SS): What is happening scene by scene? People, actions, text on screen, objects.\n2. AUDIO: Transcribe any speech verbatim. Note [music], [silence], etc.\n3. KEY MOMENTS: 3-5 most notable moments with timestamps.\n4. SUMMARY: One paragraph overview.`;
 
   const analyzeRes = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -512,7 +512,7 @@ async function saveExchange(
 
 // ─────────────────────────────────────────────────────────────
 // FREE-GEMINI-FIRST LLM ROUTER
-// Cascade: gemini-2.0-flash (free) → gemini-2.0-flash-lite (free)
+// Cascade: gemini-flash-latest (free, rolling alias)
 //          → explicit persona/council model → Claude Haiku → GPT-4o-mini
 // ─────────────────────────────────────────────────────────────
 
@@ -624,31 +624,29 @@ async function callLLM(
   messages: ChatMessage[],
   maxTokens = 800,
 ): Promise<string> {
-  // ── Tier 1: Free Gemini 2.0 Flash (15 RPM) ────────────────────────────
-  if (GEMINI_KEY && !_isUnhealthy("gemini-2.0-flash")) {
+  // ── Tier 1: Free Gemini on the rolling alias ──────────────────────────
+  //
+  // Tiers 1 and 2 were gemini-2.0-flash and gemini-2.0-flash-lite. Google has
+  // retired both, so this bot's entire free tier returned 404 and every
+  // Telegram message fell through to the paid models below.
+  if (GEMINI_KEY && !_isUnhealthy("gemini-flash-latest")) {
     try {
-      const text = await _callGeminiModel("gemini-2.0-flash", system, messages, maxTokens);
+      const text = await _callGeminiModel("gemini-flash-latest", system, messages, maxTokens);
       if (text) return text;
     } catch (err) {
-      console.warn("[llm] gemini-2.0-flash failed:", err instanceof Error ? err.message : String(err));
+      console.warn("[llm] gemini-flash-latest failed:", err instanceof Error ? err.message : String(err));
     }
   }
 
-  // ── Tier 2: Free Gemini 2.0 Flash Lite (30 RPM, separate quota) ───────
-  if (GEMINI_KEY && !_isUnhealthy("gemini-2.0-flash-lite")) {
-    try {
-      const text = await _callGeminiModel("gemini-2.0-flash-lite", system, messages, maxTokens);
-      if (text) return text;
-    } catch (err) {
-      console.warn("[llm] gemini-2.0-flash-lite failed:", err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  // ── Tier 3: Persona/council's assigned model ───────────────────────────
+  // ── Tier 2: Persona/council's assigned model ───────────────────────────
   const effectiveModel = model || "claude-haiku-4-5-20251001";
   const provider       = detectProvider(effectiveModel);
-  // Skip if it's a Gemini model we already tried
-  const isFreeTier = effectiveModel === "gemini-2.0-flash" || effectiveModel === "gemini-2.0-flash-lite";
+  // Skip if it's the Gemini model we already tried above. The two retired
+  // ids stay in this test because personas stored in the DB still carry them
+  // as their configured model — retrying one here would just 404 again.
+  const isFreeTier = effectiveModel === "gemini-flash-latest"
+                  || effectiveModel === "gemini-2.0-flash"
+                  || effectiveModel === "gemini-2.0-flash-lite";
   if (!isFreeTier && !_isUnhealthy(effectiveModel)) {
     try {
       if (provider === "gemini"    && GEMINI_KEY)    return await _callGeminiModel(effectiveModel, system, messages, maxTokens);
@@ -1692,7 +1690,7 @@ async function queryMavisForContext(question: string, target: string, uid: strin
 
     const context = parts.join("\n\n").slice(0, 5000);
     const answer = await callLLM(
-      "gemini-2.0-flash",
+      "gemini-flash-latest",
       "You are MAVIS's internal retrieval system. Answer the question in 2-4 sentences using ONLY the provided context. If the answer isn't in the context, say so briefly. Be direct and factual.",
       [{ role: "user", content: `CONTEXT:\n${context}\n\nQUESTION: ${question}` }],
       250,
@@ -1767,7 +1765,7 @@ async function resolveA2AForTelegram(text: string, uid: string): Promise<string>
     entityHistory = ((hist ?? []) as any[]).reverse().map((m: any) => ({ role: m.role, content: String(m.content ?? "") }));
   }
 
-  const entityModel = persona?.model ?? council?.model ?? "gemini-2.0-flash";
+  const entityModel = persona?.model ?? council?.model ?? "gemini-flash-latest";
   const entityMessages: ChatMessage[] = [
     ...entityHistory,
     { role: "user", content: text },
@@ -3009,8 +3007,8 @@ async function resolveMultiEntityDialogue(text: string, uid: string): Promise<st
 
   const sysA = buildSystem(entityA, !!pA.data);
   const sysB = buildSystem(entityB, !!pB.data);
-  const modelA = entityA.model ?? "gemini-2.0-flash";
-  const modelB = entityB.model ?? "gemini-2.0-flash";
+  const modelA = entityA.model ?? "gemini-flash-latest";
+  const modelB = entityB.model ?? "gemini-flash-latest";
 
   // Turn 1: A responds to the topic
   const turn1Prompt = `The operator wants to hear your thoughts on: ${topic || text}. Speak naturally and directly.`;

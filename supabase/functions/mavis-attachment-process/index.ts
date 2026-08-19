@@ -140,7 +140,7 @@ async function analyzeVideoWithGemini(blob: Blob, fileName: string, mime: string
 Be thorough — this analysis is the only way the AI system can "see" this video.`;
 
   const analyzeRes = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -181,10 +181,13 @@ async function describeWithAI(buf: ArrayBuffer, mime: string, fileName: string, 
   const b64 = base64Encode(buf);
   const isImage = mime.startsWith("image/");
 
-  // ── Tier 1: Free Gemini 2.0 Flash (images + PDFs) ──
+  // ── Tier 1: Free Gemini on the rolling alias (images + PDFs) ──
+  // Was ["gemini-2.0-flash", "gemini-2.5-flash-preview-05-20"] — a retired
+  // model and a retired preview, so both iterations 404'd and attachment
+  // description silently fell through to the paid tier below.
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   if (geminiKey) {
-    for (const model of ["gemini-2.0-flash", "gemini-2.5-flash-preview-05-20"]) {
+    for (const model of ["gemini-flash-latest"]) {
       try {
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,

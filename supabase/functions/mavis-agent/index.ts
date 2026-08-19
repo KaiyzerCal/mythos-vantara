@@ -2220,7 +2220,7 @@ async function runAgentLoop(
     groq: {
       url:        "https://api.groq.com/openai/v1/chat/completions",
       key:        Deno.env.get("GROQ_API_KEY") ?? "",
-      model:      Deno.env.get("GROQ_MODEL") ?? "llama-3.3-70b-versatile",
+      model:      Deno.env.get("GROQ_MODEL") ?? "llama-3.1-8b-instant",
       tokenParam: "max_tokens",
     },
     grok: {

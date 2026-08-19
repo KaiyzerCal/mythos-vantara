@@ -20,7 +20,7 @@ const SB_SRK       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const CLAUDE_API    = "https://api.anthropic.com/v1/messages";
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent`;
 
 // ── Image source builder ────────────────────────────────────────
 
@@ -110,16 +110,17 @@ async function callGeminiVision(
   imageSource: ImageSource,
   prompt: string,
   maxTokens = 4096,
-  model = "gemini-2.0-flash",
+  model = "gemini-flash-latest",
 ): Promise<string> {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY not configured");
 
+  // Single model on the rolling alias. This used to default to
+  // gemini-2.0-flash and then fall back to gemini-2.5-flash-preview-05-20;
+  // Google has retired the first and previews do not survive, so the list was
+  // two dead entries and the function could only fail. `gemini-flash-latest`
+  // always resolves to the current Flash model, which is multimodal, so it
+  // covers this vision path as well as text.
   const models = [model];
-  // If caller didn't explicitly ask for a different model, try the free tier first
-  // then fall back to the higher-quality 2.5 Flash preview.
-  if (model === "gemini-2.0-flash") {
-    models.push("gemini-2.5-flash-preview-05-20");
-  }
 
   let lastErr: Error | undefined;
   for (const m of models) {
@@ -251,7 +252,7 @@ serve(async (req) => {
         if (GEMINI_KEY && model === "claude-haiku-4-5-20251001") {
           try {
             const text = await callGeminiVision(imageSource, prompt, 4096);
-            return json({ result: text, model: "gemini-2.0-flash" });
+            return json({ result: text, model: "gemini-flash-latest" });
           } catch (e: any) {
             console.warn("[analyze] Gemini failed, falling back to Claude:", e.message);
           }
@@ -281,7 +282,7 @@ serve(async (req) => {
         if (GEMINI_KEY && model === "claude-haiku-4-5-20251001") {
           try {
             const text = await callGeminiVision(imageSource, prompt, 2048);
-            return json({ description: text, detail, model: "gemini-2.0-flash" });
+            return json({ description: text, detail, model: "gemini-flash-latest" });
           } catch (e: any) {
             console.warn("[describe] Gemini failed, falling back to Claude:", e.message);
           }

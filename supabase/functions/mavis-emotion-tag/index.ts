@@ -53,7 +53,7 @@ async function humeTextEmotion(text: string): Promise<Record<string, number>> {
 // Fallback: Gemini-based emotion scoring (10 emotions, not 48)
 async function geminiTextEmotion(text: string): Promise<Record<string, number>> {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
