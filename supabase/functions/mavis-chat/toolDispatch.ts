@@ -687,7 +687,7 @@ export async function callGeminiForTools(
   }));
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${key}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -863,7 +863,7 @@ export async function resolveActionsNative(
 ): Promise<string> {
   let calls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
-  if (aiKeys.gemini && !isProviderUnhealthy("gemini-2.0-flash")) {
+  if (aiKeys.gemini && !isProviderUnhealthy("gemini-flash-latest")) {
     calls = await callGeminiForTools(messages, system, aiKeys.gemini);
   }
   if (calls.length === 0 && aiKeys.claude) {
@@ -955,7 +955,7 @@ export async function resolveActionsNative(
           ...entityHistory.slice(-8).map((m: any) => ({ role: m.role as "user"|"assistant", content: String(m.content ?? "").slice(0,300) })),
           { role: "user" as const, content: `MAVIS is consulting you on behalf of the operator. Question: ${question}` },
         ];
-        const entityModel = entity.model ?? "gemini-2.0-flash";
+        const entityModel = entity.model ?? "gemini-flash-latest";
         const entityResp = await Promise.race([
           (entityModel.includes("claude")
             ? callClaude(entityMsgs, entitySystem, (await (async () => {

@@ -12,13 +12,12 @@
 // Returns { content, model_used, provider, cost_usd }
 //
 // Cascade order:
-//   1. gemini-2.0-flash      (free tier, 15 RPM)
-//   2. gemini-2.0-flash-lite (free tier, 30 RPM, separate quota)
-//   3. Explicit model's native provider (if caller specified one)
-//   4. MAVIS Choice by task_type:
+//   1. gemini-flash-latest   (free tier, rolling alias)
+//   2. Explicit model's native provider (if caller specified one)
+//   3. MAVIS Choice by task_type:
 //      search/realtime  → grok-3-mini → gpt-4o-mini
 //      code/debug       → claude-sonnet → gpt-4o
-//      complex/reasoning→ gemini-2.5-flash → claude-sonnet → gpt-4o
+//      complex/reasoning→ gemini-flash-latest → claude-sonnet → gpt-4o
 //      default/chat     → claude-haiku → gpt-4o-mini → grok-3-mini
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -45,8 +44,7 @@ function markUnhealthy(key: string, ttlMs = 120_000): void {
 
 // ── Cost table (USD per 1M tokens, 4 chars ≈ 1 token) ──────────────────────
 const RATES: Record<string, [number, number]> = {
-  "gemini-2.0-flash":           [0.0,  0.0 ],
-  "gemini-2.0-flash-lite":      [0.0,  0.0 ],
+  "gemini-flash-latest":        [0.0,  0.0 ],
   "gemini-2.5-flash":           [0.075, 0.30],
   "gemini-2.5-thinking":        [3.5,  10.5 ],
   "claude-haiku-4-5-20251001":  [0.25,  1.25],
@@ -56,7 +54,10 @@ const RATES: Record<string, [number, number]> = {
   "grok-3-mini":                [0.30,  0.50],
 };
 function estimateCost(model: string, inputChars: number, outputChars: number): number {
-  const key = model.startsWith("gemini-2.0") ? model :
+  // The free tier must be matched before the generic fallback. Without an
+  // explicit branch, "gemini-flash-latest" misses every prefix test above and
+  // lands on the "gpt-4o-mini" default, billing a free call at a paid rate.
+  const key = model.startsWith("gemini-flash") ? "gemini-flash-latest" :
               model.startsWith("gemini-2.5") && model.includes("thinking") ? "gemini-2.5-thinking" :
               model.startsWith("gemini-2.5") ? "gemini-2.5-flash" :
               RATES[model] ? model : "gpt-4o-mini";
@@ -244,7 +245,7 @@ async function mavisChoiceCascade(
 
   // Complex / reasoning / analysis / strategy → Gemini 2.5 Flash → Claude Sonnet → GPT-4o
   if (["complex", "reasoning", "analysis", "strategy", "deep", "plan"].some(t => task.includes(t))) {
-    const r1 = await tryModel("gemini", "gemini-2.5-flash-preview-05-20", "gemini-2.5-flash", system, messages, maxTokens);
+    const r1 = await tryModel("gemini", "gemini-flash-latest", "gemini-flash-latest", system, messages, maxTokens);
     if (r1) return r1;
     const r2 = await tryModel("anthropic", "claude-sonnet-4-6", "claude-sonnet", system, messages, maxTokens);
     if (r2) return r2;
@@ -274,27 +275,22 @@ async function route(
   const inputChars = system.length + messages.reduce((n: number, m: any) => n + (m.content?.length ?? 0), 0);
   let result: RouteResult | null = null;
 
-  // ── Step 1: Free Gemini 2.0 Flash ────────────────────────────────────────
-  if (GEMINI_KEY && !isUnhealthy("gemini-2.0-flash")) {
+  // ── Step 1: Free Gemini on the rolling alias ─────────────────────────────
+  //
+  // Steps 1 and 2 were gemini-2.0-flash and gemini-2.0-flash-lite. Google has
+  // retired both, so each returned 404 and this router could never serve a
+  // free response — every request fell straight through to Step 3/4 and paid
+  // providers, which is the opposite of what a "free first" router is for.
+  // `gemini-flash-latest` always resolves to the current Flash model, so this
+  // tier cannot rot the next time a version is retired.
+  if (GEMINI_KEY && !isUnhealthy("gemini-flash-latest")) {
     try {
-      const content = await callGemini("gemini-2.0-flash", system, messages, maxTokens);
-      result = { content, model_used: "gemini-2.0-flash", provider: "gemini" };
+      const content = await callGemini("gemini-flash-latest", system, messages, maxTokens);
+      result = { content, model_used: "gemini-flash-latest", provider: "gemini" };
     } catch (err: any) {
       const ttl = err instanceof ProviderError && err.status === 429 ? 60_000 : 120_000;
-      markUnhealthy("gemini-2.0-flash", ttl);
-      console.warn("[router] gemini-2.0-flash failed:", err.message);
-    }
-  }
-
-  // ── Step 2: Free Gemini 2.0 Flash Lite (separate rate-limit pool) ────────
-  if (!result && GEMINI_KEY && !isUnhealthy("gemini-2.0-flash-lite")) {
-    try {
-      const content = await callGemini("gemini-2.0-flash-lite", system, messages, maxTokens);
-      result = { content, model_used: "gemini-2.0-flash-lite", provider: "gemini" };
-    } catch (err: any) {
-      const ttl = err instanceof ProviderError && err.status === 429 ? 60_000 : 120_000;
-      markUnhealthy("gemini-2.0-flash-lite", ttl);
-      console.warn("[router] gemini-2.0-flash-lite failed:", err.message);
+      markUnhealthy("gemini-flash-latest", ttl);
+      console.warn("[router] gemini-flash-latest failed:", err.message);
     }
   }
 

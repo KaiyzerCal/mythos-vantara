@@ -57,8 +57,12 @@ export function estimateLlmCost(provider: string, inputChars: number, outputChar
   const inTok  = inputChars  / 4;
   const outTok = outputChars / 4;
   const RATES: Record<string, [number, number]> = {
-    "gemini-2.0-flash":       [0.0,    0.0  ],  // free tier
-    "gemini-2.0-flash-lite":  [0.0,    0.0  ],  // free tier
+    // The gemini-2.0-flash / -lite keys are gone: Google retired both models,
+    // so nothing reports under those names any more. gemini-flash-latest is
+    // now the only Gemini text tier. Its rate is deliberately left at the paid
+    // figure — on a free-tier key the real cost is 0, so this over-reports
+    // rather than under-reports, which is the safer direction for a spend
+    // estimate to be wrong in.
     "gemini-flash-latest":    [0.075,  0.30 ],
     "gemini-2.5-thinking":    [3.5,   10.50 ],
     "openai-mini":            [0.15,   0.60 ],

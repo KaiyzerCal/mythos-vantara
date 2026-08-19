@@ -219,7 +219,7 @@ async function extractThumbnailTimestamp(videoUrl: string, clipStart: number, cl
   const prompt = `Given a video clip from ${clipStart}s to ${clipEnd}s, what timestamp (in seconds) would make the best thumbnail? Consider: peak expression, action moment, surprising visual. Return ONLY a single number (the timestamp).`;
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
