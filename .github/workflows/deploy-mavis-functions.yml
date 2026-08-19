@@ -1,12 +1,32 @@
 name: Deploy VANTARA (Mavis) Edge Functions
 
+# DISABLED on push — this workflow does not deploy to the project the app uses.
+#
+# The app talks to Supabase project wlygujlvsfimhtqsdxrx (see .env,
+# VITE_SUPABASE_URL). That project belongs to *Lovable's* account, not to the
+# account whose SUPABASE_ACCESS_TOKEN this workflow holds. Verified two ways:
+# deploys here answered 403 "Your account does not have the necessary
+# privileges" once SUPABASE_PROJECT_REF was set to it, and the Supabase MCP
+# under the same credentials answers "You do not have permission to perform
+# this action" for that project.
+#
+# So every green run of this workflow was deploying to a *different* project.
+# That is also what the earlier 402 "Max number of functions reached" was: the
+# wrong project filling up, not the real one. The practical damage was a false
+# signal — roughly 85 functions' worth of cascade work reported as deployed
+# while production kept running the old code, which is what made the persona
+# chat failure so hard to place.
+#
+# Edge functions for this project are deployed through Lovable, which owns the
+# project. Lovable syncs code from GitHub automatically but does NOT deploy
+# supabase/functions/** from that sync — the deploy is a separate, explicit
+# step. Leaving this on push would also mean two systems deploying the same
+# functions from different sources of truth.
+#
+# workflow_dispatch is kept so this can still be run by hand if the credentials
+# are ever repointed at the real project.
+
 on:
-  push:
-    branches: ["main", "staging"]
-    paths:
-      - "supabase/functions/**"
-      - "supabase/config.toml"
-      - ".github/workflows/deploy-mavis-functions.yml"
   workflow_dispatch:
     inputs:
       functions:
