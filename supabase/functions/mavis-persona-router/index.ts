@@ -7,6 +7,7 @@ import {
   isUnfundedStatus,
   callGemini,
   callGroq,
+  getProviderKeys,
 } from "../_shared/providers.ts";
 
 const corsHeaders = {
@@ -38,11 +39,23 @@ function mapToGatewayModel(model: string): string {
   return "google/gemini-3.6-flash";
 }
 
+// How long any single provider gets before we move to the next tier.
+//
+// These four calls were unbounded. callLLM below walks up to six providers in
+// sequence, so one hung socket did not just delay a tier — it stalled the whole
+// request, and the caller sees nothing but a spinner until the platform gives
+// up. The shared helpers this file also uses (callGemini, callGroq in
+// _shared/providers.ts) have always been bounded at 30s and 20s; these local
+// ones were the gap. Responses here are awaited whole rather than streamed, so
+// a plain AbortSignal.timeout is safe — there is no stream for it to truncate.
+const PROVIDER_TIMEOUT_MS = 30_000;
+
 async function callClaude(model: string, system: string, messages: any[], key: string): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({ model, max_tokens: 1024, system, messages }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -58,6 +71,7 @@ async function callOpenAI(model: string, system: string, messages: any[], key: s
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -73,6 +87,7 @@ async function callGrok(model: string, system: string, messages: any[], key: str
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -91,6 +106,7 @@ async function callLovableGateway(model: string, system: string, messages: any[]
       model: mapToGatewayModel(model),
       messages: [{ role: "system", content: system }, ...messages],
     }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -109,12 +125,24 @@ async function callLovableGateway(model: string, system: string, messages: any[]
 //   2. The persona's MAVIS-chosen `model` (claude / openai / grok) — chosen at forge time as the persona's signature voice
 //   3. Generic safety net: OpenAI mini → Claude Haiku → Claude Sonnet → Grok
 async function callLLM(model: string, system: string, messages: any[]): Promise<string> {
-  const openaiKey  = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
-  const claudeKey  = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-  const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
-  const geminiKey  = Deno.env.get("GEMINI_API_KEY") ?? "";
-  const groqKey    = Deno.env.get("GROQ_API_KEY") ?? "";
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
+  // Resolve keys exactly the way MAVIS chat and council chat do.
+  //
+  // These were read inline here, and two of the names had drifted from the
+  // shared resolver: gemini was read as GEMINI_API_KEY only, and grok as
+  // GROK_API_KEY only, where getProviderKeys() also accepts GOOGLE_API_KEY and
+  // XAI_API_KEY respectively. With the secret stored under GOOGLE_API_KEY,
+  // MAVIS and council found it and ran on free Gemini while this function saw
+  // an empty string, skipped its free tier outright, and fell all the way
+  // through to "All AI providers unavailable" — the free tier was present in
+  // the code and simply never reachable.
+  const {
+    openai: openaiKey,
+    claude: claudeKey,
+    grok:   grokKey,
+    gemini: geminiKey,
+    groq:   groqKey,
+    lovable: lovableKey,
+  } = getProviderKeys();
 
   // Tier 0a — Gemini 2.0 Flash (free)
   if (geminiKey) {
@@ -652,10 +680,16 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
     let actionsExecuted = 0;
     if (parsedActions.length > 0) {
       try {
+        // Bounded too, for the same reason as the provider calls: this runs
+        // after the model has already answered, so a hang here would throw
+        // away a reply the operator has waited for. Aborting costs only the
+        // executed-action count — mavis-actions keeps running server-side and
+        // still applies them; the catch below just leaves the tally at 0.
         const actRes = await fetch(`${supabaseUrl}/functions/v1/mavis-actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
           body: JSON.stringify({ actions: parsedActions, userId: user_id }),
+          signal: AbortSignal.timeout(45_000),
         });
         if (actRes.ok) {
           const actData = await actRes.json();
