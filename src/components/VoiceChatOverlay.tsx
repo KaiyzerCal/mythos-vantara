@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Mic, Pause, Play, Square } from "lucide-react";
+import { toast } from "sonner";
 import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
+import { edgeErrorMessage } from "@/lib/edgeFunctionError";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition as NativeSpeechRecognition } from "@capacitor-community/speech-recognition";
 import { TextToSpeech as NativeTextToSpeech } from "@capacitor-community/text-to-speech";
@@ -473,17 +475,34 @@ export function VoiceChatOverlay({
 
     try {
       if (p.entityType === "persona" && p.entityId && p.userId) {
-        // Race the edge function call against a 30-second client-side timeout so the
-        // overlay never gets permanently stuck in "thinking" on a slow/hung function.
-        const invokePromise = supabase.functions.invoke("mavis-persona-router", {
-          body: { persona_id: p.entityId, user_id: p.userId, message: text, channel: "voice" },
+        // Race the edge function call against a client-side timeout so the overlay
+        // never gets permanently stuck in "thinking" on a slow/hung function.
+        //
+        // 30s was too tight. mavis-persona-router builds a very large prompt —
+        // full app context, 50 messages of history, and up to 10 attachments at
+        // 6000 chars each — and measured 17s against production on a healthy
+        // free-Gemini path. One provider retry or a fallback tier puts a normal
+        // call over 30s, so the operator saw a timeout on a request that was
+        // about to succeed. 60s matches the worst case the server can take
+        // before its own per-provider timeouts fire.
+        const TIMEOUT_MS = 60_000;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Persona router timed out (${TIMEOUT_MS / 1000}s)`)), TIMEOUT_MS);
         });
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Persona router timed out (30s)")), 30000),
-        );
-        const result = await Promise.race([invokePromise, timeoutPromise]);
+        // The loser of a Promise.race still settles. Without this the timeout
+        // rejected ~30s after every *successful* reply with nothing awaiting
+        // it, producing an unhandled promise rejection each turn.
+        const result = await Promise.race([
+          supabase.functions.invoke("mavis-persona-router", {
+            body: { persona_id: p.entityId, user_id: p.userId, message: text, channel: "voice" },
+          }),
+          timeoutPromise,
+        ]).finally(() => clearTimeout(timer));
         if (isStale()) return;
-        if (result.error) throw result.error;
+        if (result.error) throw new Error(await edgeErrorMessage(result.error));
+        // The function can also answer 200 with an { error } payload.
+        if ((result.data as any)?.error) throw new Error(String((result.data as any).error));
         reply = (result.data as any)?.response ?? "";
         setPersonaReply(reply);
       } else {
@@ -515,9 +534,22 @@ export function VoiceChatOverlay({
         ];
         if (reply) onExchange?.(text, reply);
       }
-    } catch {
+    } catch (err: unknown) {
       // Explicitly reset phase on any error so the UI never stays stuck in "thinking".
-      if (!isStale()) setPhase("idle");
+      //
+      // This used to be a bare `catch {}` that discarded the error entirely. The
+      // call would simply go quiet — no message, no toast, nothing in the
+      // console — which is indistinguishable from the persona having nothing to
+      // say, and made a failing voice call impossible to diagnose from the app.
+      // Every failure path here has a real reason behind it (a timeout, or the
+      // router's own per-tier provider report), so show it.
+      if (!isStale()) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[voice] persona reply failed:", msg);
+        setPersonaReply(`⚠️ ${msg}`);
+        toast.error(msg.length > 160 ? `${msg.slice(0, 160)}…` : msg);
+        setPhase("idle");
+      }
     } finally {
       // Only update loading state if this request hasn't been superseded (e.g. by user tap-cancel).
       if (!isStale()) setPersonaLoading(false);

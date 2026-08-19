@@ -288,21 +288,50 @@ export async function callGemini(messages: any[], system: string, key: string, o
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${key}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(opts.thinking ? 60_000 : 30_000),
-  });
-  if (!res.ok) {
+  // Retry Google's transient server errors before giving up on this tier.
+  //
+  // 503 is explicitly temporary — the body says so: "This model is currently
+  // experiencing high demand. Spikes in demand are usually temporary. Please
+  // try again later." It was previously falling through to the generic throw
+  // and being treated as a dead tier, which matters more than it sounds: with
+  // Groq's model decommissioned and the Lovable gateway at its credit limit,
+  // Gemini is currently the ONLY working free tier, so one transient 503 took
+  // the whole cascade down to unfunded paid providers and surfaced to the
+  // operator as "all AI providers unavailable". Observed live: 2 of 3
+  // consecutive persona voice calls failed this way.
+  //
+  // 429 is deliberately NOT retried here — on the free tier that is a quota
+  // signal, and retrying immediately would just burn the budget again. It
+  // stays a ProviderUnavailableError so the cascade moves on and the circuit
+  // breaker can mark the provider unhealthy.
+  const TRANSIENT = new Set([500, 502, 503, 504]);
+  const BACKOFF_MS = [600, 1500];
+  let lastErr: Error | undefined;
+
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(opts.thinking ? 60_000 : 30_000),
+    });
+
+    if (res.ok) {
+      const d = await res.json();
+      const parts: any[] = d.candidates?.[0]?.content?.parts ?? [];
+      return parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("") || "";
+    }
+
     const errText = await res.text();
     if (res.status === 429) throw new ProviderUnavailableError("gemini", errText.slice(0, 200), res.status);
     if (res.status === 403) throw new ProviderUnavailableError("gemini", errText.slice(0, 200), res.status);
-    throw new Error(`Gemini API ${res.status}: ${errText}`);
+
+    lastErr = new Error(`Gemini API ${res.status}: ${errText}`);
+    if (!TRANSIENT.has(res.status) || attempt >= BACKOFF_MS.length) throw lastErr;
+
+    console.warn(`[gemini] ${res.status} (transient) — retrying in ${BACKOFF_MS[attempt]}ms`);
+    await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
   }
-  const d = await res.json();
-  const parts: any[] = d.candidates?.[0]?.content?.parts ?? [];
-  return parts.filter((p: any) => p.text && !p.thought).map((p: any) => p.text).join("") || "";
 }
 
 // Cascade order (free → cheapest → premium):
