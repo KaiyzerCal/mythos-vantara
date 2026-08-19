@@ -149,7 +149,7 @@ serve(async (req) => {
       importance_score: 6,
       source:          "mavis-health-protocol",
       consolidated:    false,
-    }).catch(() => { /* non-critical */ });
+    }).then(undefined, () => { /* non-critical */ });
 
     return json({ protocol, date: targetDate, data_sources: dataSections.length });
   } catch (e: any) {

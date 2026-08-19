@@ -59,7 +59,7 @@ async function onQuestCompleted(record: any, user_id: string) {
     content:     `Completed ${record.type} quest "${record.title}" for ${record.xp_reward ?? 0} XP.`,
     memory_type: "auto",
     tags:        ["quest", "completion", record.type],
-  }).catch(() => {});
+  }).then(undefined, () => {});
 }
 
 async function onJournalCreated(record: any, user_id: string) {
@@ -77,7 +77,7 @@ async function onJournalCreated(record: any, user_id: string) {
         await supabase.from("journal_entries")
           .update({ mood: parsed.mood, tags: parsed.themes ?? [] })
           .eq("id", record.id)
-          .catch(() => {});
+          .then(undefined, () => {});
       }
     } catch { /* non-critical */ }
   }
@@ -91,7 +91,7 @@ async function onJournalCreated(record: any, user_id: string) {
       content:     preview,
       memory_type: "episodic",
       tags:        ["journal", ...(record.tags ?? [])],
-    }).catch(() => {});
+    }).then(undefined, () => {});
   }
 }
 
@@ -113,7 +113,7 @@ async function onExpenseLogged(record: any, user_id: string) {
       content:  `30-day total: $${total30.toFixed(2)}. Latest: ${record.description} ($${Number(record.amount).toFixed(2)}).`,
       category: "finance",
       severity: "warning",
-    }).catch(() => {});
+    }).then(undefined, () => {});
   }
 }
 
@@ -130,7 +130,7 @@ async function onTaskCompleted(record: any, user_id: string) {
       content:     `Maintained "${record.title}" habit for ${record.streak} consecutive days.`,
       memory_type: "auto",
       tags:        ["habit", "streak"],
-    }).catch(() => {});
+    }).then(undefined, () => {});
   }
 }
 

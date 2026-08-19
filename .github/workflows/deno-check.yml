@@ -1,0 +1,94 @@
+name: Type-check Edge Functions
+
+# Why this exists
+#
+# supabase/functions/** is deliberately excluded from `bun run lint` — it is
+# Deno, not browser, and linting it with browser globals produced ~2400 reports
+# that said nothing about correctness. The side effect was that NOTHING checked
+# these files, and type errors accumulated silently for a long time.
+#
+# That was not theoretical:
+#
+#   * `.catch()` chained onto a supabase-js query builder is a TypeError at
+#     runtime (builders are thenable but are not Promises). 107 had built up
+#     across 51 functions. Two were on hot paths and had broken their functions
+#     outright — mavis-trigger-engine and mavis-autonomous-engine answered 500
+#     to every cron invocation, 144 and 288 times a day.
+#   * mavis-actions referenced an undefined `params` in seven agent-delegation
+#     cases (notion_agent, notion_sync, agent_reach, voicebox, worldmonitor,
+#     prompt_vault, stock_analysis). Every one threw ReferenceError when used.
+#
+# The compiler had been reporting all of it the whole time. Nothing ran it.
+#
+# Why a ratchet rather than a hard gate
+#
+# There are still ~200 pre-existing errors across the older functions (Supabase
+# client generics, object-literal mismatches, implicit any). Failing on all of
+# them would block every PR on day one and the gate would just get removed. So
+# this compares each function against a committed baseline: exceed your
+# function's baseline and the build fails; existing debt is tolerated but can
+# never grow. Fix a function and lower its baseline to lock the gain in.
+#
+# To refresh after fixing things:
+#   deno run -A .github/scripts/deno-check-baseline.ts > .github/deno-check-baseline.json
+
+on:
+  push:
+    branches: ["main", "staging"]
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/deno-check.yml"
+      - ".github/deno-check-baseline.json"
+  pull_request:
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/deno-check.yml"
+      - ".github/deno-check-baseline.json"
+  workflow_dispatch:
+
+jobs:
+  deno-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check against baseline
+        run: |
+          set -uo pipefail
+
+          baseline=".github/deno-check-baseline.json"
+          [ -f "$baseline" ] || { echo "::error::missing $baseline"; exit 1; }
+
+          regressions=0
+          improvements=0
+          checked=0
+
+          for dir in supabase/functions/*/; do
+            entry="${dir}index.ts"
+            [ -f "$entry" ] || continue
+            name="$(basename "$dir")"
+            case "$name" in _archive|_shared) continue ;; esac
+            checked=$((checked + 1))
+
+            out="$(deno check "$entry" 2>&1 || true)"
+            # `deno check` prints "Found N errors." only when N > 1; a single
+            # error prints no summary line at all, so count the TS diagnostics
+            # directly rather than parsing that summary.
+            actual="$(printf '%s' "$out" | sed 's/\x1b\[[0-9;]*m//g' | grep -cE '^TS[0-9]+ \[ERROR\]' || true)"
+            allowed="$(jq -r --arg k "$name" '.[$k] // 0' "$baseline")"
+
+            if [ "$actual" -gt "$allowed" ]; then
+              echo "::error file=$entry::$name has $actual type errors, baseline allows $allowed"
+              printf '%s\n' "$out" | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^TS[0-9]+ \[ERROR\]' | head -20
+              regressions=$((regressions + 1))
+            elif [ "$actual" -lt "$allowed" ]; then
+              echo "::notice file=$entry::$name improved: $actual errors, baseline $allowed — lower the baseline to lock this in"
+              improvements=$((improvements + 1))
+            fi
+          done
+
+          echo "Checked $checked functions; $regressions regressed, $improvements improved."
+          [ "$regressions" -eq 0 ]

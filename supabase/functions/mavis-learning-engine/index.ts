@@ -38,7 +38,7 @@ async function heartbeat(sb: ReturnType<typeof createClient>, status: "running" 
     error_count:         status === "error" ? 1 : 0,
     expected_interval_min: 1440,
     updated_at:          new Date().toISOString(),
-  }, { onConflict: "function_name" }).catch(() => {});
+  }, { onConflict: "function_name" }).then(undefined, () => {});
 }
 
 Deno.serve(async (req) => {

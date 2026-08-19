@@ -263,7 +263,7 @@ async function handleRender(action: RenderAction, supabase: ReturnType<typeof cr
     const rendersUsed = quota?.renders_used ?? 0;
     const rendersLimit = quota?.renders_limit ?? 20;
     if (rendersUsed >= rendersLimit) throw new Error(`Monthly render quota reached (${rendersUsed}/${rendersLimit}). Upgrade to render more clips.`);
-    supabase.from("video_quota").upsert({ user_id: userId, period_start: currentMonth, renders_used: rendersUsed + 1, updated_at: new Date().toISOString() }, { onConflict: "user_id,period_start" }).then(() => null).catch(() => null);
+    supabase.from("video_quota").upsert({ user_id: userId, period_start: currentMonth, renders_used: rendersUsed + 1, updated_at: new Date().toISOString() }, { onConflict: "user_id,period_start" }).then(() => null).then(undefined, () => null);
   } catch (quotaErr: any) {
     if (String(quotaErr?.message).includes("quota reached")) throw quotaErr;
     // quota table may not exist yet — non-critical, continue

@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     run_count: 1,
     expected_interval_min: 60,
     updated_at: now.toISOString(),
-  }, { onConflict: "function_name" }).catch(() => {});
+  }, { onConflict: "function_name" }).then(undefined, () => {});
 
   try {
     const { data: rows } = await sb

@@ -216,7 +216,7 @@ serve(async (req) => {
           content:    `[COMIC] Posted ${stripLabel} for ${dateLabel}: ${dialogue.slice(0, 200)}`,
           tags:       ["comic", "daily_comic", strip, "scheduled_content"],
           importance: 3,
-        }).catch(() => {});
+        }).then(undefined, () => {});
 
         return json(results);
       }

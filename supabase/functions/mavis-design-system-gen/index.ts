@@ -211,7 +211,7 @@ Deno.serve(async (req) => {
         category: "design_system",
         severity: "info",
         source: "design_system_gen",
-      }).catch(() => {});
+      }).then(undefined, () => {});
     }
 
     return new Response(

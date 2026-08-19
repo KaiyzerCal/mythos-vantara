@@ -136,7 +136,7 @@ serve(async (req: Request) => {
         request_count: 1,
       },
       { onConflict: "widget_id,date,action_type" },
-    ).catch(() => {});
+    ).then(undefined, () => {});
 
     let result: Record<string, unknown>;
 

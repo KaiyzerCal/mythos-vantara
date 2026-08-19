@@ -160,7 +160,7 @@ serve(async (req) => {
               content: response,
               session_id: "slack-bot",
               user_id: uid,
-            }).then(() => {}).catch(() => {});
+            }).then(() => {}).then(undefined, () => {});
 
             // POST actual response to Slack via response_url
             await fetch(responseUrl, {
@@ -280,7 +280,7 @@ serve(async (req) => {
           content: response,
           session_id: "slack-bot",
           user_id: uid,
-        }).then(() => {}).catch(() => {});
+        }).then(() => {}).then(undefined, () => {});
 
         // Post reply in thread
         await postSlackMessage(channel, response, eventTs);

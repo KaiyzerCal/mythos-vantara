@@ -143,7 +143,7 @@ serve(async (req) => {
       netlify_site_url: siteUrl,
       netlify_site_id: siteId,
       pages_count: Object.keys(files).length,
-    }).catch(() => {/* non-fatal */});
+    }).then(undefined, () => {/* non-fatal */});
 
     return new Response(
       JSON.stringify({ url: siteUrl, site_id: siteId, deploy_id: deployId, provider: "netlify", files: Object.keys(files) }),

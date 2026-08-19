@@ -283,7 +283,7 @@ Rules:
             content:          memContent.slice(0, 50000),
             importance_score: 6,
             tags:             ["youtube_transcript", vid, "video_context"],
-          }, { onConflict: "user_id,tags" }).catch(() => {});
+          }, { onConflict: "user_id,tags" }).then(undefined, () => {});
           storedInMemory = true;
         }
 

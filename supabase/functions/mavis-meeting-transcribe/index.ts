@@ -181,7 +181,7 @@ serve(async (req) => {
       content:          `[MEETING SUMMARY] ${title}\n\n${summary}`,
       importance_score: 7,
       created_at:       new Date().toISOString(),
-    }).catch((e: any) => console.error("[mavis-meeting-transcribe] mavis_memory insert error:", e.message));
+    }).then(undefined, (e: any) => console.error("[mavis-meeting-transcribe] mavis_memory insert error:", e.message));
 
     return new Response(
       JSON.stringify({ transcript, summary, decisions, action_items, next_steps, quests_created: questsCreated }),

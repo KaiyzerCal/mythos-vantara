@@ -501,7 +501,7 @@ Deno.serve(async (req) => {
           }
 
           if (firstNoteId) {
-            await sb.from("chat_attachments").update({ linked_note_id: firstNoteId }).eq("id", attachmentId).catch(() => {});
+            await sb.from("chat_attachments").update({ linked_note_id: firstNoteId }).eq("id", attachmentId).then(undefined, () => {});
           }
         } catch { /* non-critical */ }
       })();

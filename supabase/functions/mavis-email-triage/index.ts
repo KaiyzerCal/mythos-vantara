@@ -123,7 +123,7 @@ serve(async (req) => {
     }));
 
     if (memoryRows.length > 0) {
-      await sb.from("mavis_memory").insert(memoryRows).catch((e: any) =>
+      await sb.from("mavis_memory").insert(memoryRows).then(undefined, (e: any) =>
         console.error("[mavis-email-triage] mavis_memory insert error:", e.message)
       );
     }

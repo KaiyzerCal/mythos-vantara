@@ -84,7 +84,7 @@ serve(async (req) => {
       status,
       twilio_sid:  twilioSid,
       created_at:  new Date().toISOString(),
-    }).catch((e: any) => console.error("[mavis-sms] DB log error:", e.message));
+    }).then(undefined, (e: any) => console.error("[mavis-sms] DB log error:", e.message));
 
     return new Response(
       JSON.stringify({ sid: twilioSid, status, to, channel }),

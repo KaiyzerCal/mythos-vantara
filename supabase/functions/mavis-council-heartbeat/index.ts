@@ -407,7 +407,7 @@ async function executeActions(
         council_member_id: member.id,
         content:           `Karma-blocked action: ${type} (need ${karmaRequired}, have ${member.karma ?? 0}). Keep taking useful actions to unlock.`,
         tags:              ["karma-blocked"],
-      }).catch(() => {});
+      }).then(undefined, () => {});
       continue;
     }
 
@@ -563,7 +563,7 @@ async function logActivity(
     await supabase.rpc("increment_council_karma", {
       member_id: memberId,
       delta:     karmaEarned,
-    }).catch(() => {
+    }).then(undefined, () => {
       // Fallback if RPC not available: direct update
       supabase.from("councils").select("karma").eq("id", memberId).single()
         .then(({ data }) => {

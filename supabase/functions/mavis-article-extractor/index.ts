@@ -137,7 +137,7 @@ Deno.serve(async (req) => {
     await sb.from("mavis_social_queue" as any)
       .update({ extraction_status: "done", status: "extracting" })
       .eq("id", queue_id)
-      .catch(() => {});
+      .then(undefined, () => {});
   }
 
   // Fetch the URL
@@ -157,7 +157,7 @@ Deno.serve(async (req) => {
       await sb.from("mavis_social_queue" as any)
         .update({ extraction_status: "failed", status: "failed", error_message: `Fetch failed: ${err.message}` })
         .eq("id", queue_id)
-        .catch(() => {});
+        .then(undefined, () => {});
     }
     return json({ error: `Failed to fetch URL: ${err.message}` }, 502);
   }
@@ -179,7 +179,7 @@ Deno.serve(async (req) => {
         status: "generating",
       })
       .eq("id", queue_id)
-      .catch(() => {});
+      .then(undefined, () => {});
   }
 
   return json({ title, text, word_count: wordCount });

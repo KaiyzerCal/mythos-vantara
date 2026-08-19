@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
       run_count: 1,
       expected_interval_min: 1440,
       updated_at: now.toISOString(),
-    }, { onConflict: "function_name" }).catch(() => {});
+    }, { onConflict: "function_name" }).then(undefined, () => {});
     const todayIso = now.toISOString().slice(0, 10);
     const yesterdayIso = new Date(now.getTime() - 86400000).toISOString();
 
@@ -600,7 +600,7 @@ Deno.serve(async (req) => {
       run_count: 1,
       expected_interval_min: 1440,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "function_name" }).catch(() => {});
+    }, { onConflict: "function_name" }).then(undefined, () => {});
 
     return new Response(
       JSON.stringify({ ok: true, sections: sections.length - 2 }),
@@ -619,7 +619,7 @@ Deno.serve(async (req) => {
       error_count: 1,
       expected_interval_min: 1440,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "function_name" }).catch(() => {});
+    }, { onConflict: "function_name" }).then(undefined, () => {});
     return new Response(
       JSON.stringify({ error: _errMsg }),
       { status: 500, headers: { "Content-Type": "application/json" } },

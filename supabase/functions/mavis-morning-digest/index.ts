@@ -71,7 +71,7 @@ serve(async (req) => {
       .lt("start_time", todayIso + "T23:59:59Z")
       .limit(6)
       .then((r) => r)
-      .catch(() => ({ data: [], error: null })),
+      .then(undefined, () => ({ data: [], error: null })),
 
     // e) Latest health metrics (last 2 days, graceful)
     adminSb
@@ -80,7 +80,7 @@ serve(async (req) => {
       .eq("user_id", uid)
       .gte("metric_date", twoDaysAgo)
       .then((r) => r)
-      .catch(() => ({ data: [], error: null })),
+      .then(undefined, () => ({ data: [], error: null })),
 
     // f) Revenue this week (graceful)
     adminSb
@@ -89,7 +89,7 @@ serve(async (req) => {
       .eq("user_id", uid)
       .gte("created_at", sevenDaysAgo)
       .then((r) => r)
-      .catch(() => ({ data: [], error: null })),
+      .then(undefined, () => ({ data: [], error: null })),
 
     // g) Habits streak
     adminSb

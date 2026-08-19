@@ -230,7 +230,7 @@ serve(async (req) => {
           content:    `[STORY] Posted children's story to Telegram (${chatId}): ${story.slice(0, 200)}`,
           tags:       ["story", "children_story", "daily_story", "scheduled_content"],
           importance: 3,
-        }).catch(() => {});
+        }).then(undefined, () => {});
 
         return json(results);
       }

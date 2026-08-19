@@ -290,12 +290,12 @@ async function semanticSearchMemory(userId: string, query: string): Promise<stri
         query_embedding: embedding,
         match_user_id: userId,
         match_count: 10,
-      }).catch(() => ({ data: null, error: true })),
+      }).then(undefined, () => ({ data: null, error: true })),
       supabase.rpc("match_knowledge", {
         query_embedding: embedding,
         match_user_id: userId,
         match_count: 5,
-      }).catch(() => ({ data: null, error: true })),
+      }).then(undefined, () => ({ data: null, error: true })),
     ]);
 
     if (memResult.data && Array.isArray(memResult.data)) {
@@ -310,7 +310,7 @@ async function semanticSearchMemory(userId: string, query: string): Promise<stri
         .eq("user_id", userId)
         .order("timestamp", { ascending: false })
         .limit(10)
-        .catch(() => ({ data: null }));
+        .then(undefined, () => ({ data: null }));
       for (const row of (recent ?? []) as any[]) {
         parts.push(`[memory] ${String(row.content ?? "").slice(0, 300)}`);
       }
@@ -329,7 +329,7 @@ async function semanticSearchMemory(userId: string, query: string): Promise<stri
       .eq("user_id", userId)
       .order("timestamp", { ascending: false })
       .limit(10)
-      .catch(() => ({ data: null }));
+      .then(undefined, () => ({ data: null }));
     for (const row of (recent ?? []) as any[]) {
       parts.push(`[memory] ${String(row.content ?? "").slice(0, 300)}`);
     }
@@ -450,7 +450,7 @@ async function executeToolCall(
         content:  String(input.content ?? ""),
         category: String(input.category ?? "Notes"),
         tags:     ["director"],
-      }).catch(() => {});
+      }).then(undefined, () => {});
       return "saved";
     }
 
@@ -469,7 +469,7 @@ async function executeToolCall(
           search_results:  [],
           source:          "director",
         },
-      }).catch(() => {});
+      }).then(undefined, () => {});
       return "Task queued for autonomous execution (≤2 min)";
     }
 
@@ -638,10 +638,10 @@ Be direct and concise. Mobile-first format.`;
           .eq("session_id", "director")
           .order("timestamp", { ascending: false })
           .limit(1)
-          .catch(() => {});
+          .then(undefined, () => {});
       }
     }).catch(() => {});
-  }).catch(() => {});
+  }).then(undefined, () => {});
 
   return { reply: finalText || "[No response]", intent };
 }
@@ -686,7 +686,7 @@ async function handleResearch(userId: string, message: string, target?: string):
             content:  report,
             tags:     ["research", "director"],
             category: "Resources",
-          }).catch(() => {});
+          }).then(undefined, () => {});
           return `🔍 *Research Report*\n\n${report}\n\n_Saved to Knowledge Graph._`;
         }
       }
@@ -785,7 +785,7 @@ async function handleSocial(userId: string, message: string, target?: string): P
             status:        "pending",
             autonomy_tier: "approve",
             payload:       { platform, content, topic },
-          }).catch(() => {});
+          }).then(undefined, () => {});
           drafts.push(`*${platform.toUpperCase()}:*\n${content}`);
         }
       }
@@ -808,7 +808,7 @@ async function handleSocial(userId: string, message: string, target?: string): P
       status:        "pending",
       autonomy_tier: "approve",
       payload:       { content: fallback, topic },
-    }).catch(() => {});
+    }).then(undefined, () => {});
     return `📱 *Social Content Draft*\n\n${fallback}\n\n_Saved to Approval Queue._`;
   }
 
@@ -854,7 +854,7 @@ Respond ONLY as JSON: {"type":"<action_type>","params":{<fields>}}`,
     status:        "pending",
     autonomy_tier: "approve",
     payload:       action,
-  }).catch(() => {});
+  }).then(undefined, () => {});
   return `📥 Action queued for manual execution: \`${action.type}\``;
 }
 
@@ -985,7 +985,7 @@ Guidelines: Be direct and concise. 2–4 sentences for conversational replies. R
       importance_score: 5,
       consolidated:     false,
     },
-  ]).catch(() => {});
+  ]).then(undefined, () => {});
 
   // Fire-and-forget embedding update
   getEmbedding(message).then((emb) => {
@@ -998,7 +998,7 @@ Guidelines: Be direct and concise. 2–4 sentences for conversational replies. R
         .eq("session_id", "director")
         .order("timestamp", { ascending: false })
         .limit(1)
-        .catch(() => {});
+        .then(undefined, () => {});
     }
   }).catch(() => {});
 
@@ -1132,7 +1132,7 @@ If a field is unclear, omit it.`,
       status: "pending",
       autonomy_tier: "approve",
       payload: { action: calAction, message },
-    }).catch(() => {});
+    }).then(undefined, () => {});
     return `📅 *Calendar Request Queued*\n\n_${message.slice(0, 150)}_\n\nConnect Google Calendar in _/integrations_ to execute automatically.`;
   }
 
@@ -1165,7 +1165,7 @@ If recipient email isn't clear, set to is empty string.`,
         status: "pending",
         autonomy_tier: "approve",
         payload: { message },
-      }).catch(() => {});
+      }).then(undefined, () => {});
       return `📧 *Email Request Queued*\n\n_${message.slice(0, 150)}_\n\nCouldn't identify the recipient. Please specify an email address and I'll send it immediately.`;
     }
 
@@ -1196,7 +1196,7 @@ If recipient email isn't clear, set to is empty string.`,
     status: "pending",
     autonomy_tier: "approve",
     payload: { message },
-  }).catch(() => {});
+  }).then(undefined, () => {});
 
   return `📬 *Communications Request Queued*\n\n_${message.slice(0, 200)}_\n\nConnect Gmail and Google Calendar in _/integrations_ for automatic execution.`;
 }
@@ -1280,7 +1280,7 @@ Deno.serve(async (req) => {
         autonomy_tier: "auto",
         executed_at:   new Date().toISOString(),
         payload:       { compound: true, intents: [compound.first, compound.second], source, message: message.slice(0, 500) },
-      }).catch(() => {});
+      }).then(undefined, () => {});
 
     } else {
       // Tool-use routing (primary) or classify→dispatch fallback
@@ -1316,7 +1316,7 @@ Deno.serve(async (req) => {
         autonomy_tier: "auto",
         executed_at:   new Date().toISOString(),
         payload:       { intent, confidence, target, source, message: message.slice(0, 500) },
-      }).catch(() => {});
+      }).then(undefined, () => {});
     }
 
     // Push reply back via Telegram if triggered from there

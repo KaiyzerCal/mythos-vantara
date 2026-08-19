@@ -211,7 +211,7 @@ Deno.serve(async (req) => {
             source:  `post-meeting:${eventId}`,
           },
           description:  `Post-meeting follow-up: ${eventTitle}`,
-        }).catch(() => {});
+        }).then(undefined, () => {});
       }
 
       // Save any inferred action items as loose threads
@@ -223,7 +223,7 @@ Deno.serve(async (req) => {
           source_ref: `post-meeting:${eventId}`,
           context:    eventTitle,
           status:     "open",
-        }).catch(() => {});
+        }).then(undefined, () => {});
       }
 
       // Mark as processed with a sentinel thread so we skip on next cron tick
@@ -234,7 +234,7 @@ Deno.serve(async (req) => {
         source_ref: `post-meeting:${eventId}`,
         context:    eventTitle,
         status:     "open",
-      }).catch(() => {});
+      }).then(undefined, () => {});
 
       // Ping Telegram
       const itemList = draft.actionItems?.length

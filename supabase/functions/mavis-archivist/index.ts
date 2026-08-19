@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
       .from("notification_stages")
       .delete()
       .lt("expires_at", new Date().toISOString())
-      .catch(() => {});
+      .then(undefined, () => {});
 
     if (body?.user_id) {
       const result = await archiveFor(body.user_id, sb);

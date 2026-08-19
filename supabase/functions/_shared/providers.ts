@@ -1216,7 +1216,12 @@ export async function generateImageCascade(opts: ImageGenOpts): Promise<ImageGen
   const explicit = typeof opts.provider === "string" ? opts.provider.toLowerCase() : undefined;
 
   // Helper that catches ProviderUnavailableError and records a note, returning null.
-  const tryProvider = async (name: string, fn: () => Promise<string>): Promise<string | null> => {
+  // fn may itself resolve to null — several image providers return null rather
+  // than throwing when they have nothing to give. Declaring the parameter as
+  // `() => Promise<string>` made every one of those call sites a type error
+  // while the runtime handled them fine (the `if (url)` below already covers
+  // null). Widened to match what the callers actually pass.
+  const tryProvider = async (name: string, fn: () => Promise<string | null>): Promise<string | null> => {
     try {
       const url = await fn();
       if (url) return url;
@@ -1316,6 +1321,8 @@ export interface VideoGenResult {
   provider: string;
   notes: string[];
   attempts?: Array<{ provider: string; error: string }>;
+  /** Percent complete, when the provider reports it (promptchan does). */
+  progress?: number;
 }
 
 function videoAspectRatio(aspect_ratio?: string): VideoAspectRatio {
