@@ -3,7 +3,7 @@
 // All reads/writes go through Postgres, not the REST layer.
 // Embedding generation uses OpenAI text-embedding-3-small (1536 dims).
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,

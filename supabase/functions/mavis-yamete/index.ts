@@ -20,7 +20,7 @@
 // 3. Adjust YAMETE_BASE_URL and endpoint paths below if their actual API differs.
 // Once configured, MAVIS will route NSFW generation requests here instead of ComfyUI.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 // ── Env vars ──────────────────────────────────────────────────────────────────
 

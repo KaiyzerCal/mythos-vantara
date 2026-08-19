@@ -20,7 +20,7 @@
 //   ANTHROPIC_API_KEY             — for PDF text extraction
 //   GEMINI_API_KEY                — for PDF text extraction fallback
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
 
 const SB_URL       = Deno.env.get("SUPABASE_URL")!;

@@ -2,7 +2,7 @@
 // All free OpenStreetMap APIs — no API keys required
 // Actions: geocode | reverse | nearby | route | search
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -31,7 +31,7 @@
 //   wan_i2v      — Wan2.2 image-to-video; requires reference_image_url (requires ComfyUI-WanVideoWrapper)
 //   talking_head — Wan2.2 S2V lip-sync from reference image + audio; requires reference_image_url + audio_url
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveAuthedUid } from "../_shared/auth.ts";
 
 // Retrigger: forcing a fresh deploy alongside mavis-code-exec, whose

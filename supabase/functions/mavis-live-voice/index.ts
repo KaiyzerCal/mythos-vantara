@@ -3,7 +3,7 @@
 // Authorization headers on WebSocket upgrade requests. verify_jwt is set to false
 // in config.toml; we validate the Supabase token ourselves after WS connect.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

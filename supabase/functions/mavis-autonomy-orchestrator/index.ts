@@ -3,8 +3,8 @@
 // GET  -> returns recent plans, steps, queued actions, and runs for the calling user
 // POST -> creates a new plan from a goal, seeds initial steps, and kicks the engine
 
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { corsHeaders } from "npm:@supabase/supabase-js@2.49.4/cors";
+import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 import { aiComplete } from "../_shared/providers.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;

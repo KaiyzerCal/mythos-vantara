@@ -7,7 +7,7 @@
 //
 // Each cron run advances one step. Claude observes results and replans if needed.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
 
 const corsHeaders = {

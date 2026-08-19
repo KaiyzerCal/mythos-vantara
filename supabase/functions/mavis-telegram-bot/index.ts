@@ -21,7 +21,7 @@
 //   MAVIS_OPERATOR_CALIYAH_ID         — Supabase user UUID for Caliyah
 //   OPENAI_API / OPENAI_API_KEY       — enables voice transcription via Whisper
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";

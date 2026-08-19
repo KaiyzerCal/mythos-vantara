@@ -1,7 +1,7 @@
 // MAVIS Booking — Venue search + reservation management
 // Actions: find_venue | create_booking | list_bookings | cancel_booking | update_booking
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

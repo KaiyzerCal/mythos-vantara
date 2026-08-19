@@ -4,7 +4,7 @@
 // Saves a structured capability snapshot to mavis_notes so MAVIS always
 // knows exactly what it can do. Sends a Telegram diff if anything changed.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;

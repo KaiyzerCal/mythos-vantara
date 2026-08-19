@@ -2,7 +2,7 @@
 // Runs every 15 minutes. Finds active standing order templates that are due
 // and inserts mavis_tasks rows for the task executor to pick up.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

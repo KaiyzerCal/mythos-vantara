@@ -2,7 +2,7 @@
 // Actions: list | search | install | uninstall | invoke
 // Skills ported from hermes-agent/skills/* (74 real SKILL.md entries) + openhuman (1 skill)
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

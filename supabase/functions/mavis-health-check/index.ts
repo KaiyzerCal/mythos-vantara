@@ -3,7 +3,7 @@
 // Tests DB tables, AI providers, secrets, and storage.
 // All tests are read-only; no data is mutated.
 // ============================================================
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",

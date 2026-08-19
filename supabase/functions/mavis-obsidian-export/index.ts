@@ -2,7 +2,7 @@
 // Fetches mavis_notes and converts each to markdown with YAML frontmatter
 // Compatible with Obsidian vaults — wikilinks, tags, backlinks preserved
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

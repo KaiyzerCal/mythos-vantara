@@ -10,7 +10,7 @@
 //
 // After deploying, register the webhook by calling /telegram-setup once.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(

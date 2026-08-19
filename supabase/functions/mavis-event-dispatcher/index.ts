@@ -5,7 +5,7 @@
 // emotion tag, budget check, next-quest suggestion, XP award, etc.)
 
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const supabase  = createClient(

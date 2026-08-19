@@ -4,7 +4,7 @@
 // SR notes due, revenue delta, council alerts, pattern alerts, memory surfacing.
 // Also callable via /brief Telegram command.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 
 const supabase = createClient(

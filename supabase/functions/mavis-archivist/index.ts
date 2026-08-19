@@ -7,7 +7,7 @@
 //   4. Prune expired notification_stages dedupe rows
 // Runs Sunday 4am UTC via mavis_cron_config. verify_jwt = false.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {

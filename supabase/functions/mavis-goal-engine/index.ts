@@ -3,7 +3,7 @@
 // Called by mavis-actions when a `goal` action fires.
 // Stores goal in mavis_goals, creates quests, notifies via Telegram.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(

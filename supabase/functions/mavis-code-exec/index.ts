@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveAuthedUid } from "../_shared/auth.ts";
 
 // Retrigger: live testing confirmed any authenticated (non-operator) user

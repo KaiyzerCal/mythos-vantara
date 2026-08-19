@@ -5,7 +5,7 @@
 // to Telegram. Deduplicates via mavis_meeting_briefs_sent so each event
 // only gets one brief.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { callWithFallback } from "../_shared/providers.ts";
 

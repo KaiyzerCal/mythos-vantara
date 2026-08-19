@@ -16,7 +16,7 @@
 //   ANTHROPIC_API_KEY, GEMINI_API_KEY
 //   (BLOTATO_API_KEY and HEYGEN_API_KEY used inside their respective functions)
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

@@ -7,7 +7,7 @@
 //   TELEGRAM_OPERATOR_USER_ID — whose data to summarize
 //   TELEGRAM_BOT_TOKEN + TELEGRAM_OPERATOR_CHAT_ID — optional Telegram notification
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { aiComplete } from "../_shared/providers.ts";
 
