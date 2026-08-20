@@ -457,32 +457,32 @@ serve(async (req) => {
         ? supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).in("id", attachment_ids)
         : supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).eq("chat_kind", "persona").eq("thread_ref", persona_id).order("created_at", { ascending: false }).limit(3)),
       supabase.from("profiles").select("*").eq("id", user_id).single(),
-      supabase.from("quests").select("id,title,status,type,difficulty,progress_current,progress_target,description").eq("user_id", user_id).order("created_at", { ascending: false }).limit(15),
-      supabase.from("skills").select("id,name,category,tier,proficiency,energy_type,unlocked").eq("user_id", user_id).limit(20),
-      supabase.from("journal_entries").select("id,title,category,importance,mood,content").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
-      supabase.from("vault_entries").select("id,title,category,importance,content").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
-      supabase.from("inventory").select("id,name,type,rarity,quantity,is_equipped,slot,effect").eq("user_id", user_id).limit(25),
+      supabase.from("quests").select("id,title,status,type,difficulty,progress_current,progress_target,description").eq("user_id", user_id).order("created_at", { ascending: false }).limit(10),
+      supabase.from("skills").select("id,name,category,tier,proficiency,energy_type,unlocked").eq("user_id", user_id).limit(12),
+      supabase.from("journal_entries").select("id,title,category,importance,mood,content").eq("user_id", user_id).order("created_at", { ascending: false }).limit(5),
+      supabase.from("vault_entries").select("id,title,category,importance,content").eq("user_id", user_id).order("created_at", { ascending: false }).limit(5),
+      supabase.from("inventory").select("id,name,type,rarity,quantity,is_equipped,slot,effect").eq("user_id", user_id).limit(12),
       supabase.from("energy_systems").select("id,type,current_value,max_value,status,description").eq("user_id", user_id),
       supabase.from("transformations").select("id,name,tier,form_order,energy,unlocked,description").eq("user_id", user_id).order("form_order", { ascending: true }),
-      supabase.from("rankings_profiles").select("id,display_name,rank,level,gpr,pvp,influence,is_self").eq("user_id", user_id).limit(20),
+      supabase.from("rankings_profiles").select("id,display_name,rank,level,gpr,pvp,influence,is_self").eq("user_id", user_id).limit(8),
       supabase.from("councils").select("id,name,role,class,specialty").eq("user_id", user_id),
-      supabase.from("allies").select("id,name,relationship,level,specialty,affinity").eq("user_id", user_id).limit(15),
+      supabase.from("allies").select("id,name,relationship,level,specialty,affinity").eq("user_id", user_id).limit(8),
       supabase.from("rituals").select("id,name,type,streak,completed").eq("user_id", user_id),
       // Previously missing vs. PRIME-mode MAVIS chat — personas had no visibility
       // into the operator's "life-admin" layer at all.
-      supabase.from("tasks").select("id,title,description,type,status,recurrence,streak").eq("user_id", user_id).order("created_at", { ascending: false }).limit(15),
-      supabase.from("contacts").select("id,name,relationship_type,notes,last_contact_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(15),
-      supabase.from("calendar_events").select("id,title,description,start_at,end_at,location").eq("user_id", user_id).order("start_at", { ascending: true }).limit(15),
-      supabase.from("meeting_notes").select("id,title,summary,attendees,decisions,action_items,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
-      supabase.from("health_metrics").select("id,date,source,sleep_duration_minutes,sleep_efficiency,hrv_avg,resting_hr,readiness_score").eq("user_id", user_id).order("date", { ascending: false }).limit(8),
-      supabase.from("mavis_expenses").select("id,amount,currency,category,description,date").eq("user_id", user_id).order("date", { ascending: false }).limit(10),
-      supabase.from("mavis_competitors").select("id,name,url,notes,updated_at").eq("user_id", user_id).limit(10),
-      supabase.from("mavis_goals").select("id,objective,context,status,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(10),
-      supabase.from("bpm_sessions").select("id,bpm,form,duration,mood").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
-      supabase.from("store_items").select("id,name,description,price,currency,rarity,category").eq("user_id", user_id).limit(10),
+      supabase.from("tasks").select("id,title,description,type,status,recurrence,streak").eq("user_id", user_id).order("created_at", { ascending: false }).limit(10),
+      supabase.from("contacts").select("id,name,relationship_type,notes,last_contact_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
+      supabase.from("calendar_events").select("id,title,description,start_at,end_at,location").eq("user_id", user_id).order("start_at", { ascending: true }).limit(8),
+      supabase.from("meeting_notes").select("id,title,summary,attendees,decisions,action_items,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(4),
+      supabase.from("health_metrics").select("id,date,source,sleep_duration_minutes,sleep_efficiency,hrv_avg,resting_hr,readiness_score").eq("user_id", user_id).order("date", { ascending: false }).limit(4),
+      supabase.from("mavis_expenses").select("id,amount,currency,category,description,date").eq("user_id", user_id).order("date", { ascending: false }).limit(5),
+      supabase.from("mavis_competitors").select("id,name,url,notes,updated_at").eq("user_id", user_id).limit(5),
+      supabase.from("mavis_goals").select("id,objective,context,status,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(6),
+      supabase.from("bpm_sessions").select("id,bpm,form,duration,mood").eq("user_id", user_id).order("created_at", { ascending: false }).limit(4),
+      supabase.from("store_items").select("id,name,description,price,currency,rarity,category").eq("user_id", user_id).limit(5),
       supabase.from("currencies").select("name,amount,icon").eq("user_id", user_id),
-      supabase.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
-      supabase.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user_id).order("created_at", { ascending: false }).limit(8),
+      supabase.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(5),
+      supabase.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user_id).order("created_at", { ascending: false }).limit(4),
     ]);
 
     const relState = relRes.data;
@@ -518,7 +518,7 @@ serve(async (req) => {
       .eq("user_id", user_id)
       .in("source", ["persona_chat_clear", "mavis_chat_clear", "mavis_auto_memory", "council_chat_clear"])
       .order("created_at", { ascending: false })
-      .limit(8);
+      .limit(5);
     // Both branches are capped at the same budget. topic_summary used to be
     // interpolated raw while only the content fallback was truncated, which is
     // backwards — topic_summary is meant to be the *compact* form. Measured on
@@ -528,7 +528,7 @@ serve(async (req) => {
     const archivedBlock = (archivedMems && archivedMems.length > 0)
       ? "\n═══ ARCHIVED MEMORIES (past conversations across all chats — reference naturally when relevant) ═══\n" +
         archivedMems.map((m: any) =>
-          `[${m.title}] (${m.source})\n${truncateAtWord(String((m.metadata as any)?.topic_summary || m.content || ""), 1200)}`
+          `[${m.title}] (${m.source})\n${truncateAtWord(String((m.metadata as any)?.topic_summary || m.content || ""), 700)}`
         ).join("\n---\n") +
         "\n═══ END ARCHIVED MEMORIES ═══\n"
       : "";
@@ -544,16 +544,16 @@ Stats: STR:${profile.stat_str} AGI:${profile.stat_agi} INT:${profile.stat_int} V
 Arc: ${profile.arc_story} | XP: ${profile.xp}/${profile.xp_to_next_level} | GPR: ${profile.gpr} | Fatigue: ${profile.fatigue}
 
 QUESTS (${(questsRes.data || []).length}):
-${(questsRes.data || []).map((q: any) => `  • [${q.id}] "${q.title}" [${q.status}/${q.type}] ${q.progress_current}/${q.progress_target}${q.description ? ` — ${q.description.slice(0, 120)}` : ""}`).join("\n") || "  None"}
+${(questsRes.data || []).map((q: any) => `  • [${q.id}] "${q.title}" [${q.status}/${q.type}] ${q.progress_current}/${q.progress_target}${q.description ? ` — ${q.description.slice(0, 80)}` : ""}`).join("\n") || "  None"}
 
 SKILLS (${(skillsRes.data || []).length}):
 ${(skillsRes.data || []).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})`).join("\n") || "  None"}
 
 JOURNAL ENTRIES:
-${(journalRes.data || []).map((j: any) => `  • [${j.id}] "${j.title}" [${j.category}/${j.importance}${j.mood ? `/${j.mood}` : ""}] — ${(j.content || "").slice(0, 250)}`).join("\n") || "  None"}
+${(journalRes.data || []).map((j: any) => `  • [${j.id}] "${j.title}" [${j.category}/${j.importance}${j.mood ? `/${j.mood}` : ""}] — ${(j.content || "").slice(0, 150)}`).join("\n") || "  None"}
 
 VAULT ENTRIES:
-${(vaultRes.data || []).map((v: any) => `  • [${v.id}] "${v.title}" [${v.category}/${v.importance}] — ${(v.content || "").slice(0, 200)}`).join("\n") || "  None"}
+${(vaultRes.data || []).map((v: any) => `  • [${v.id}] "${v.title}" [${v.category}/${v.importance}] — ${(v.content || "").slice(0, 130)}`).join("\n") || "  None"}
 
 INVENTORY:
 ${(inventoryRes.data || []).map((i: any) => `  • ${i.name} [${i.rarity}/${i.type}] x${i.quantity}${i.is_equipped ? " (equipped)" : ""}${i.effect ? ` — ${i.effect}` : ""}`).join("\n") || "  None"}
@@ -577,16 +577,16 @@ RITUALS:
 ${(ritualsRes.data || []).map((r: any) => `  • ${r.name} [${r.type}] streak:${r.streak}${r.completed ? " ✓" : ""}`).join("\n") || "  None"}
 
 TASKS (${(tasksRes.data || []).length}):
-${(tasksRes.data || []).map((t: any) => `  • [${t.id}] "${t.title}" [${t.status}/${t.type}]${t.streak ? ` streak:${t.streak}` : ""}${t.description ? ` — ${t.description.slice(0, 100)}` : ""}`).join("\n") || "  None"}
+${(tasksRes.data || []).map((t: any) => `  • [${t.id}] "${t.title}" [${t.status}/${t.type}]${t.streak ? ` streak:${t.streak}` : ""}${t.description ? ` — ${t.description.slice(0, 70)}` : ""}`).join("\n") || "  None"}
 
 CONTACTS:
-${(contactsRes.data || []).map((c: any) => `  • ${c.name} (${c.relationship_type})${c.last_contact_at ? ` — last contact ${String(c.last_contact_at).slice(0, 10)}` : ""}${c.notes ? ` — ${c.notes.slice(0, 100)}` : ""}`).join("\n") || "  None"}
+${(contactsRes.data || []).map((c: any) => `  • ${c.name} (${c.relationship_type})${c.last_contact_at ? ` — last contact ${String(c.last_contact_at).slice(0, 10)}` : ""}${c.notes ? ` — ${c.notes.slice(0, 70)}` : ""}`).join("\n") || "  None"}
 
 CALENDAR EVENTS:
 ${(calendarRes.data || []).map((e: any) => `  • "${e.title}" ${e.start_at ? String(e.start_at).slice(0, 16).replace("T", " ") : ""}${e.location ? ` @ ${e.location}` : ""}`).join("\n") || "  None"}
 
 MEETING NOTES:
-${(meetingRes.data || []).map((m: any) => `  • [${m.id}] "${m.title}"${m.summary ? ` — ${m.summary.slice(0, 150)}` : ""}`).join("\n") || "  None"}
+${(meetingRes.data || []).map((m: any) => `  • [${m.id}] "${m.title}"${m.summary ? ` — ${m.summary.slice(0, 110)}` : ""}`).join("\n") || "  None"}
 
 HEALTH METRICS (recent):
 ${(healthRes.data || []).map((h: any) => `  • ${h.date}: sleep ${h.sleep_duration_minutes ?? "?"}min (${h.sleep_efficiency ?? "?"}%), HRV ${h.hrv_avg ?? "?"}, RHR ${h.resting_hr ?? "?"}, readiness ${h.readiness_score ?? "?"}`).join("\n") || "  None"}

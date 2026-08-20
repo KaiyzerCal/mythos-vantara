@@ -751,9 +751,34 @@ export function VoiceChatOverlay({
       }
     };
 
+    // Silence window, not a hard cap on how long the operator may speak.
+    //
+    // safetyTimer used to be armed once at start() and never touched again, so
+    // it fired 15s after listening began no matter what — cutting the operator
+    // off mid-sentence and jumping straight to "thinking". The web path has
+    // always behaved correctly here (resetSilenceTimer runs on every onresult);
+    // only native had the absolute cap.
+    //
+    // Its actual purpose still holds and is preserved: the plugin exposes no
+    // error event, so ERROR_SPEECH_TIMEOUT, ERROR_NO_MATCH or a busy recognizer
+    // are invisible to JS and would otherwise leave the UI listening forever.
+    // Resetting on each partial keeps that guarantee for the "never speaks"
+    // case while letting someone who IS speaking carry on. Android's own
+    // recognizer ends the session on genuine silence long before this fires,
+    // via listeningState "stopped".
+    const NATIVE_SILENCE_MS = 15000;
+    const armSilenceTimer = () => {
+      if (finished) return;
+      if (safetyTimer) clearTimeout(safetyTimer);
+      safetyTimer = setTimeout(finalize, NATIVE_SILENCE_MS);
+    };
+
     await NativeSpeechRecognition.addListener("partialResults", (data) => {
       const text = data.matches?.[0]?.trim() ?? "";
       if (text) { lastPartial = text; setInterimTranscript(text); }
+      // Any speech at all — even a partial that has not changed — means the
+      // operator is still talking, so restart the countdown.
+      armSilenceTimer();
     });
     await NativeSpeechRecognition.addListener("listeningState", (data) => {
       if (data.status === "stopped") finalize();
@@ -767,7 +792,7 @@ export function VoiceChatOverlay({
       // Awaited only to surface immediate rejects (missing permission,
       // recognizer unavailable/busy) — its resolved value carries nothing
       // useful in partialResults mode, see comment above.
-      safetyTimer = setTimeout(finalize, 15000);
+      armSilenceTimer();
       await NativeSpeechRecognition.start({
         language: "en-US",
         partialResults: true,
