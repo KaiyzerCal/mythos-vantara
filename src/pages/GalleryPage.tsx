@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/SharedUI";
 import { LoadingState } from "@/components/LoadingState";
-import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2, X, Maximize2, History } from "lucide-react";
+import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2, Pencil, X, Maximize2, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 
@@ -23,6 +23,73 @@ interface MediaItem {
   // read-only (view/download only, no delete affordance).
   source?: "vault" | "social";
   raw_id?: string;
+  // vault_media columns the edit sheet writes back to
+  description?: string;
+  tags?: string[];
+}
+
+// vault_media.file_type is written by half a dozen callers and is not
+// consistently a MIME type: mavis-chat and mavis-actions store the bare word
+// "image", the doc extractor may leave it empty. The old check was
+// `!fileType.startsWith("image/") -> skip`, so every bare-"image" row — i.e.
+// everything MAVIS generated in chat — was dropped from the gallery instead of
+// being shown. Classify on the leading token and fall back to the URL.
+function classify(fileType: string, url: string): MediaItem["type"] | null {
+  const t = (fileType ?? "").toLowerCase().trim();
+  const head = t.split("/")[0];
+
+  if (head === "audio" || /\.(mp3|wav|ogg|m4a|flac)(\?|$)/i.test(url)) return "audio";
+  if (head === "video" || /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return "video";
+  if (/\.html?(\?|$)/i.test(url) || t === "text/html") return "poster";
+  if (head === "image" || /\.(png|jpe?g|gif|webp|avif|svg)(\?|$)/i.test(url)) return "image";
+  if (url.startsWith("data:image/")) return "image";
+  // Unknown type with no usable extension — a generated asset served from a
+  // bare URL is far more likely to be an image than nothing, and showing it
+  // with a broken-image fallback beats hiding the row entirely.
+  return t === "" ? "image" : null;
+}
+
+// vault-media is a PRIVATE bucket (made private in 20260331225024), but
+// mavis-chat and mavis-actions both persist getPublicUrl() results into
+// file_url. Those URLs 400 for everyone, which is why generated media showed
+// up as broken tiles. Detect them and mint a signed URL at read time.
+const VAULT_PUBLIC_MARKER = "/storage/v1/object/public/vault-media/";
+
+function vaultObjectPath(url: string): string | null {
+  const idx = url.indexOf(VAULT_PUBLIC_MARKER);
+  if (idx === -1) return null;
+  return decodeURIComponent(url.slice(idx + VAULT_PUBLIC_MARKER.length).split("?")[0]);
+}
+
+// A re-signed URL looks like /storage/v1/object/sign/vault-media/<path>?token=…
+const VAULT_SIGNED_MARKER = "/storage/v1/object/sign/vault-media/";
+
+function signedVaultObjectPath(url: string): string | null {
+  const idx = url.indexOf(VAULT_SIGNED_MARKER);
+  if (idx === -1) return null;
+  return decodeURIComponent(url.slice(idx + VAULT_SIGNED_MARKER.length).split("?")[0]);
+}
+
+// Covers both stored forms: the dead public URL, and a previously-signed URL
+// whose token has since expired. Re-signing on every load keeps the gallery
+// self-healing instead of decaying into broken tiles.
+function vaultPathOf(url: string): string | null {
+  return vaultObjectPath(url) ?? signedVaultObjectPath(url);
+}
+
+async function repairVaultUrls(items: MediaItem[]): Promise<MediaItem[]> {
+  const paths = items.map(i => vaultPathOf(i.url)).filter((p): p is string => !!p);
+  if (paths.length === 0) return items;
+  const { data, error } = await supabase.storage
+    .from("vault-media")
+    .createSignedUrls([...new Set(paths)], 60 * 60 * 24 * 7);
+  if (error || !data) return items;
+  const byPath = new Map(data.map(d => [d.path ?? "", d.signedUrl]));
+  return items.map(i => {
+    const path = vaultPathOf(i.url);
+    const signed = path ? byPath.get(path) : undefined;
+    return signed ? { ...i, url: signed } : i;
+  });
 }
 
 function timeAgo(iso: string): string {
@@ -82,6 +149,137 @@ function Lightbox({ item, onClose }: { item: { url: string; type: "image" | "vid
   );
 }
 
+// Edit sheet for vault_media rows. file_name / description / tags are the
+// only user-owned columns on that table; everything else is provenance written
+// by whichever generator or uploader created the row.
+function EditSheet({
+  item,
+  onClose,
+  onSaved,
+}: {
+  item: MediaItem | null;
+  onClose: () => void;
+  onSaved: (patch: { raw_id: string; title: string; description: string; tags: string[] }) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [tagText, setTagText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Re-seed the form whenever a different item is opened.
+  useEffect(() => {
+    if (!item) return;
+    setTitle(item.title ?? "");
+    setDescription(item.description ?? "");
+    setTagText((item.tags ?? []).join(", "));
+    setError(null);
+  }, [item]);
+
+  const save = async () => {
+    if (!item?.raw_id || saving) return;
+    const trimmed = title.trim();
+    if (!trimmed) { setError("Name can't be empty."); return; }
+    const tags = tagText.split(",").map(t => t.trim()).filter(Boolean);
+    setSaving(true);
+    setError(null);
+    try {
+      const { error: updErr } = await (supabase as any)
+        .from("vault_media")
+        .update({ file_name: trimmed, description: description.trim(), tags })
+        .eq("id", item.raw_id);
+      if (updErr) throw updErr;
+      onSaved({ raw_id: item.raw_id, title: trimmed, description: description.trim(), tags });
+      onClose();
+    } catch (e: any) {
+      setError(e?.message ?? "Save failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {item && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-lg border border-border bg-card p-4 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-mono text-foreground">Edit asset</h3>
+              <button onClick={onClose} className="text-muted-foreground hover:text-foreground" title="Close">
+                <X size={15} />
+              </button>
+            </div>
+
+            {item.type === "image" && (
+              <img src={item.url} alt={item.title} className="w-full h-32 object-cover rounded border border-border" />
+            )}
+
+            <label className="block space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wide text-muted-foreground">Name</span>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-xs font-mono rounded border border-border bg-background text-foreground focus:border-primary/50 outline-none"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wide text-muted-foreground">Description</span>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+                className="w-full px-2.5 py-1.5 text-xs font-mono rounded border border-border bg-background text-foreground focus:border-primary/50 outline-none resize-y"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[10px] font-mono uppercase tracking-wide text-muted-foreground">Tags (comma separated)</span>
+              <input
+                value={tagText}
+                onChange={(e) => setTagText(e.target.value)}
+                placeholder="generated, poster, draft"
+                className="w-full px-2.5 py-1.5 text-xs font-mono rounded border border-border bg-background text-foreground focus:border-primary/50 outline-none"
+              />
+            </label>
+
+            {error && <p className="text-[10px] font-mono text-destructive">{error}</p>}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 text-xs font-mono rounded border border-border text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50"
+              >
+                {saving && <Loader2 size={11} className="animate-spin" />}
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 type FilterType = "all" | "image" | "audio" | "video" | "poster";
 
 const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
@@ -92,7 +290,7 @@ const FILTER_ICONS: Record<FilterType, React.ReactNode> = {
   poster: <Globe size={12} />,
 };
 
-function MediaCard({ item, onSendToVideo, onDelete, onPreview }: { item: MediaItem; onSendToVideo?: (url: string) => void; onDelete?: (item: MediaItem) => void; onPreview?: (item: MediaItem) => void }) {
+function MediaCard({ item, onSendToVideo, onDelete, onEdit, onPreview }: { item: MediaItem; onSendToVideo?: (url: string) => void; onDelete?: (item: MediaItem) => void; onEdit?: (item: MediaItem) => void; onPreview?: (item: MediaItem) => void }) {
   const [imgError, setImgError] = useState(false);
   const previewable = onPreview && (item.type === "image" || item.type === "video");
 
@@ -187,6 +385,16 @@ function MediaCard({ item, onSendToVideo, onDelete, onPreview }: { item: MediaIt
               <Play size={13} />
             </button>
           )}
+          {onEdit && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(item); }}
+              className="w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+              title="Edit name, description, tags"
+            >
+              <Pencil size={13} />
+            </button>
+          )}
           {onDelete && (
             <button
               type="button"
@@ -209,7 +417,24 @@ function MediaCard({ item, onSendToVideo, onDelete, onPreview }: { item: MediaIt
 
       {/* Info */}
       <div className="px-2.5 py-2">
-        <p className="text-xs font-mono truncate text-foreground/80">{item.title}</p>
+        <p className="text-xs font-mono truncate text-foreground/80" title={item.title}>{item.title}</p>
+        {item.description && (
+          <p className="text-[9px] font-mono text-muted-foreground/80 truncate mt-0.5" title={item.description}>
+            {item.description}
+          </p>
+        )}
+        {item.tags && item.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {item.tags.slice(0, 3).map(t => (
+              <span key={t} className="text-[8px] font-mono px-1 py-0.5 rounded bg-muted/40 text-muted-foreground">
+                {t}
+              </span>
+            ))}
+            {item.tags.length > 3 && (
+              <span className="text-[8px] font-mono text-muted-foreground">+{item.tags.length - 3}</span>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between mt-0.5">
           {item.provider && (
             <span className="text-[9px] font-mono text-muted-foreground">{item.provider}</span>
@@ -515,7 +740,7 @@ function VideoGenPanel({ onGenerated, seedImageUrl, onPreview }: { onGenerated: 
     setUploading(true);
     try {
       const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `video-refs/${session.user.id}/${Date.now()}.${ext}`;
+      const path = `${session.user.id}/video-refs/${Date.now()}.${ext}`;
       const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
       if (error) throw error;
       const { data } = supabase.storage.from("avatars").getPublicUrl(path);
@@ -762,11 +987,20 @@ export function GalleryPage() {
   const [seedImageUrl, setSeedImageUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [previewItem, setPreviewItem] = useState<{ url: string; type: "image" | "video"; title?: string } | null>(null);
+  const [editItem, setEditItem] = useState<MediaItem | null>(null);
 
   const handleSendToVideo = useCallback((url: string) => {
     setSeedImageUrl(url);
     setGenMode("video");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const handleEditSaved = useCallback((patch: { raw_id: string; title: string; description: string; tags: string[] }) => {
+    setItems(prev => prev.map(i =>
+      i.raw_id === patch.raw_id
+        ? { ...i, title: patch.title, description: patch.description, tags: patch.tags }
+        : i,
+    ));
   }, []);
 
   const handleDelete = useCallback(async (item: MediaItem) => {
@@ -783,8 +1017,15 @@ export function GalleryPage() {
       const marker = "/storage/v1/object/public/avatars/";
       const idx = item.url.indexOf(marker);
       if (idx !== -1) {
-        const path = item.url.slice(idx + marker.length);
+        const path = decodeURIComponent(item.url.slice(idx + marker.length).split("?")[0]);
         await supabase.storage.from("avatars").remove([path]).catch(() => {});
+      }
+      // Generated assets live in the private vault-media bucket. Their card URL
+      // has been re-signed for display, so recover the object path from the
+      // signed form as well as the stale public form.
+      const vaultPath = vaultPathOf(item.url);
+      if (vaultPath) {
+        await supabase.storage.from("vault-media").remove([vaultPath]).catch(() => {});
       }
       setItems(prev => prev.filter(i => i.id !== item.id));
     } catch (e: any) {
@@ -801,7 +1042,10 @@ export function GalleryPage() {
     setUploading(true);
     try {
       const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
-      const path = `gallery/${session.user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+      // The "avatars" bucket's RLS policies key off (storage.foldername(name))[1],
+      // so the user id MUST be the first path segment — a "gallery/" prefix in
+      // front of it made every upload fail the WITH CHECK and 403.
+      const path = `${session.user.id}/gallery/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
       const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { contentType: file.type });
       if (upErr) throw upErr;
       const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
@@ -870,23 +1114,21 @@ export function GalleryPage() {
 
       // Process vault_media
       for (const item of (vaultData ?? [])) {
-        const fileType: string = item.file_type ?? "";
-        const publicUrl = item.file_url ?? "";
-        if (!publicUrl) continue;
+        const fileUrl = item.file_url ?? "";
+        if (!fileUrl) continue;
 
-        let type: MediaItem["type"] = "image";
-        if (fileType.startsWith("audio/") || /\.(mp3|wav|ogg|m4a)$/i.test(publicUrl)) type = "audio";
-        else if (fileType.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(publicUrl)) type = "video";
-        else if (/\.html?$/i.test(publicUrl)) type = "poster";
-        else if (!fileType.startsWith("image/")) continue;
+        const type = classify(item.file_type ?? "", fileUrl);
+        if (!type) continue;
 
         collected.push({
           id: `vault-${item.id}`,
           source: "vault",
           raw_id: item.id,
           type,
-          url: publicUrl,
+          url: fileUrl,
           title: item.file_name ?? "untitled",
+          description: item.description ?? "",
+          tags: Array.isArray(item.tags) ? item.tags : [],
           created_at: item.created_at,
         });
       }
@@ -899,7 +1141,7 @@ export function GalleryPage() {
           collected.push({
             id: `social-${post.id}-${url}`,
             source: "social",
-            type: /\.(mp4|webm|mov)$/i.test(url) ? "video" : "image",
+            type: classify("", url) ?? "image",
             url,
             title: post.content?.slice(0, 60) ?? `${post.platform} post`,
             provider: post.platform,
@@ -910,7 +1152,7 @@ export function GalleryPage() {
 
       // Sort by date descending
       collected.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      setItems(collected);
+      setItems(await repairVaultUrls(collected));
     } finally {
       setLoading(false);
     }
@@ -1019,6 +1261,7 @@ export function GalleryPage() {
                 item={item}
                 onSendToVideo={handleSendToVideo}
                 onDelete={item.source === "vault" ? handleDelete : undefined}
+                onEdit={item.source === "vault" ? setEditItem : undefined}
                 onPreview={(i) => setPreviewItem({ url: i.url, type: i.type === "video" ? "video" : "image", title: i.title })}
               />
             ))}
@@ -1027,6 +1270,7 @@ export function GalleryPage() {
       )}
 
       <Lightbox item={previewItem} onClose={() => setPreviewItem(null)} />
+      <EditSheet item={editItem} onClose={() => setEditItem(null)} onSaved={handleEditSaved} />
     </div>
   );
 }

@@ -15,10 +15,29 @@ export interface ChatAttachment {
   storage_path: string | null;
   processing_status: "pending" | "processing" | "done" | "failed";
   extracted_text?: string;
+  error_message?: string | null;
   created_at: string;
 }
 
 const MAX_BYTES = 50 * 1024 * 1024; // 50 MB per file
+const SIGNED_URL_TTL = 60 * 60 * 24 * 7; // 7 days
+
+// chat-attachments is a private bucket, so file_url is a signed URL that expires.
+// Anything older than the TTL — every image in a chat transcript a week later —
+// renders as a broken thumbnail unless the URL is minted again at read time.
+async function withFreshUrls(rows: ChatAttachment[]): Promise<ChatAttachment[]> {
+  const paths = rows.map((r) => r.storage_path).filter((p): p is string => !!p);
+  if (paths.length === 0) return rows;
+  const { data, error } = await supabase.storage
+    .from("chat-attachments")
+    .createSignedUrls(paths, SIGNED_URL_TTL);
+  if (error || !data) return rows;
+  const byPath = new Map(data.map((d) => [d.path ?? "", d.signedUrl]));
+  return rows.map((r) => {
+    const fresh = r.storage_path ? byPath.get(r.storage_path) : undefined;
+    return fresh ? { ...r, file_url: fresh } : r;
+  });
+}
 
 export function useChatAttachments(chatKind: ChatKind, threadRef: string | null | undefined) {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -33,13 +52,14 @@ export function useChatAttachments(chatKind: ChatKind, threadRef: string | null 
     if (!session?.user) return;
     const { data } = await supabase
       .from("chat_attachments")
-      .select("id,file_name,mime_type,file_url,file_size,storage_path,processing_status,extracted_text,created_at")
+      .select("id,file_name,mime_type,file_url,file_size,storage_path,processing_status,extracted_text,error_message,created_at")
       .eq("user_id", session.user.id)
       .eq("chat_kind", chatKind)
       .eq("thread_ref", threadRef)
       .order("created_at", { ascending: false })
       .limit(50);
-    setAttachments(((data ?? []) as ChatAttachment[]).filter(a => !sentIds.current.has(a.id)));
+    const rows = ((data ?? []) as ChatAttachment[]).filter(a => !sentIds.current.has(a.id));
+    setAttachments(await withFreshUrls(rows));
   }, [chatKind, threadRef]);
 
   useEffect(() => {
@@ -94,13 +114,13 @@ export function useChatAttachments(chatKind: ChatKind, threadRef: string | null 
           .upload(path, file, { contentType: file.type || "application/octet-stream" });
         if (upErr) {
           console.error("upload failed", upErr);
-          toast.error(`Upload failed: ${file.name}`);
+          toast.error(`Upload failed: ${file.name}`, { description: upErr.message });
           continue;
         }
 
         const { data: signed } = await supabase.storage
           .from("chat-attachments")
-          .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 day signed URL
+          .createSignedUrl(path, SIGNED_URL_TTL);
 
         const { data: row, error: rowErr } = await supabase
           .from("chat_attachments")
@@ -121,7 +141,10 @@ export function useChatAttachments(chatKind: ChatKind, threadRef: string | null 
 
         if (rowErr || !row) {
           console.error("row insert failed", rowErr);
-          toast.error(`DB write failed: ${file.name}`);
+          toast.error(`DB write failed: ${file.name}`, { description: rowErr?.message });
+          // The object is already in storage; drop it so a retry isn't blocked
+          // by an orphan and the bucket doesn't accumulate unreferenced files.
+          await supabase.storage.from("chat-attachments").remove([path]).catch(() => {});
           continue;
         }
 

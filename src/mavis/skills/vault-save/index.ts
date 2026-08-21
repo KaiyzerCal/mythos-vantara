@@ -20,14 +20,17 @@ const handler: SkillHandler = async (ctx, input) => {
     : content.slice(0, 80);
 
   try {
+    // vault_media's columns are file_name / file_url / file_type / description
+    // / tags. This insert previously used url/title/content/media_type/source —
+    // none of which exist — so every "save to vault" failed on an undefined
+    // column and only ever reported the Postgres error back to the operator.
     const { error } = await supabase.from("vault_media").insert({
       user_id: ctx.userId,
-      url: urlMatch?.[0] ?? null,
-      title,
-      content: isUrl ? null : content,
-      media_type: isUrl ? "link" : "note",
-      source: "mavis-skill",
-      created_at: new Date().toISOString(),
+      file_name: title,
+      file_url: urlMatch?.[0] ?? "",
+      file_type: isUrl ? "text/uri-list" : "text/plain",
+      description: isUrl ? input.trim() : content,
+      tags: ["mavis-skill", isUrl ? "link" : "note"],
     });
     if (error) throw error;
     return { skillName: "vault-save", output: `🗄️ Saved to vault: "${title}"` };
