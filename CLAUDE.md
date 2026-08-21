@@ -6,6 +6,30 @@ You are the **Orchestrator** for this repository. Your job is to route incoming 
 
 **mythos-vantara** — the codebase for CODEXOS / Mavis. A Supabase + React + Vite application with Deno edge functions. The operator is Calvin.
 
+### Backend: Lovable
+
+**This app's backend is Lovable-managed** (Calvin, 2026-08-21). Same for the
+NAVI app (`NAVI.EXE-lovable`). Consequences that matter every session:
+
+- The Supabase project (`wlygujlvsfimhtqsdxrx`, per `supabase/config.toml`) is
+  provisioned *through Lovable*, so it does NOT appear in Calvin's own Supabase
+  org — the Supabase MCP's `list_projects` will not return it. Reach the live
+  DB through the **Lovable MCP** (`query_database`) instead, against the
+  Lovable project rather than the Supabase ref.
+- Schema and storage changes land via Lovable, not `supabase db push` from this
+  repo. A file in `supabase/migrations/` is not applied just because it is
+  committed — assume it is NOT live until confirmed against the running DB.
+- Lovable writes back to the GitHub repo. A branch pushed from here and an edit
+  made in the Lovable editor can diverge; check which side is authoritative
+  before assuming a local push reached the running app.
+- Likely Lovable project: workspace "Cal's Lovable"
+  (`ggIVIJ8dhqNxDaOjtFhU`) → **mavisprimevantara** / "Mythos RPG Nexus"
+  (`6ec06b14-9242-48d0-8241-2a2f8a075e7f`, https://mavisprimevantara.lovable.app).
+  Its Lovable description matches this codebase feature-for-feature (personas,
+  council, vault uploads, ElevenLabs TTS, Telegram bot), but the git URL it
+  records is `rork-mythos-nexus-rpg-clone.git`, not `mythos-vantara` —
+  **confirm the mapping before acting on it.**
+
 ## What's Here
 
 ```
