@@ -33,6 +33,12 @@ export function AttachmentTray({
         <div className="flex flex-wrap gap-1.5">
           {attachments.slice(0, 8).map((a) => {
             const status = a.processing_status;
+            // A failed file still uploaded fine — only the text extraction broke.
+            // Show why, so "my upload is broken" can be told apart from
+            // "no vision provider is configured".
+            const detail = status === "failed" && a.error_message
+              ? ` — ${a.error_message}`
+              : a.extracted_text ? ` — ${a.extracted_text.slice(0, 200)}…` : "";
             const isImage = a.mime_type.startsWith("image/") && a.file_url;
             const isPending = status !== "done" && status !== "failed";
             const statusColor =
@@ -47,7 +53,7 @@ export function AttachmentTray({
                     src={a.file_url}
                     alt={a.file_name}
                     className="w-14 h-14 object-cover rounded border border-primary/20"
-                    title={`${a.file_name} — ${status}`}
+                    title={`${a.file_name} — ${status}${detail}`}
                   />
                   {isPending && (
                     <div className="absolute inset-0 bg-black/50 rounded flex items-center justify-center">
@@ -69,7 +75,7 @@ export function AttachmentTray({
               <div
                 key={a.id}
                 className={`flex items-center gap-1 px-2 py-0.5 text-xs font-mono rounded border bg-muted/20 ${statusColor}`}
-                title={`${a.file_name} — ${status}${a.extracted_text ? ` — ${a.extracted_text.slice(0, 200)}…` : ""}`}
+                title={`${a.file_name} — ${status}${detail}`}
               >
                 {iconFor(a.mime_type)}
                 <span className="max-w-[120px] truncate">{a.file_name}</span>

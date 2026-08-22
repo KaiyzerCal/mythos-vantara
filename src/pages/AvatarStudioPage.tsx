@@ -155,6 +155,9 @@ export function AvatarStudioPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) { toast.error("Please select an image file"); return; }
+    // The bucket's RLS policy requires the user id as the first path segment,
+    // so an anonymous upload can never succeed — fail loudly instead of 403ing.
+    if (!user) { toast.error("Sign in to upload a reference image"); return; }
 
     const localUrl = URL.createObjectURL(file);
     setImagePreview(localUrl);
@@ -162,7 +165,7 @@ export function AvatarStudioPage() {
 
     try {
       const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `avatar-faces/${user?.id ?? "anon"}/${Date.now()}.${ext}`;
+      const path = `${user.id}/avatar-faces/${Date.now()}.${ext}`;
       const { error } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
       if (error) throw new Error(error.message);
       const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);

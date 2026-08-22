@@ -1801,13 +1801,16 @@ ${telosData
                         .from("vault-media")
                         .upload(storagePath, imgBytes, { contentType: "image/jpeg" });
                       if (!storErr) {
-                        const { data: urlData } = sb.storage.from("vault-media").getPublicUrl(storagePath);
-                        imgUrl = urlData.publicUrl;
+                        // vault-media is private — a public URL 400s. Sign it.
+                        const { data: urlData } = await sb.storage
+                          .from("vault-media")
+                          .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
+                        imgUrl = urlData?.signedUrl ?? tempUrl;
                         const { data: mediaRow } = await sb.from("vault_media").insert({
                           user_id: user.id,
                           file_name: fileName,
                           file_url: imgUrl,
-                          file_type: "image",
+                          file_type: "image/jpeg",
                           file_size: imgBytes.byteLength,
                           description: `MAVIS generated: ${lastUserText.slice(0, 200)}`,
                           tags: ["mavis-generated", "dall-e"],

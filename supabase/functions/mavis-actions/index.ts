@@ -1243,13 +1243,16 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           const fileName = `mavis-gen-${Date.now()}.png`;
           const storagePath = `${userId}/${fileName}`;
           await sb.storage.from("vault-media").upload(storagePath, bytes.buffer, { contentType: "image/png" });
-          const { data: pubData } = sb.storage.from("vault-media").getPublicUrl(storagePath);
-          if (pubData?.publicUrl) imageUrl = pubData.publicUrl;
+          // vault-media is private — a public URL 400s. Sign it.
+          const { data: signedData } = await sb.storage
+            .from("vault-media")
+            .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
+          if (signedData?.signedUrl) imageUrl = signedData.signedUrl;
           await sb.from("vault_media").insert({
             user_id: userId,
             file_name: fileName,
             file_url: imageUrl,
-            file_type: "image",
+            file_type: "image/png",
             file_size: bytes.length,
             description: `AI-generated: ${prompt.slice(0, 120)}`,
             tags: ["ai-generated", "mavis-gen"],
