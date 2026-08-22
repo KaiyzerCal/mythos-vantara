@@ -428,6 +428,7 @@ export type Database = {
           file_type: string
           file_url: string
           id: string
+          linked_note_id: string | null
           metadata: Json
           mime_type: string
           processing_status: string
@@ -446,6 +447,7 @@ export type Database = {
           file_type?: string
           file_url: string
           id?: string
+          linked_note_id?: string | null
           metadata?: Json
           mime_type?: string
           processing_status?: string
@@ -464,6 +466,7 @@ export type Database = {
           file_type?: string
           file_url?: string
           id?: string
+          linked_note_id?: string | null
           metadata?: Json
           mime_type?: string
           processing_status?: string
