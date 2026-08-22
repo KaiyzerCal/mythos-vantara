@@ -5,6 +5,17 @@ import { PageHeader } from "@/components/SharedUI";
 import { LoadingState } from "@/components/LoadingState";
 import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2, Pencil, X, Maximize2, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 
 interface MediaItem {
@@ -581,7 +592,9 @@ function ImageGenPanel({ onGenerated, onPreview }: { onGenerated: (item: MediaIt
         extra: { prompt, width: s.w, height: s.h },
       });
     } catch (e: any) {
-      alert(`Image generation failed: ${e?.message ?? "unknown error"}\n\nEnsure an image provider key (OPENAI_API / FAL_API_KEY / GEMINI_API_KEY) is set in Supabase secrets.`);
+      toast.error("Image generation failed", {
+        description: `${e?.message ?? "unknown error"} — check that an image provider key (OPENAI_API / FAL_API_KEY / GEMINI_API_KEY) is set in Supabase secrets.`,
+      });
     } finally {
       setGenerating(false);
     }
@@ -746,7 +759,7 @@ function VideoGenPanel({ onGenerated, seedImageUrl, onPreview }: { onGenerated: 
       const { data } = supabase.storage.from("avatars").getPublicUrl(path);
       setImageUrl(data.publicUrl);
     } catch (err: any) {
-      alert(`Upload failed: ${err.message}`);
+      toast.error("Upload failed", { description: err.message });
     } finally {
       setUploading(false);
     }
@@ -822,10 +835,12 @@ function VideoGenPanel({ onGenerated, seedImageUrl, onPreview }: { onGenerated: 
           extra: { cameraMotion, aspect, duration },
         });
       } else {
-        alert(`Still processing — job id ${jobId ?? "?"}. It will appear in the gallery once ready.`);
+        toast.info("Still processing", {
+          description: `Job ${jobId ?? "?"} — it will appear in the gallery once ready.`,
+        });
       }
     } catch (e: any) {
-      alert(`Video generation failed: ${e?.message ?? "unknown error"}`);
+      toast.error("Video generation failed", { description: e?.message ?? "unknown error" });
     } finally {
       setGenerating(false);
     }
@@ -988,6 +1003,8 @@ export function GalleryPage() {
   const [uploading, setUploading] = useState(false);
   const [previewItem, setPreviewItem] = useState<{ url: string; type: "image" | "video"; title?: string } | null>(null);
   const [editItem, setEditItem] = useState<MediaItem | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<MediaItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const handleSendToVideo = useCallback((url: string) => {
     setSeedImageUrl(url);
@@ -1003,9 +1020,18 @@ export function GalleryPage() {
     ));
   }, []);
 
-  const handleDelete = useCallback(async (item: MediaItem) => {
+  // window.confirm() is unreliable in a WebView — without a JS-dialog handler it
+  // resolves false without ever showing anything, which silently swallowed every
+  // delete. An in-app dialog does not depend on the host providing one.
+  const handleDelete = useCallback((item: MediaItem) => {
     if (!item.raw_id) return;
-    if (!window.confirm(`Delete this ${item.type}? This can't be undone.`)) return;
+    setPendingDelete(item);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    const item = pendingDelete;
+    if (!item?.raw_id || deleting) return;
+    setDeleting(true);
     try {
       const { error } = await (supabase as any).from("vault_media").delete().eq("id", item.raw_id);
       if (error) throw error;
@@ -1028,17 +1054,21 @@ export function GalleryPage() {
         await supabase.storage.from("vault-media").remove([vaultPath]).catch(() => {});
       }
       setItems(prev => prev.filter(i => i.id !== item.id));
+      setPendingDelete(null);
+      toast.success("Deleted", { description: item.title });
     } catch (e: any) {
-      alert(`Delete failed: ${e?.message ?? "unknown error"}`);
+      toast.error("Delete failed", { description: e?.message ?? "unknown error" });
+    } finally {
+      setDeleting(false);
     }
-  }, []);
+  }, [pendingDelete, deleting]);
 
   const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file afterward
     if (!file) return;
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) { alert("Not signed in."); return; }
+    if (!session?.user) { toast.error("Sign in to upload."); return; }
     setUploading(true);
     try {
       const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
@@ -1072,7 +1102,7 @@ export function GalleryPage() {
         created_at: row.created_at,
       }, ...prev]);
     } catch (err: any) {
-      alert(`Upload failed: ${err?.message ?? "unknown error"}`);
+      toast.error("Upload failed", { description: err?.message ?? "unknown error" });
     } finally {
       setUploading(false);
     }
@@ -1271,6 +1301,28 @@ export function GalleryPage() {
 
       <Lightbox item={previewItem} onClose={() => setPreviewItem(null)} />
       <EditSheet item={editItem} onClose={() => setEditItem(null)} onSaved={handleEditSaved} />
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open && !deleting) setPendingDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this {pendingDelete?.type}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete?.title ? `"${pendingDelete.title}" ` : ""}will be removed from your vault, along with its
+              stored file. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); confirmDelete(); }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
