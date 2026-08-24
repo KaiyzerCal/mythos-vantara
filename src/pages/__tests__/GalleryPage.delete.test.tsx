@@ -15,8 +15,8 @@ const h = vi.hoisted(() => {
     deleteEq,
     storageRemove: vi.fn().mockResolvedValue({ error: null }),
     vaultRows: [
-      { id: "row-1", file_name: "first.png",  file_type: "image/png", file_url: "https://cdn.test/first.png",  description: "", tags: [], created_at: "2026-08-01T00:00:00Z" },
-      { id: "row-2", file_name: "second.png", file_type: "image/png", file_url: "https://cdn.test/second.png", description: "", tags: [], created_at: "2026-08-02T00:00:00Z" },
+      { id: "row-1", file_name: "first.png",  file_type: "image/png", file_url: "https://cdn.test/first.png",  description: "", tags: [] as string[], created_at: "2026-08-01T00:00:00Z" },
+      { id: "row-2", file_name: "second.png", file_type: "image/png", file_url: "https://cdn.test/second.png", description: "", tags: [] as string[], created_at: "2026-08-02T00:00:00Z" },
     ],
   };
 });
