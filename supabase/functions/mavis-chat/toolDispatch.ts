@@ -245,6 +245,39 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
     },
   },
   {
+    name: "produce_video",
+    description: "Plan a complete video production from the operator's description — the storyboard step of the full pipeline. Expands their brief into a beat-by-beat plan (narration, visuals, on-screen text, timing) and saves it, returning the beats so you can read the plan back to them. production_type: 'faceless' for generated visuals with voiceover and no presenter; 'avatar' when the operator's own AI avatar should present; 'persona_ugc' when one of their AI personas should present creator-to-camera. This plans the video, it does NOT generate footage or render — say so, show the operator the beats, and let them revise before anything costs money. Use revise_video_beat to change a beat and production_status to check on one.",
+    params: {
+      brief:           { type: "string", desc: "What the operator wants, in their own words — pass it through rather than summarizing", required: true },
+      production_type: { type: "string", desc: "faceless | avatar | persona_ugc (default faceless)", enum: ["faceless","avatar","persona_ugc"] },
+      target_seconds:  { type: "number", desc: "Desired runtime in seconds, 5-600 (default 45)" },
+      format:          { type: "string", desc: "Aspect ratio (default 9:16, i.e. vertical)", enum: ["9:16","1:1","16:9"] },
+      visual_mode:     { type: "string", desc: "stills = one generated image per beat with motion, much cheaper (default). video = a generated clip per beat.", enum: ["stills","video"] },
+      persona:         { type: "string", desc: "Persona name to present — persona_ugc only" },
+      avatar_name:     { type: "string", desc: "Avatar label to present — avatar only" },
+      voice_id:        { type: "string", desc: "ElevenLabs voice id for the narration, if the operator has a preference" },
+    },
+  },
+  {
+    name: "production_status",
+    description: "Check a video production started with produce_video — its status, its beats, and how many have finished generating. Call with no production_id to list the operator's recent productions.",
+    params: {
+      production_id: { type: "string", desc: "From produce_video. Omit to list recent productions instead." },
+    },
+  },
+  {
+    name: "revise_video_beat",
+    description: "Change one beat of a video production — its narration, visual, on-screen text or duration. Clears whatever was already generated for that beat so it regenerates, and leaves every other beat alone. This is how 'make scene 3 punchier' or 'cut that line' is done; never re-run produce_video for a tweak, it would throw away the whole plan.",
+    params: {
+      production_id:  { type: "string", desc: "The production to edit", required: true },
+      idx:            { type: "number", desc: "Zero-based beat index", required: true },
+      narration:      { type: "string", desc: "Replacement spoken line" },
+      visual_prompt:  { type: "string", desc: "Replacement visual description" },
+      on_screen_text: { type: "string", desc: "Replacement caption" },
+      seconds:        { type: "number", desc: "Replacement duration, 1.5-15" },
+    },
+  },
+  {
     name: "avatar_social_post",
     description: "Generate a video of one of the operator's trained HeyGen avatars speaking a script, then auto-post it to any combination of social platforms. Use action:'post_existing' with video_url instead of script to publish an already-generated video without regenerating it. Avatar selection: pass avatar_name to use one of the operator's saved avatars by label (e.g. 'bioneerx' — any of them can run this full pipeline, not just one default), or avatar_id/voice_id directly, or omit both to use the operator's hands-free default. Errors clearly if none of those resolve to a real avatar — never assumes a stock one. tiktok/youtube post through their own dedicated integrations; facebook/linkedin/instagram/twitter/threads post through Blotato using the generic caption param. YouTube defaults to privacy_status:'private' — pass 'public' or 'unlisted' explicitly once trusted. Takes ~1-3 min for generation plus publish time; for pure video generation without posting, use heygen_agent instead.",
     params: {
@@ -853,6 +886,25 @@ async function callHyperframes(
   return data;
 }
 
+async function callVideoProducer(
+  supabaseUrl: string,
+  serviceKey: string,
+  userId: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${supabaseUrl}/functions/v1/mavis-video-producer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+    body: JSON.stringify({ ...body, user_id: userId }),
+    // Storyboarding is one LLM call, but a DEEP-mode call on a long brief can
+    // run well past the default fetch patience.
+    signal: AbortSignal.timeout(90_000),
+  });
+  const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(data.error ?? `mavis-video-producer ${res.status}`));
+  return data;
+}
+
 export async function resolveActionsNative(
   messages: any[],
   system: string,
@@ -888,6 +940,87 @@ export async function resolveActionsNative(
           lines.push(`✓ render_video: started (render_id=${result.id}). Rendering in the background — call check_video_render(render_id="${result.id}") in a bit to get the finished video.`);
         } catch (e: any) {
           lines.push(`✗ render_video: ${e.message ?? "failed to start"}`);
+        }
+        continue;
+      }
+      if (call.name === "produce_video") {
+        const brief = String(call.args.brief ?? "").trim();
+        if (!brief) continue;
+        try {
+          const r = await callVideoProducer(supabaseUrl, serviceKey, userId, {
+            action: "storyboard",
+            brief,
+            production_type: call.args.production_type,
+            target_seconds: call.args.target_seconds,
+            format: call.args.format,
+            visual_mode: call.args.visual_mode,
+            persona: call.args.persona,
+            avatar_name: call.args.avatar_name,
+            voice_id: call.args.voice_id,
+          });
+          const prod = (r.production ?? {}) as Record<string, unknown>;
+          const beats = Array.isArray(r.beats) ? r.beats as Array<Record<string, unknown>> : [];
+          const warnings = Array.isArray(r.warnings) ? r.warnings as string[] : [];
+          const sheet = beats
+            .map((b) => `  ${Number(b.idx) + 1}. [${b.seconds}s] ${b.narration || "(no narration)"}` +
+                        (b.visual_prompt ? `\n     visual: ${b.visual_prompt}` : "") +
+                        (b.on_screen_text ? `\n     caption: ${b.on_screen_text}` : ""))
+            .join("\n");
+          lines.push(
+            `✓ produce_video: storyboarded "${prod.title}" (production_id=${prod.id}) — ` +
+            `${prod.production_type}, ${prod.format}, ${beats.length} beats, ~${prod.total_seconds}s.\n${sheet}` +
+            (warnings.length ? `\n  notes: ${warnings.join(" ")}` : "") +
+            `\n[This is the PLAN only — no footage exists yet and nothing has been charged. ` +
+            `Show the operator these beats in a readable form, then ask whether to change anything ` +
+            `(revise_video_beat) before generation starts.]`,
+          );
+        } catch (e: any) {
+          lines.push(`✗ produce_video: ${e.message ?? "failed"}`);
+        }
+        continue;
+      }
+      if (call.name === "production_status") {
+        const productionId = String(call.args.production_id ?? "").trim();
+        try {
+          if (!productionId) {
+            const r = await callVideoProducer(supabaseUrl, serviceKey, userId, { action: "list" });
+            const list = Array.isArray(r.productions) ? r.productions as Array<Record<string, unknown>> : [];
+            lines.push(list.length
+              ? `✓ production_status: ${list.map((p) => `"${p.title}" (${p.id}) — ${p.status}`).join("; ")}`
+              : `✓ production_status: no video productions yet.`);
+          } else {
+            const r = await callVideoProducer(supabaseUrl, serviceKey, userId, { action: "status", production_id: productionId });
+            const prod = (r.production ?? {}) as Record<string, unknown>;
+            const prog = (r.progress ?? {}) as Record<string, unknown>;
+            lines.push(
+              `✓ production_status(${productionId}): ${prod.status} — ` +
+              `${prog.ready}/${prog.total} beats ready${Number(prog.failed) > 0 ? `, ${prog.failed} failed` : ""}` +
+              `${prod.output_url ? ` — ${prod.output_url}` : ""}`,
+            );
+          }
+        } catch (e: any) {
+          lines.push(`✗ production_status: ${e.message ?? "failed"}`);
+        }
+        continue;
+      }
+      if (call.name === "revise_video_beat") {
+        const productionId = String(call.args.production_id ?? "").trim();
+        const idx = Number(call.args.idx);
+        if (!productionId || !Number.isInteger(idx)) continue;
+        try {
+          const r = await callVideoProducer(supabaseUrl, serviceKey, userId, {
+            action: "revise_beat",
+            production_id: productionId,
+            idx,
+            narration: call.args.narration,
+            visual_prompt: call.args.visual_prompt,
+            on_screen_text: call.args.on_screen_text,
+            seconds: call.args.seconds,
+          });
+          const beat = (r.beat ?? {}) as Record<string, unknown>;
+          lines.push(`✓ revise_video_beat: beat ${idx + 1} updated — [${beat.seconds}s] ${beat.narration || "(no narration)"}`);
+        } catch (e: any) {
+          lines.push(`✗ revise_video_beat: ${e.message ?? "failed"}`);
         }
         continue;
       }
