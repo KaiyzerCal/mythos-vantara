@@ -6,16 +6,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2, Pencil, X, Maximize2, History } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 
 interface MediaItem {
@@ -1302,27 +1293,14 @@ export function GalleryPage() {
       <Lightbox item={previewItem} onClose={() => setPreviewItem(null)} />
       <EditSheet item={editItem} onClose={() => setEditItem(null)} onSaved={handleEditSaved} />
 
-      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open && !deleting) setPendingDelete(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this {pendingDelete?.type}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete?.title ? `"${pendingDelete.title}" ` : ""}will be removed from your vault, along with its
-              stored file. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); confirmDelete(); }}
-              disabled={deleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleting ? "Deleting…" : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title={`Delete this ${pendingDelete?.type ?? "item"}?`}
+        description={`${pendingDelete?.title ? `"${pendingDelete.title}" ` : ""}will be removed from your vault, along with its stored file. This can't be undone.`}
+        confirmLabel={deleting ? "Deleting…" : "Delete"}
+        onConfirm={confirmDelete}
+        onCancel={() => { if (!deleting) setPendingDelete(null); }}
+      />
     </div>
   );
 }
