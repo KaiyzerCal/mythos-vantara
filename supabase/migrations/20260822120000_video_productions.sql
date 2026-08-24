@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS public.mavis_video_productions (
   warnings         jsonb       NOT NULL DEFAULT '[]'::jsonb,
   error_message    text,
 
+  -- Spend ceiling, counted in paid generation calls rather than currency —
+  -- provider pricing isn't knowable from in here, but "this video may make at
+  -- most N generation calls" is, and it is what stops a retry loop from
+  -- quietly running up a bill. Set from the beat count at storyboard time.
+  generation_budget  integer   NOT NULL DEFAULT 30 CHECK (generation_budget >= 0),
+  generations_used   integer   NOT NULL DEFAULT 0 CHECK (generations_used >= 0),
+
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now()
 );
@@ -75,6 +82,12 @@ CREATE TABLE IF NOT EXISTS public.mavis_video_beats (
   -- Filled in by the asset worker: the picture and the voiceover for this beat.
   asset_url        text,
   audio_url        text,
+
+  -- Video generation is submit-then-poll and outlives a single worker tick, so
+  -- the provider job has to be remembered across ticks. Null in stills mode,
+  -- where image generation returns a URL inline.
+  provider         text,
+  provider_job_id  text,
 
   status           text        NOT NULL DEFAULT 'pending'
                      CHECK (status IN ('pending','generating','ready','failed','skipped')),
