@@ -16,6 +16,11 @@
 -- NOTE: this backend is Lovable-managed. Committing this file does NOT apply
 -- it — see CLAUDE.md.
 
+-- See 20260822120000 for why: a DDL statement that waits for a lock blocks
+-- everything queued behind it. Fail fast instead.
+SET lock_timeout = '3s';
+SET statement_timeout = '60s';
+
 select cron.schedule(
   'mavis-video-asset-worker',
   '*/5 * * * *',

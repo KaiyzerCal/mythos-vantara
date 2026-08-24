@@ -13,6 +13,21 @@
 -- it — see CLAUDE.md. Confirm against the running database before assuming the
 -- tables exist.
 
+-- Acquire-or-fail, never queue.
+--
+-- Postgres queues lock requests in order, so a DDL statement WAITING for a lock
+-- blocks every query that arrives behind it — including, for anything touching
+-- auth.users, every sign-in. That is how an earlier run of this migration took
+-- the app's auth down: the statement never completed, and the backlog behind it
+-- exhausted the connection pool.
+--
+-- lock_timeout makes that failure mode unreachable. If the lock is not free
+-- within three seconds this statement errors out and releases the queue,
+-- instead of becoming a head-of-line block. Re-running it later is safe;
+-- everything below is guarded with IF NOT EXISTS.
+SET lock_timeout = '3s';
+SET statement_timeout = '60s';
+
 CREATE TABLE IF NOT EXISTS public.mavis_video_productions (
   id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id          uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
