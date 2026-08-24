@@ -109,11 +109,34 @@ describe("escaping", () => {
 });
 
 describe("buildComposition — structure", () => {
-  it("emits the root attributes HyperFrames keys off", () => {
+  it("emits the root attributes the parser actually reads", () => {
+    // Verified against @hyperframes/parsers, not against mavis-chat's
+    // render_video description — that says data-width/data-height, which the
+    // parser does not read.
     const c = buildComposition(input());
     expect(c.html).toContain('data-composition-id="prod-1"');
-    expect(c.html).toContain('data-width="1080"');
-    expect(c.html).toContain('data-height="1920"');
+    expect(c.html).toContain('data-composition-width="1080"');
+    expect(c.html).toContain('data-composition-height="1920"');
+    expect(c.html).not.toMatch(/data-width=/);
+    expect(c.html).not.toMatch(/data-height=/);
+  });
+
+  it("gives every audio element an id, or it contributes no sound", () => {
+    // audioMixer selects `audio[id][src]`. An <audio> without an id renders a
+    // finished video with no voiceover and no error anywhere.
+    const c = buildComposition(input({
+      beats: [beat({ idx: 0 }), beat({ idx: 1, audio_url: "https://cdn.test/a1.mp3" })],
+    }));
+    const audioTags = [...c.html.matchAll(/<audio[^>]*>/g)].map((m) => m[0]);
+    expect(audioTags.length).toBe(2);
+    for (const tag of audioTags) expect(tag).toMatch(/\sid="[^"]+"/);
+  });
+
+  it("gives clips a track index so layering is explicit", () => {
+    const c = buildComposition(input({ beats: [beat({ on_screen_text: "hi" })] }));
+    expect(c.html).toMatch(/class="scene"[^>]*data-track-index="0"/);
+    expect(c.html).toMatch(/class="caption"[^>]*data-track-index="1"/);
+    expect(c.html).toMatch(/<audio[^>]*data-track-index="2"/);
   });
 
   it("sizes the frame from the format, not a fixed default", () => {
@@ -139,7 +162,7 @@ describe("buildComposition — structure", () => {
       ],
     }));
     // The second beat's audio must carry the same timing as its scene.
-    const audioTag = c.html.match(/<audio src="https:\/\/cdn\.test\/a1\.mp3"[^>]*>/)![0];
+    const audioTag = c.html.match(/<audio[^>]*src="https:\/\/cdn\.test\/a1\.mp3"[^>]*>/)![0];
     expect(audioTag).toContain('data-start="3"');
     expect(audioTag).toContain('data-duration="4"');
   });
@@ -149,7 +172,7 @@ describe("buildComposition — structure", () => {
       beats: [beat({ seconds: 2.5 }), beat({ seconds: 4 }), beat({ seconds: 1.5 })],
     }));
     expect(c.total_seconds).toBeCloseTo(8, 3);
-    expect(c.html).toContain('data-duration="8"');
+    expect(c.html).toContain('data-composition-duration="8"');
   });
 
   it("uses a real frame rate", () => {
@@ -160,7 +183,7 @@ describe("buildComposition — structure", () => {
 describe("buildComposition — visuals", () => {
   it("uses an image with a slow push in stills mode", () => {
     const c = buildComposition(input({ visual_mode: "stills" }));
-    expect(c.html).toContain("<img class=\"kb\"");
+    expect(c.html).toMatch(/<img id="[^"]+" class="kb"/);
     expect(c.html).toContain("--dur:4s");
     expect(c.html).not.toContain("<video");
   });

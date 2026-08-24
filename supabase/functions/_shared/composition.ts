@@ -6,14 +6,26 @@
 // infrastructure that is not stood up yet, so this module's output is checked
 // by tests rather than by watching a video come out.
 //
-// Output follows HyperFrames' conventions, the same ones mavis-chat's existing
-// render_video tool documents: a root element carrying data-composition-id /
-// data-width / data-height, and timed children carrying data-start and
-// data-duration in seconds.
+// Output follows HyperFrames' real composition contract, read from
+// @hyperframes/parsers rather than from mavis-chat's render_video tool
+// description — the two disagree, and the tool description is wrong:
+//
+//   - the root carries data-composition-width / -height / -duration, not
+//     data-width / data-height as the tool description claims;
+//   - clips are timed with data-start + data-duration + data-track-index
+//     (CANONICAL_AUTHORED_TIMING_ATTRIBUTES in compositionContract);
+//   - the audio mixer selects `audio[id][src]`, so an <audio> element without
+//     an id is silently dropped from the mix — a finished video with no
+//     voiceover at all. Every media element here is given an id.
 
 import { FORMAT_DIMENSIONS, type VideoFormat, type VisualMode } from "./storyboard.ts";
 
 export const DEFAULT_FPS = 30;
+
+/** Track indexes. Higher tracks composite above lower ones. */
+export const TRACK_VISUAL = 0;
+export const TRACK_CAPTION = 1;
+export const TRACK_AUDIO = 2;
 
 /** mavis-hyperframes forwards at most 20 asset URLs to the render service. */
 export const MAX_DECLARED_ASSETS = 20;
@@ -140,29 +152,36 @@ export function buildComposition(input: CompositionInput): Composition {
   const parts: string[] = [];
   input.beats.forEach((beat, i) => {
     const { start, duration } = timeline[i];
-    const timing = `data-start="${start}" data-duration="${duration}"`;
+    const id = `beat-${String(beat.idx).padStart(3, "0")}`;
+    const timed = (track: number) =>
+      `data-start="${start}" data-duration="${duration}" data-track-index="${track}"`;
 
     const src = beat.asset_url ? escapeUrl(beat.asset_url) : null;
     let visual: string;
     if (!src) {
       visual = `<div class="blank"></div>`;
     } else if (input.visual_mode === "video") {
-      visual = `<video src="${src}" muted playsinline></video>`;
+      // Generated clips carry no usable audio, so data-has-audio stays false
+      // and the narration track is the only sound.
+      visual = `<video id="${id}-v" src="${src}" muted playsinline data-has-audio="false"></video>`;
       assets.push(beat.asset_url!);
     } else {
-      visual = `<img class="kb" src="${src}" alt="" style="--dur:${duration}s">`;
+      visual = `<img id="${id}-v" class="kb" src="${src}" alt="" style="--dur:${duration}s">`;
       assets.push(beat.asset_url!);
     }
 
     const caption = beat.on_screen_text.trim()
-      ? `<div class="caption" style="font-size:${captionPx}px">${escapeHtml(beat.on_screen_text.trim())}</div>`
+      ? `<div class="caption" data-track-index="${TRACK_CAPTION}" ` +
+        `style="font-size:${captionPx}px">${escapeHtml(beat.on_screen_text.trim())}</div>`
       : "";
 
-    parts.push(`  <div class="scene" ${timing}>${visual}${caption}</div>`);
+    parts.push(`  <div class="scene" id="${id}" ${timed(TRACK_VISUAL)}>${visual}${caption}</div>`);
 
     const audio = beat.audio_url ? escapeUrl(beat.audio_url) : null;
     if (audio) {
-      parts.push(`  <audio src="${audio}" ${timing}></audio>`);
+      // The id is load-bearing: audioMixer selects `audio[id][src]`, and an
+      // element without one contributes no sound to the finished file.
+      parts.push(`  <audio id="${id}-a" src="${audio}" ${timed(TRACK_AUDIO)}></audio>`);
       assets.push(beat.audio_url!);
     }
   });
@@ -174,8 +193,9 @@ export function buildComposition(input: CompositionInput): Composition {
   const html = [
     `<style>${BASE_STYLE}</style>`,
     `<div class="stage" data-composition-id="${escapeHtml(input.production_id)}" ` +
-      `data-width="${width}" data-height="${height}" data-duration="${total}" ` +
-      `data-title="${escapeHtml(input.title)}" ` +
+      `data-composition-width="${width}" data-composition-height="${height}" ` +
+      `data-composition-duration="${total}" ` +
+      `data-name="${escapeHtml(input.title)}" ` +
       `style="width:${width}px;height:${height}px">`,
     ...parts,
     `</div>`,
