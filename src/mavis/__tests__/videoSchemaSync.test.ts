@@ -146,6 +146,59 @@ describe("status vocabularies agree", () => {
   });
 });
 
+describe("the render stage", () => {
+  const COMPOSITION = read("supabase/functions/_shared/composition.ts");
+  const HYPERFRAMES = read("supabase/functions/mavis-hyperframes/index.ts");
+
+  it("sends mavis-hyperframes exactly the fields its render action reads", () => {
+    // The proxy destructures composition_html, assets, width, height, fps.
+    for (const field of ["composition_html", "assets", "width", "height", "fps"]) {
+      expect(WORKER, `render submission omits ${field}`).toMatch(new RegExp(`${field}:`));
+    }
+    expect(WORKER).toMatch(/action: "render"/);
+    expect(WORKER).toMatch(/action: "status"/);
+  });
+
+  it("honours the asset cap the proxy actually enforces", () => {
+    // mavis-hyperframes slices assets to 20; the composer must agree, or a
+    // long production silently loses preload hints with no explanation.
+    const proxyCap = HYPERFRAMES.match(/assets\)\s*\?\s*body\.assets\.slice\(0,\s*(\d+)\)/);
+    expect(proxyCap, "could not find the proxy's asset cap").not.toBeNull();
+    const declared = COMPOSITION.match(/MAX_DECLARED_ASSETS = (\d+)/);
+    expect(declared).not.toBeNull();
+    expect(Number(declared![1])).toBe(Number(proxyCap![1]));
+  });
+
+  it("reacts to every status the proxy can return", () => {
+    // mavis-hyperframes returns queued | rendering | ready | failed.
+    for (const status of ["ready", "failed"]) {
+      expect(WORKER, `worker never handles a "${status}" render`).toContain(`"${status}"`);
+    }
+  });
+
+  it("stores the finished film in columns vault_media actually has", () => {
+    const vaultMigration = read("supabase/migrations/20260517220000_mavis_advanced.sql");
+    const start = vaultMigration.indexOf("CREATE TABLE IF NOT EXISTS public.vault_media");
+    const body = vaultMigration.slice(start, vaultMigration.indexOf("\n);", start));
+    const declared = [...body.matchAll(/^\s{2}([a-z_]+)\s+[a-z]/gm)].map((m) => m[1]);
+
+    const insertStart = WORKER.indexOf('from("vault_media").insert(');
+    expect(insertStart, "the finished video is never saved to the gallery").toBeGreaterThan(-1);
+    const insert = WORKER.slice(insertStart, WORKER.indexOf("});", insertStart));
+    for (const m of insert.matchAll(/^\s+([a-z_]+):/gm)) {
+      expect(declared, `writes vault_media.${m[1]}, which does not exist`).toContain(m[1]);
+    }
+  });
+
+  it("gives the finished film a real MIME type, so the gallery shows it", () => {
+    // The gallery's classifier reads the leading MIME token; a bare "video"
+    // was the bug that hid MAVIS-generated images earlier on this branch.
+    const insertStart = WORKER.indexOf('from("vault_media").insert(');
+    const insert = WORKER.slice(insertStart, WORKER.indexOf("});", insertStart));
+    expect(insert).toMatch(/file_type:\s*"video\/mp4"/);
+  });
+});
+
 describe("the worker is not publicly callable", () => {
   it("requires the service key, since every tick can spend money", () => {
     expect(WORKER).toMatch(/token !== SERVICE_KEY/);

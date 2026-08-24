@@ -20,6 +20,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { submitVideoCascade, videoPollHandlers } from "../_shared/providers.ts";
 import { FORMAT_DIMENSIONS, type VideoFormat } from "../_shared/storyboard.ts";
+import { buildComposition, type CompositionBeat } from "../_shared/composition.ts";
 import {
   selectBeatsToProcess,
   nextProductionStatus,
@@ -65,6 +66,8 @@ interface ProductionFull extends ProductionRow {
   format: VideoFormat;
   voice_id: string | null;
   title: string;
+  status: string;
+  render_id: string | null;
 }
 
 async function generateImage(prompt: string, format: VideoFormat): Promise<string> {
@@ -228,7 +231,133 @@ async function processBeat(beat: BeatRow, production: ProductionFull): Promise<n
   return spent;
 }
 
+async function callHyperframes(userId: string, body: Record<string, unknown>) {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-hyperframes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
+    body: JSON.stringify({ ...body, user_id: userId }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(data.error ?? `mavis-hyperframes ${res.status}`));
+  return data;
+}
+
+/**
+ * Build the timeline from finished beats and hand it to the renderer.
+ *
+ * The composition is derived from beats every time rather than stored, so a
+ * revised beat simply produces a different video on the next pass — there is
+ * no second copy of the plan to keep in step.
+ */
+async function composeProduction(production: ProductionFull): Promise<Record<string, unknown>> {
+  const { data: rows } = await sb
+    .from("mavis_video_beats")
+    .select("idx,narration,on_screen_text,seconds,asset_url,audio_url")
+    .eq("production_id", production.id)
+    .order("idx", { ascending: true });
+
+  const beats = (rows ?? []) as CompositionBeat[];
+  if (beats.length === 0) {
+    await sb.from("mavis_video_productions")
+      .update({ status: "failed", error_message: "This production has no beats to compose." })
+      .eq("id", production.id);
+    return { production_id: production.id, status: "failed" };
+  }
+
+  const composition = buildComposition({
+    production_id: production.id,
+    title: production.title,
+    format: production.format,
+    visual_mode: production.visual_mode,
+    beats,
+  });
+
+  try {
+    const render = await callHyperframes(production.user_id, {
+      action: "render",
+      composition_html: composition.html,
+      assets: composition.assets,
+      width: composition.width,
+      height: composition.height,
+      fps: composition.fps,
+    });
+    await sb.from("mavis_video_productions")
+      .update({ status: "rendering", render_id: String(render.id), error_message: null })
+      .eq("id", production.id);
+    return {
+      production_id: production.id,
+      status: "rendering",
+      render_id: render.id,
+      seconds: composition.total_seconds,
+      // Surfaced rather than swallowed: mavis-hyperframes forwards at most 20
+      // asset URLs, and a long production references more than that. The HTML
+      // still points at every asset by absolute URL, so this is only a
+      // preload hint being truncated — but if the render service turns out to
+      // require declared assets, this is the number that explains why a long
+      // video came back with missing scenes.
+      undeclared_assets: composition.asset_overflow,
+    };
+  } catch (e) {
+    const message = (e as Error).message ?? "render submission failed";
+    // A missing render service is the expected failure until that container
+    // exists, so say so plainly instead of leaving a bare HTTP error.
+    const hint = /HYPERFRAMES_RENDER_URL/.test(message)
+      ? " — the HyperFrames render service is not configured yet; see DEPLOYMENT.md."
+      : "";
+    await sb.from("mavis_video_productions")
+      .update({ status: "failed", error_message: (message + hint).slice(0, 500) })
+      .eq("id", production.id);
+    return { production_id: production.id, status: "failed", error: message + hint };
+  }
+}
+
+/** Poll an in-flight render and store the finished film. */
+async function pollRender(production: ProductionFull): Promise<Record<string, unknown>> {
+  if (!production.render_id) {
+    // Nothing to poll — drop back so the next tick recomposes.
+    await sb.from("mavis_video_productions")
+      .update({ status: "composing" }).eq("id", production.id);
+    return { production_id: production.id, status: "composing" };
+  }
+
+  try {
+    const r = await callHyperframes(production.user_id, { action: "status", id: production.render_id });
+    if (r.status === "ready" && r.render_url) {
+      await sb.from("mavis_video_productions")
+        .update({ status: "ready", output_url: String(r.render_url), error_message: null })
+        .eq("id", production.id);
+
+      // Land it in the gallery alongside everything else the operator makes.
+      await sb.from("vault_media").insert({
+        user_id: production.user_id,
+        file_name: production.title || "video production",
+        file_url: String(r.render_url),
+        file_type: "video/mp4",
+        description: `MAVIS video production (${production.production_type}, ${production.format})`,
+        tags: ["generated", "video-production", production.production_type],
+      });
+
+      return { production_id: production.id, status: "ready", output_url: r.render_url };
+    }
+    if (r.status === "failed") {
+      await sb.from("mavis_video_productions")
+        .update({ status: "failed", error_message: String(r.error_message ?? "render failed").slice(0, 500) })
+        .eq("id", production.id);
+      return { production_id: production.id, status: "failed" };
+    }
+    return { production_id: production.id, status: "rendering" };
+  } catch (e) {
+    // A transient status error should not fail a render that may still be
+    // running — leave it rendering and try again next tick.
+    return { production_id: production.id, status: "rendering", note: (e as Error).message };
+  }
+}
+
 async function runProduction(production: ProductionFull, deadline: number): Promise<Record<string, unknown>> {
+  if (production.status === "composing") return await composeProduction(production);
+  if (production.status === "rendering") return await pollRender(production);
+
   const { data: beatRows } = await sb
     .from("mavis_video_beats")
     .select("id,idx,narration,visual_prompt,seconds,asset_url,audio_url,provider,provider_job_id,status,attempts")
@@ -291,7 +420,8 @@ async function runProduction(production: ProductionFull, deadline: number): Prom
 }
 
 const PRODUCTION_COLUMNS =
-  "id,user_id,title,production_type,visual_mode,format,voice_id,generation_budget,generations_used";
+  "id,user_id,title,production_type,visual_mode,format,voice_id," +
+  "generation_budget,generations_used,status,render_id";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -317,7 +447,7 @@ serve(async (req) => {
     const { data: due } = await sb
       .from("mavis_video_productions")
       .select(PRODUCTION_COLUMNS)
-      .in("status", ["storyboarded", "generating"])
+      .in("status", ["storyboarded", "generating", "composing", "rendering"])
       .order("updated_at", { ascending: true })
       .limit(PRODUCTIONS_PER_TICK);
 
