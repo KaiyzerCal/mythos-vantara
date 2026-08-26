@@ -1158,8 +1158,12 @@ export default function MavisChat() {
           setLastAgentMeta({ toolsUsed, actionsQueued });
           const agentExecConfirmed = (agentResult.executionResults ?? []).filter((r) => r.status === "success");
           if (agentExecConfirmed.length > 0) {
-            await new Promise((r) => setTimeout(r, 500));
             invalidateSystemPromptCache();
+            // Realtime is the primary path now that the tables are published
+            // (migration 20260822140000) — it arrives in milliseconds and
+            // refetches one table. This stays as a backstop for a dropped
+            // socket, and runs immediately: the 500ms sleep it replaces was
+            // there to let writes land before a refetch could see them.
             await refetchAll();
             if (userId) captureProceduralMemory(userId, content, agentExecConfirmed).catch(() => {});
           }
@@ -1390,15 +1394,16 @@ export default function MavisChat() {
           },
           abortController.signal,
         );
-        // Schedule data refetch if the mavis-chat ReAct loop executed any actions.
-        // Done after streamResult so the message is finalized first.
+        // Refresh if the mavis-chat ReAct loop executed any actions.
+        //
+        // This used to wait 600ms, refetch everything, then refetch everything
+        // again 1.5s later. That was not a race guard — it was compensating for
+        // realtime never firing, because none of the sixteen subscribed tables
+        // were in the supabase_realtime publication. With them published
+        // (migration 20260822140000) the push channel handles freshness and
+        // this is only a backstop, so it runs once and without delay.
         if (reactActionsSucceeded || (streamResult.fnData as any)?.actionsRan) {
-          setTimeout(async () => {
-            if (!cancelledRef.current) {
-              await refetchAll();
-              setTimeout(() => refetchAll(), 1500);
-            }
-          }, 600);
+          if (!cancelledRef.current) await refetchAll();
         }
       }
       const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = streamResult;
@@ -1423,9 +1428,10 @@ export default function MavisChat() {
       if (confirmed.length > 0 || failed.length > 0) {
         // Trigger data refresh after successful action writes
         if (confirmed.length > 0) {
-          await new Promise(r => setTimeout(r, 500));
+          // Backstop only — see the note at the ReAct refresh above. The sleep
+          // and the 1.5s repeat that used to be here existed because realtime
+          // was inert, not because writes needed settling time.
           await refetchAll();
-          setTimeout(() => { refetchAll(); }, 1500);
           // Hermes procedural memory: capture how this request was handled
           if (userId) captureProceduralMemory(userId, content, confirmed).catch(() => {});
         }
