@@ -26,8 +26,16 @@ const ASSETS = read("supabase/functions/_shared/videoAssets.ts");
 function columnsOf(table: string): string[] {
   const start = MIGRATION.indexOf(`CREATE TABLE IF NOT EXISTS public.${table}`);
   expect(start, `${table} not found in the migration`).toBeGreaterThan(-1);
-  const body = MIGRATION.slice(start, MIGRATION.indexOf("\n);", start));
-  return [...body.matchAll(/^\s{2}([a-z_]+)\s+[a-z]/gm)].map((m) => m[1]);
+  // Terminator and indent both have to be indent-agnostic. The CREATE TABLE
+  // statements moved inside a DO block when the auth.users foreign keys were
+  // split out of them (see the migration header), which shifted every column
+  // by two spaces and moved the closing paren off column 0. Matching a fixed
+  // indent silently returned zero columns, so every "is this column declared"
+  // assertion failed at once rather than reporting real drift.
+  const end = MIGRATION.slice(start).search(/^\s*\);/m);
+  const body = MIGRATION.slice(start, end === -1 ? undefined : start + end);
+  return [...body.matchAll(/^\s+([a-z_]+)\s+(?:uuid|text|integer|numeric|jsonb|timestamptz|boolean)\b/gm)]
+    .map((m) => m[1]);
 }
 
 /** Values of a CHECK (col IN (...)) constraint. */
