@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Send, Loader2, Mic, Square, ChevronDown, Brain, Target, Crown, Flame, Database, Cpu, Search, Zap, Trash2, ArrowUp, ArrowDown, Users, FileCode, BarChart2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAppData } from "@/contexts/AppDataContext";
+import { sectionsForActions } from "@/mavis/refreshContract";
 import { supabase } from "@/integrations/supabase/client";
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage } from "@/mavis/chatService";
@@ -350,7 +351,7 @@ export default function MavisDemo() {
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     chatMessages, setChatMessages, conversationId, setConversationId,
-    chatMode, setChatMode, refetchAll,
+    chatMode, setChatMode, refreshSections,
     rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
   } = _appData;
 
@@ -540,8 +541,12 @@ export default function MavisDemo() {
       if (persistId) persistMessage({ role: "assistant", content: cleanText, mode: chatMode }, persistId).catch(() => {});
 
       if (confirmed.length > 0) {
-        await new Promise(r => setTimeout(r, 500));
-        await refetchAll();
+        // Was `sleep(500)` then a full refetchAll. The sleep was there to let
+        // writes land before a poll could see them, which was only ever needed
+        // because realtime was inert — the same compensation removed from
+        // MavisChat in Phase 2, left behind here. Realtime is primary now
+        // (migration 20260822140000); this is a scoped backstop.
+        await refreshSections(sectionsForActions(confirmed.map((r) => r.action.type)));
         if (userId) captureProceduralMemory(userId, content, confirmed).catch(() => {});
         setActionStatus(`✓ ${confirmed.map((r) => r.action.type).join(", ")}`);
         setTimeout(() => setActionStatus(null), 3000);
@@ -565,7 +570,7 @@ export default function MavisDemo() {
       setIsLoading(false);
       setStreamingId(null);
     }
-  }, [input, isLoading, chatMode, chatMessages, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, profile, quests, tasks, skills, journalEntries, vaultEntries, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations, rituals]);
+  }, [input, isLoading, chatMode, chatMessages, conversationId, setChatMessages, setConversationId, refreshSections, ensureConversation, persistMessage, profile, quests, tasks, skills, journalEntries, vaultEntries, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations, rituals]);
 
   const lastBotMessage = useMemo(() => {
     const last = chatMessages.filter((m: any) => m.role === "assistant").at(-1);

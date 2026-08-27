@@ -26,6 +26,7 @@ import { useMediaPoller } from "@/hooks/useMediaPoller";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot, buildSystemPromptCached, invalidateSystemPromptCache } from "@/mavis/buildSystemPrompt";
+import { sectionsForActions, routeForActions } from "@/mavis/refreshContract";
 import { useMavisActionHandlers } from "@/mavis/useMavisActionHandlers";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage, invokeAI } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
@@ -109,7 +110,7 @@ export default function MavisChat() {
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     conversationId, setConversationId,
-    chatMode, setChatMode, refetchAll,
+    chatMode, setChatMode, refetchAll, refreshSections,
     rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
   } = _appData;
   // Explicitly typed (unlike the rest of _appData, cast wholesale to `any`
@@ -125,6 +126,8 @@ export default function MavisChat() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  // Route offered alongside actionStatus — see routeForActions.
+  const [actionRoute, setActionRoute] = useState<string | null>(null);
   const [pendingActions, setPendingActions] = useState<ExecutionResult[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, 1 | -1>>({});
@@ -1164,7 +1167,10 @@ export default function MavisChat() {
             // refetches one table. This stays as a backstop for a dropped
             // socket, and runs immediately: the 500ms sleep it replaces was
             // there to let writes land before a refetch could see them.
-            await refetchAll();
+            //
+            // Scoped to what these actions actually touched; an action absent
+            // from the map resolves to "all", i.e. the old refetchAll.
+            await refreshSections(sectionsForActions(agentExecConfirmed.map((r) => r.action.type)));
             if (userId) captureProceduralMemory(userId, content, agentExecConfirmed).catch(() => {});
           }
           const agentMsg = {
@@ -1375,14 +1381,19 @@ export default function MavisChat() {
           abortController.signal,
         );
       } else {
-        let reactActionsSucceeded = false;
+        const reactActionTypes: string[] = [];
         streamResult = await streamChatMessage(
           content, systemPrompt, history,
           { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
           onToken,
           (stepEvent) => {
             if (!cancelledRef.current) {
-              if (stepEvent.step === "result" && stepEvent.ok) reactActionsSucceeded = true;
+              // The type is what makes a targeted refresh possible here —
+              // this used to collapse the whole batch to a boolean, which is
+              // why this path had to shotgun refetchAll.
+              if (stepEvent.step === "result" && stepEvent.ok && stepEvent.type) {
+                reactActionTypes.push(stepEvent.type);
+              }
               setAgentSteps(prev => {
                 const label = stepEvent.type ? `${stepEvent.type}` : "";
                 if (stepEvent.step === "result" && prev.length > 0 && prev[prev.length - 1].type === stepEvent.type) {
@@ -1402,7 +1413,13 @@ export default function MavisChat() {
         // were in the supabase_realtime publication. With them published
         // (migration 20260822140000) the push channel handles freshness and
         // this is only a backstop, so it runs once and without delay.
-        if (reactActionsSucceeded || (streamResult.fnData as any)?.actionsRan) {
+        // fnData.actionsRan is the fallback for a batch whose per-action
+        // `result` events were missed (an aborted read, an older function
+        // build): it proves something ran but not what, so it refreshes
+        // everything.
+        if (reactActionTypes.length > 0) {
+          if (!cancelledRef.current) await refreshSections(sectionsForActions(reactActionTypes));
+        } else if ((streamResult.fnData as any)?.actionsRan) {
           if (!cancelledRef.current) await refetchAll();
         }
       }
@@ -1431,17 +1448,21 @@ export default function MavisChat() {
           // Backstop only — see the note at the ReAct refresh above. The sleep
           // and the 1.5s repeat that used to be here existed because realtime
           // was inert, not because writes needed settling time.
-          await refetchAll();
+          await refreshSections(sectionsForActions(confirmed.map((r) => r.action.type)));
           // Hermes procedural memory: capture how this request was handled
           if (userId) captureProceduralMemory(userId, content, confirmed).catch(() => {});
         }
         const actionTypes = confirmed.map((r) => r.action.type).join(", ");
         if (failed.length > 0) {
           setActionStatus(`⚠ ${failed.length} action${failed.length > 1 ? "s" : ""} failed`);
+          setActionRoute(null);
         } else {
           setActionStatus(`✓ ${actionTypes}`);
+          // Offered, not taken: navigating on MAVIS's behalf would pull the
+          // operator out of a conversation they are still having.
+          setActionRoute(routeForActions(confirmed.map((r) => r.action.type)));
         }
-        setTimeout(() => setActionStatus(null), 3000);
+        setTimeout(() => { setActionStatus(null); setActionRoute(null); }, 3000);
       } else if (executionResults.length > 0 && pending.length === executionResults.length) {
         setActionStatus(`⏳ ${pending.length} action${pending.length > 1 ? "s" : ""} pending confirmation`);
         setTimeout(() => setActionStatus(null), 4000);
@@ -1530,7 +1551,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, refreshSections, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;
@@ -1590,7 +1611,8 @@ export default function MavisChat() {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       setPendingActions(prev => prev.filter((_, i) => i !== index));
-      refetchAll?.();
+      // One known action — no reason to refetch the other sixteen sections.
+      refreshSections(sectionsForActions([result.action.type])).catch(() => {});
     } catch (err) {
       console.error("Failed to execute approved action:", err);
     }
@@ -1854,6 +1876,15 @@ export default function MavisChat() {
           >
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             {actionStatus}
+            {actionRoute && (
+              <button
+                type="button"
+                onClick={() => navigate(actionRoute)}
+                className="ml-auto underline underline-offset-2 hover:no-underline"
+              >
+                View →
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

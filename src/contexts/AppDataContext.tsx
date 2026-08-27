@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useProfile, type ProfileData } from "@/hooks/useProfile";
 import { useQuests, type Quest } from "@/hooks/useQuests";
 import { recordAutoMemory } from "@/mavis/autoMemory";
+import type { RefreshTarget, Section } from "@/mavis/refreshContract";
 import {
   useTasks, useJournal, useVault, useCouncils,
   useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useCurrencies, useTransformations, useRankings, useRituals, useDomainEffects,
@@ -147,6 +148,10 @@ interface AppDataContextType {
 
   // Refetch all data (used after MAVIS actions)
   refetchAll: () => Promise<void>;
+  // Refetch only the sections an action actually touched. Prefer this over
+  // refetchAll wherever the caller knows what changed — see
+  // src/mavis/refreshContract.ts for how a set of actions maps to sections.
+  refreshSections: (target: RefreshTarget) => Promise<void>;
   // Increments every time refetchAll completes — pages subscribe to auto-refresh
   lastActionTs: number;
 
@@ -219,6 +224,29 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     ]);
     setLastActionTs(Date.now());
   }, [refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchCurrencies, refetchTransformations, refetchRankings, refetchRituals, refetchDomainEffects]);
+
+  // Targeted refresh. refetchAll fires seventeen queries; most actions move
+  // one table. Callers that know what an action touched refresh only that,
+  // and "all" still routes to refetchAll so an unknown action costs exactly
+  // what it did before this existed.
+  const refreshSections = useCallback(async (target: RefreshTarget) => {
+    if (target === "all") { await refetchAll(); return; }
+    if (target.length === 0) return;
+    // Built per call rather than memoized: it is seventeen property reads
+    // against callbacks that are already stable, and hoisting it would add a
+    // second dependency list to keep in step with this one.
+    const bySection: Record<Section, () => Promise<unknown>> = {
+      profile: refetchProfile, quests: refetchQuests, tasks: refetchTasks,
+      journal: refetchJournal, vault: refetchVault, councils: refetchCouncils,
+      skills: refetchSkills, energy: refetchEnergy, inventory: refetchInventory,
+      allies: refetchAllies, bpm: refetchBpm, store: refetchStore,
+      currencies: refetchCurrencies, transformations: refetchTransformations,
+      rankings: refetchRankings, rituals: refetchRituals,
+      domainEffects: refetchDomainEffects,
+    };
+    await Promise.all(target.map((s) => bySection[s]()));
+    setLastActionTs(Date.now());
+  }, [refetchAll, refetchProfile, refetchQuests, refetchTasks, refetchJournal, refetchVault, refetchCouncils, refetchSkills, refetchEnergy, refetchInventory, refetchAllies, refetchBpm, refetchStore, refetchCurrencies, refetchTransformations, refetchRankings, refetchRituals, refetchDomainEffects]);
 
   // Supabase Realtime — live sync for core tables
   const realtimeRef = useRef<any>(null);
@@ -311,6 +339,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       domainEffects, domainEffectsLoading, createDomainEffect, updateDomainEffect, deleteDomainEffect, refetchDomainEffects,
       logActivity,
       refetchAll,
+      refreshSections,
       lastActionTs,
       chatMessages, setChatMessages, conversationId, setConversationId,
       chatMode, setChatMode,
@@ -323,7 +352,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       inventory, inventoryLoading, allies, alliesLoading, bpmSessions, bpmLoading,
       storeItems, storeLoading, currencies, currenciesLoading, transformations, transformationsLoading,
       rankings, rankingsLoading, domainEffects, domainEffectsLoading,
-      refetchAll, lastActionTs, chatMessages, conversationId, chatMode,
+      refetchAll, refreshSections, lastActionTs, chatMessages, conversationId, chatMode,
     ],
   );
 
