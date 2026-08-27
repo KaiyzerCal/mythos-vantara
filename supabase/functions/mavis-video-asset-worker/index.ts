@@ -20,6 +20,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { submitVideoCascade, videoPollHandlers } from "../_shared/providers.ts";
 import { FORMAT_DIMENSIONS, type VideoFormat } from "../_shared/storyboard.ts";
+import {
+  type AvatarProfile,
+  normalizeAvatarProfile,
+  presetByKey,
+  styleVisualPrompt,
+  imageProviderFor,
+  videoProviderFor,
+} from "../_shared/avatarProfile.ts";
 import { buildComposition, type CompositionBeat } from "../_shared/composition.ts";
 import {
   selectBeatsToProcess,
@@ -68,10 +76,38 @@ interface ProductionFull extends ProductionRow {
   title: string;
   status: string;
   render_id: string | null;
+  avatar_key: string | null;
+  persona_id: string | null;
 }
 
-async function generateImage(prompt: string, format: VideoFormat): Promise<string> {
+/**
+ * Resolve the identity a production was planned under.
+ *
+ * The producer wrote both the persona row id (when the identity was forged) and
+ * the preset key (which is all a not-yet-forged preset has). The row wins when
+ * present, because the operator may have edited it since.
+ */
+async function loadProfile(production: ProductionFull): Promise<AvatarProfile | null> {
+  if (production.persona_id) {
+    const { data } = await sb
+      .from("personas")
+      .select("id,name,avatar_key,system_prompt,voice_id,voice_settings,voice_style," +
+              "content_niche,rendering_style,overlay_style,domain_tags,asset_paths")
+      .eq("id", production.persona_id)
+      .maybeSingle();
+    const row = data as unknown as Record<string, unknown> | null;
+    if (row) return normalizeAvatarProfile(row);
+  }
+  return presetByKey(production.avatar_key);
+}
+
+async function generateImage(
+  prompt: string,
+  format: VideoFormat,
+  profile: AvatarProfile | null = null,
+): Promise<string> {
   const { width, height } = FORMAT_DIMENSIONS[format];
+  const provider = imageProviderFor(profile);
   const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-image-gen`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
@@ -82,6 +118,9 @@ async function generateImage(prompt: string, format: VideoFormat): Promise<strin
       size: `${width}x${height}`,
       aspect_ratio: format,
       quality: "high",
+      // Undefined leaves the automatic cascade in charge, which is the default
+      // for every identity that has not pinned a provider — see avatarProfile.
+      ...(provider ? { provider } : {}),
     }),
     signal: AbortSignal.timeout(120_000),
   });
@@ -147,6 +186,7 @@ async function generateNarration(
 async function advanceVideoBeat(
   beat: BeatRow,
   production: ProductionFull,
+  profile: AvatarProfile | null = null,
 ): Promise<{ url?: string; provider?: string; job_id?: string; pending: boolean }> {
   if (beat.provider_job_id && beat.provider) {
     const poll = videoPollHandlers[beat.provider];
@@ -156,10 +196,14 @@ async function advanceVideoBeat(
     return { pending: true };
   }
 
+  const videoProvider = videoProviderFor(profile);
   const r = await submitVideoCascade({
-    prompt: beat.visual_prompt,
+    // Same visual register as the stills path — a production that switches
+    // between photoreal and stylized frames mid-piece reads as broken.
+    prompt: styleVisualPrompt(beat.visual_prompt, profile),
     duration: Math.max(1, Math.round(beat.seconds)),
     aspect_ratio: production.format,
+    ...(videoProvider ? { provider: videoProvider } : {}),
   });
   if (r.status === "complete" && r.url) return { url: r.url, pending: false };
 
@@ -171,7 +215,11 @@ async function advanceVideoBeat(
 }
 
 /** Work one beat as far as it can go this tick. Returns paid calls made. */
-async function processBeat(beat: BeatRow, production: ProductionFull): Promise<number> {
+async function processBeat(
+  beat: BeatRow,
+  production: ProductionFull,
+  profile: AvatarProfile | null = null,
+): Promise<number> {
   const needs = beatNeeds(beat, production);
   const patch: Record<string, unknown> = {};
   let spent = 0;
@@ -180,7 +228,7 @@ async function processBeat(beat: BeatRow, production: ProductionFull): Promise<n
   if (needs.visual) {
     try {
       if (production.visual_mode === "video") {
-        const r = await advanceVideoBeat(beat, production);
+        const r = await advanceVideoBeat(beat, production, profile);
         spent += beat.provider_job_id ? 0 : 1;
         if (r.url) {
           patch.asset_url = r.url;
@@ -190,7 +238,9 @@ async function processBeat(beat: BeatRow, production: ProductionFull): Promise<n
           if (r.job_id) patch.provider_job_id = r.job_id;
         }
       } else {
-        patch.asset_url = await generateImage(beat.visual_prompt, production.format);
+        patch.asset_url = await generateImage(
+          styleVisualPrompt(beat.visual_prompt, profile), production.format, profile,
+        );
         spent += 1;
       }
     } catch (e) {
@@ -201,7 +251,8 @@ async function processBeat(beat: BeatRow, production: ProductionFull): Promise<n
   if (needs.audio) {
     try {
       patch.audio_url = await generateNarration(
-        beat.narration, production.voice_id, production.user_id, production.id, beat.idx,
+        beat.narration, production.voice_id ?? profile?.voice_id ?? null,
+        production.user_id, production.id, beat.idx,
       );
       spent += 1;
     } catch (e) {
@@ -380,11 +431,15 @@ async function runProduction(production: ProductionFull, deadline: number): Prom
     .update({ status: "generating" })
     .eq("id", production.id);
 
+  // Loaded once per tick, not per beat: every beat in a production shares one
+  // identity, and re-reading it four times would be four queries for one answer.
+  const profile = await loadProfile(production);
+
   let spent = 0;
   let processed = 0;
   for (const beat of queue) {
     if (Date.now() > deadline) break;
-    spent += await processBeat(beat, production);
+    spent += await processBeat(beat, production, profile);
     processed++;
   }
 
@@ -421,7 +476,7 @@ async function runProduction(production: ProductionFull, deadline: number): Prom
 
 const PRODUCTION_COLUMNS =
   "id,user_id,title,production_type,visual_mode,format,voice_id," +
-  "generation_budget,generations_used,status,render_id";
+  "generation_budget,generations_used,status,render_id,avatar_key,persona_id";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
