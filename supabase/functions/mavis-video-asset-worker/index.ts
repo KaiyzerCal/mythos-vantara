@@ -441,7 +441,12 @@ serve(async (req) => {
       const { data } = await sb
         .from("mavis_video_productions").select(PRODUCTION_COLUMNS).eq("id", id).maybeSingle();
       if (!data) return json({ error: "Production not found" }, 404);
-      return json({ ok: true, results: [await runProduction(data as ProductionFull, deadline)] });
+      // `as unknown as` rather than a direct cast: this client is untyped, so
+      // supabase-js cannot resolve PRODUCTION_COLUMNS against a generated
+      // Database type and infers GenericStringError. That does not overlap
+      // ProductionFull, and TS2352 rejects the one-step cast — which is what
+      // deno-check caught.
+      return json({ ok: true, results: [await runProduction(data as unknown as ProductionFull, deadline)] });
     }
 
     const { data: due } = await sb
@@ -452,7 +457,7 @@ serve(async (req) => {
       .limit(PRODUCTIONS_PER_TICK);
 
     const results: Record<string, unknown>[] = [];
-    for (const production of (due ?? []) as ProductionFull[]) {
+    for (const production of (due ?? []) as unknown as ProductionFull[]) {
       if (Date.now() > deadline) break;
       results.push(await runProduction(production, deadline));
     }
