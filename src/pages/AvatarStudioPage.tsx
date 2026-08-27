@@ -24,6 +24,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useProfile } from "@/hooks/useProfile";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { AvatarIdentitySelector } from "@/components/AvatarIdentitySelector";
+import { identityByKey, type OverlayStyle } from "@/lib/avatarIdentity";
 
 // ─── ElevenLabs preset voices ────────────────────────────────
 
@@ -72,6 +74,14 @@ export function AvatarStudioPage() {
 
   // Engine — SadTalker face-animation vs. a trained HeyGen avatar
   const [engineMode, setEngineMode] = useState<EngineMode>("photo");
+
+  // Brand identity. Held here rather than in the video pipeline because this is
+  // where an operator comes to set up who presents; produce_video reads the
+  // persona row this writes.
+  const [identityKey, setIdentityKey] = useState<string | null>(null);
+  const [identityOverlay, setIdentityOverlay] = useState<OverlayStyle | undefined>(undefined);
+  const [identityRowId, setIdentityRowId] = useState<string | null>(null);
+  const [identitySaving, setIdentitySaving] = useState(false);
 
   // HeyGen avatar mode
   const [avatarId, setAvatarId] = useState("");
@@ -420,6 +430,42 @@ export function AvatarStudioPage() {
 
   // ── Render ────────────────────────────────────────────────
 
+  // Load the operator's stored config for an identity when they select it.
+  // A preset with no row yet is a valid state — it just has nothing to edit.
+  useEffect(() => {
+    let cancelled = false;
+    if (!identityKey) { setIdentityRowId(null); setIdentityOverlay(undefined); return; }
+    (async () => {
+      const { data } = await (supabase as any)
+        .from("personas")
+        .select("id,overlay_style")
+        .eq("avatar_key", identityKey)
+        .limit(1);
+      if (cancelled) return;
+      const row = data?.[0];
+      setIdentityRowId(row?.id ?? null);
+      setIdentityOverlay(row?.overlay_style ?? identityByKey(identityKey)?.overlay_style);
+    })();
+    return () => { cancelled = true; };
+  }, [identityKey]);
+
+  async function saveIdentity() {
+    if (!identityRowId || !identityOverlay) return;
+    setIdentitySaving(true);
+    try {
+      const { error } = await (supabase as any)
+        .from("personas")
+        .update({ overlay_style: identityOverlay })
+        .eq("id", identityRowId);
+      if (error) throw error;
+      toast.success("Identity saved");
+    } catch (e: any) {
+      toast.error("Could not save identity", { description: e?.message ?? String(e) });
+    } finally {
+      setIdentitySaving(false);
+    }
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto">
       <PageHeader
@@ -427,6 +473,24 @@ export function AvatarStudioPage() {
         subtitle="AI talking-head videos. Your face or your trained HeyGen avatar, your voice, your script."
         icon={<User size={18} />}
       />
+
+      {/* Brand identity — who is presenting, and in what visual register */}
+      <HudCard className="mb-4">
+        <h2 className="mb-1 text-sm font-medium">Brand identity</h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Sets the visual register, subject territory and on-screen overlays for
+          video productions MAVIS makes.
+        </p>
+        <AvatarIdentitySelector
+          value={identityKey}
+          onChange={setIdentityKey}
+          overlayStyle={identityOverlay}
+          onOverlayChange={setIdentityOverlay}
+          canConfigure={!!identityRowId}
+          saving={identitySaving}
+          onSave={saveIdentity}
+        />
+      </HudCard>
 
       {/* Engine toggle */}
       <div className="flex gap-2 mb-4">

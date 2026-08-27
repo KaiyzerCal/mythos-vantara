@@ -33,6 +33,13 @@ import {
   FORMAT_DIMENSIONS,
   type ProductionType,
 } from "../_shared/storyboard.ts";
+import {
+  type AvatarProfile,
+  normalizeAvatarProfile,
+  presetByKey,
+  identityPromptWrapper,
+  suggestProfileForBrief,
+} from "../_shared/avatarProfile.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,7 +89,12 @@ function extractJson(text: string): unknown {
   }
 }
 
-function storyboardSystemPrompt(type: ProductionType, beatCount: number, seconds: number): string {
+function storyboardSystemPrompt(
+  type: ProductionType,
+  beatCount: number,
+  seconds: number,
+  profile: AvatarProfile | null = null,
+): string {
   const shared =
     `You are a video director planning a ${seconds}-second short. Produce about ${beatCount} beats.\n\n` +
     `Return ONLY JSON: {"title": "...", "beats": [{"narration": "...", "visual_prompt": "...", ` +
@@ -94,20 +106,22 @@ function storyboardSystemPrompt(type: ProductionType, beatCount: number, seconds
     `- Open on the strongest hook you have. Do not open with a greeting or a channel intro.\n` +
     `- The beats must add up to one continuous piece, not a list of independent facts.\n`;
 
+  const identity = identityPromptWrapper(profile);
+
   if (type === "avatar") {
-    return shared +
+    return shared + identity +
       `- This is an AVATAR production: the operator's own AI presenter delivers every line to camera. ` +
       `Leave visual_prompt empty unless a beat genuinely needs cutaway B-roll over the presenter.\n` +
       `- Write narration in the operator's own first person voice.\n`;
   }
   if (type === "persona_ugc") {
-    return shared +
+    return shared + identity +
       `- This is a PERSONA UGC production: one of the operator's AI personas speaks to camera in a casual, ` +
       `handheld, creator-to-camera register — the way a real person recommends something, not the way an ad announces it.\n` +
       `- Leave visual_prompt empty unless a beat needs a product shot or cutaway.\n` +
       `- Avoid advertising cadence, superlatives, and calls to action that sound scripted.\n`;
   }
-  return shared +
+  return shared + identity +
     `- This is a FACELESS production: no presenter appears. Every beat needs a visual_prompt.\n` +
     `- visual_prompt describes ONE still frame, concretely: subject, setting, lighting, camera angle, mood. ` +
     `It is fed to an image generator, so avoid abstractions it cannot draw and never reference other beats.\n` +
@@ -124,33 +138,89 @@ async function handleStoryboard(userId: string, body: Record<string, unknown>) {
   const targetSeconds = clampTargetSeconds(body.target_seconds);
   const beatCount = suggestBeatCount(targetSeconds);
 
-  // A typed production needs a performer. Resolve it now rather than letting
-  // the asset worker discover it is missing several minutes later.
+  // Resolve the brand identity this production is planned under.
+  //
+  // This runs for every production type, not just persona_ugc: a faceless piece
+  // still has a house look and a subject territory, and that is exactly what
+  // separates a SkyForge technical short from a Bioneer movement short.
+  //
+  // Order of preference, most explicit first:
+  //   1. avatar_key naming a forged persona row
+  //   2. avatar_key naming a built-in preset with no row yet
+  //   3. a persona named by the operator
+  //   4. the brief's own subject matter, if it points unambiguously at one
+  const PERSONA_COLUMNS =
+    "id,name,avatar_key,system_prompt,voice_id,voice_settings,voice_style," +
+    "content_niche,rendering_style,overlay_style,domain_tags,asset_paths";
+
+  let profile: AvatarProfile | null = null;
   let personaId: string | null = null;
   let personaName = "";
-  if (productionType === "persona_ugc") {
-    const wanted = String(body.persona ?? body.persona_name ?? "").trim();
-    const q = sb.from("personas").select("id,name").eq("user_id", userId);
-    const { data } = wanted
-      ? await q.ilike("name", `%${wanted}%`).limit(1)
-      : await q.order("created_at", { ascending: true }).limit(1);
-    const persona = data?.[0];
-    if (!persona) {
+
+  const wantedKey = String(body.avatar_key ?? "").trim();
+  const wantedName = String(body.persona ?? body.persona_name ?? body.avatar_name ?? "").trim();
+
+  if (wantedKey) {
+    const { data } = await sb
+      .from("personas").select(PERSONA_COLUMNS)
+      .eq("user_id", userId).eq("avatar_key", wantedKey).limit(1);
+    const row = data?.[0] as unknown as Record<string, unknown> | undefined;
+    if (row) {
+      profile = normalizeAvatarProfile(row);
+    } else {
+      // A preset can drive a production before it has been forged into a row.
+      profile = presetByKey(wantedKey);
+      if (!profile) {
+        return json({
+          error: `Unknown avatar_key "${wantedKey}". Use a forged persona's key, ` +
+                 `or one of the built-in identities: avatar_skyforge_real, avatar_bioneer_animated.`,
+        }, 400);
+      }
+    }
+  }
+
+  if (!profile && wantedName) {
+    const { data } = await sb
+      .from("personas").select(PERSONA_COLUMNS)
+      .eq("user_id", userId).ilike("name", `%${wantedName}%`).limit(1);
+    const row = data?.[0] as unknown as Record<string, unknown> | undefined;
+    if (row) profile = normalizeAvatarProfile(row);
+  }
+
+  // persona_ugc is the one type that cannot proceed without a real performer —
+  // a preset is a look and a voice, not somebody's persona.
+  if (productionType === "persona_ugc" && !profile?.id) {
+    const { data } = await sb
+      .from("personas").select(PERSONA_COLUMNS)
+      .eq("user_id", userId).order("created_at", { ascending: true }).limit(1);
+    const row = data?.[0] as unknown as Record<string, unknown> | undefined;
+    if (!row) {
       return json({
-        error: wanted
-          ? `No persona matching "${wanted}". Ask the operator which persona should present, or list their personas first.`
+        error: wantedName
+          ? `No persona matching "${wantedName}". Ask the operator which persona should present, or list their personas first.`
           : "This operator has no personas yet — a persona_ugc production needs one. Offer to forge one, or use production_type 'faceless'.",
       }, 400);
     }
-    personaId = persona.id;
-    personaName = persona.name;
+    profile = normalizeAvatarProfile(row);
+  }
+
+  // Nothing explicit — let the brief pick, but only on an unambiguous match.
+  // suggestProfileForBrief returns null on a tie, so an ambiguous brief keeps
+  // the neutral default rather than silently adopting a brand voice.
+  if (!profile) profile = suggestProfileForBrief(brief);
+
+  if (profile?.id) {
+    personaId = profile.id;
+    personaName = profile.name;
+  } else if (profile) {
+    personaName = profile.name;
   }
 
   let raw: unknown = null;
   let title = "";
   try {
     const { content } = await aiComplete({
-      system: storyboardSystemPrompt(productionType, beatCount, targetSeconds),
+      system: storyboardSystemPrompt(productionType, beatCount, targetSeconds, profile),
       user:
         `Brief: ${brief}\n` +
         `Format: ${format}. Target runtime: ${targetSeconds}s.` +
@@ -187,12 +257,15 @@ async function handleStoryboard(userId: string, body: Record<string, unknown>) {
       visual_mode: visualMode,
       target_seconds: targetSeconds,
       persona_id: personaId,
-      avatar_name: body.avatar_name ? String(body.avatar_name).slice(0, 120) : null,
-      voice_id: body.voice_id ? String(body.voice_id).slice(0, 120) : null,
+      avatar_key: profile?.key ?? null,
+      avatar_name: (body.avatar_name ? String(body.avatar_name) : profile?.name ?? "").slice(0, 120) || null,
+      // An explicit voice_id from the caller wins; otherwise the identity's own
+      // voice, so a Bioneer production does not narrate in SkyForge's voice.
+      voice_id: (body.voice_id ? String(body.voice_id) : profile?.voice_id ?? "").slice(0, 120) || null,
       status: "storyboarded",
       warnings: plan.warnings,
     })
-    .select("id,title,status,production_type,format,visual_mode,target_seconds")
+    .select("id,title,status,production_type,format,visual_mode,target_seconds,avatar_key")
     .single();
 
   if (pErr || !production) {
