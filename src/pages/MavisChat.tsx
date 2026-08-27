@@ -106,6 +106,18 @@ const QUICK_SPECIALISTS = [
 
 export default function MavisChat() {
   const navigate = useNavigate();
+
+  // Take the operator to the page an action's result lives on, once the reply
+  // is on screen. Safe to do mid-conversation here specifically because chat
+  // state lives in AppDataContext and survives route changes — the thread is
+  // still there when they come back. Routes come from refreshContract's
+  // ROUTE_FOR; an action with no route (or one already open) navigates
+  // nowhere rather than pushing a no-op history entry.
+  const goToActionResult = useCallback((route: string | null) => {
+    if (!route || cancelledRef.current) return;
+    if (window.location.pathname === route) return;
+    try { navigate(route); } catch (e) { console.warn("[MAVIS] navigate failed", e); }
+  }, [navigate]);
   const _appData = useAppData() as any;
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
@@ -126,8 +138,6 @@ export default function MavisChat() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
-  // Route offered alongside actionStatus — see routeForActions.
-  const [actionRoute, setActionRoute] = useState<string | null>(null);
   const [pendingActions, setPendingActions] = useState<ExecutionResult[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, 1 | -1>>({});
@@ -1187,6 +1197,7 @@ export default function MavisChat() {
           if (agentResult.conversationId) setConversationId(agentResult.conversationId);
           if (convoId) persistMessage({ role: "assistant", content: agentText, mode: chatMode }, convoId);
           speakText(agentText);
+          goToActionResult(routeForActions(agentExecConfirmed.map((r) => r.action.type)));
         } catch (agentErr: any) {
           // Abort: don't start fallback — user cancelled or connection dropped.
           if (cancelledRef.current || agentErr?.name === "AbortError") {
@@ -1353,6 +1364,9 @@ export default function MavisChat() {
       };
 
       // AGENT chatMode: try streamAgentMessage, fall back to streamChatMessage if empty or error
+      // Set by whichever path executed actions; consumed once the reply is
+      // committed, at the end of this function.
+      let navigateTarget: string | null = null;
       let streamResult: Awaited<ReturnType<typeof streamChatMessage>>;
       if (chatMode === "AGENT") {
         try {
@@ -1418,6 +1432,7 @@ export default function MavisChat() {
         // build): it proves something ran but not what, so it refreshes
         // everything.
         if (reactActionTypes.length > 0) {
+          navigateTarget = routeForActions(reactActionTypes);
           if (!cancelledRef.current) await refreshSections(sectionsForActions(reactActionTypes));
         } else if ((streamResult.fnData as any)?.actionsRan) {
           if (!cancelledRef.current) await refetchAll();
@@ -1458,11 +1473,11 @@ export default function MavisChat() {
           setActionRoute(null);
         } else {
           setActionStatus(`✓ ${actionTypes}`);
-          // Offered, not taken: navigating on MAVIS's behalf would pull the
-          // operator out of a conversation they are still having.
-          setActionRoute(routeForActions(confirmed.map((r) => r.action.type)));
+          // Only if the ReAct loop above did not already claim a destination —
+          // its actions ran first, so they are what the operator asked for.
+          navigateTarget ??= routeForActions(confirmed.map((r) => r.action.type));
         }
-        setTimeout(() => { setActionStatus(null); setActionRoute(null); }, 3000);
+        setTimeout(() => setActionStatus(null), 3000);
       } else if (executionResults.length > 0 && pending.length === executionResults.length) {
         setActionStatus(`⏳ ${pending.length} action${pending.length > 1 ? "s" : ""} pending confirmation`);
         setTimeout(() => setActionStatus(null), 4000);
@@ -1508,6 +1523,7 @@ export default function MavisChat() {
         await persistMessage({ role: "assistant", content: cleanText, mode: chatMode }, convoId);
       }
       saveMemoriesFromResponse(content, cleanText);
+      goToActionResult(navigateTarget);
 
       // Fire-and-forget: generate suggested follow-ups
       if (cleanText.length > 80) {
@@ -1551,7 +1567,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, refreshSections, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, refreshSections, goToActionResult, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;
@@ -1876,15 +1892,6 @@ export default function MavisChat() {
           >
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             {actionStatus}
-            {actionRoute && (
-              <button
-                type="button"
-                onClick={() => navigate(actionRoute)}
-                className="ml-auto underline underline-offset-2 hover:no-underline"
-              >
-                View →
-              </button>
-            )}
           </motion.div>
         )}
       </AnimatePresence>

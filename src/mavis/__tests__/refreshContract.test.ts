@@ -238,6 +238,36 @@ describe("the call sites use the contract", () => {
     expect(DEMO).toMatch(/refreshSections\(sectionsForActions\(/);
   });
 
+  it("navigates only after the reply is committed", () => {
+    // Navigating mid-stream would swap the page out from under a reply the
+    // operator is still reading. Both call sites must sit after their
+    // setChatMessages commit.
+    const commit = CHAT.indexOf("Replace streaming placeholder with the final");
+    const nav = CHAT.indexOf("goToActionResult(navigateTarget)");
+    expect(commit, "message commit not found").toBeGreaterThan(-1);
+    expect(nav, "tail navigation not found").toBeGreaterThan(commit);
+
+    const agentCommit = CHAT.indexOf("concat(agentMsg)");
+    const agentNav = CHAT.indexOf("goToActionResult(routeForActions(agentExecConfirmed");
+    expect(agentNav, "agent-path navigation not found").toBeGreaterThan(agentCommit);
+  });
+
+  it("does not navigate to the page already open", () => {
+    // Otherwise every quest MAVIS creates while the operator sits on /quests
+    // pushes a redundant history entry they then have to back out of.
+    expect(CHAT).toMatch(/window\.location\.pathname === route/);
+  });
+
+  it("does not navigate after a cancelled turn", () => {
+    expect(CHAT).toMatch(/if \(!route \|\| cancelledRef\.current\) return;/);
+  });
+
+  it("lets the ReAct route win over the trailing one", () => {
+    // ReAct actions run first, so they are what the operator actually asked
+    // for; ??= is what keeps the later assignment from overwriting them.
+    expect(CHAT).toMatch(/navigateTarget \?\?= routeForActions/);
+  });
+
   it("both pages route through sectionsForActions", () => {
     for (const [name, src] of [["MavisChat", CHAT], ["MavisDemo", DEMO]] as const) {
       expect(src, name).toMatch(/sectionsForActions/);
