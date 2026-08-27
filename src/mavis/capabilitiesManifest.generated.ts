@@ -1806,7 +1806,8 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "status": "ACTIVE",
     "calledFromFrontend": [],
     "calledFromBackend": [
-      "mavis-chat"
+      "mavis-chat",
+      "mavis-video-asset-worker"
     ],
     "isCronTarget": false,
     "requiresJwt": true,
@@ -1839,6 +1840,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
       "mavis-agent",
       "mavis-chat",
       "mavis-telegram-bot",
+      "mavis-video-asset-worker",
       "mavis-web-builder",
       "telegram-webhook"
     ],
@@ -3752,7 +3754,9 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
       "src/mavis/skills/tts/index.ts",
       "src/pages/NotebookPage.tsx"
     ],
-    "calledFromBackend": [],
+    "calledFromBackend": [
+      "mavis-video-asset-worker"
+    ],
     "isCronTarget": false,
     "requiresJwt": true,
     "autonomyPathway": null
@@ -3837,6 +3841,17 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-video-asset-worker",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-video-download",
     "category": "Media Generation",
     "purpose": "Downloads video from URL",
@@ -3893,6 +3908,19 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
       "src/mavis/skills/video-narrator/index.ts"
     ],
     "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-video-producer",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-chat"
+    ],
     "isCronTarget": false,
     "requiresJwt": true,
     "autonomyPathway": null
