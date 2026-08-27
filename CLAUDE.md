@@ -108,9 +108,58 @@ Before writing any new code, work through this ladder top-to-bottom. Stop at the
 Abstractions with one caller should be inlined. "We might need it later" is not a justification.
 See `.claude/skills/ponytail.md` for `/ponytail-review` and `/ponytail-audit` commands.
 
+## Database Changes — Read Before Any DDL
+
+On 2026-08-22 a `CREATE TABLE` run against the live database took the app's
+auth service down. The table was new and empty and nothing referenced it. The
+damage came from one line: `REFERENCES auth.users(id)`.
+
+**Why it broke.** Postgres queues lock requests in order. A DDL statement that
+is *waiting* for a lock blocks every query that arrives behind it. The FK
+needed a lock on `auth.users`; it did not get one immediately; every sign-in
+queued behind it; the auth service stopped responding and the connection pool
+filled. Recovery needed Lovable to restart the backend — no SQL path was
+reachable, because the fix also needed a connection.
+
+Four rules, in order of how much they matter:
+
+1. **Every DDL statement sets `lock_timeout` first.** Non-negotiable.
+   ```sql
+   SET lock_timeout = '3s';
+   SET statement_timeout = '60s';
+   ```
+   This makes the failure mode above unreachable: the statement fails in three
+   seconds and releases the queue rather than becoming a head-of-line block.
+   Write it into the migration file, not just the session.
+
+2. **Treat `auth.users` as radioactive.** Anything referencing it — a foreign
+   key, a trigger, an added column — takes a lock on the table every sign-in
+   depends on. If a new table only needs ownership, `user_id uuid NOT NULL`
+   plus an RLS policy is enough; the FK only buys `ON DELETE CASCADE`. When a
+   cascade is genuinely wanted, add it as a separate `NOT VALID` constraint,
+   with a `lock_timeout`, at a quiet moment.
+
+3. **Make every migration re-runnable.** `IF NOT EXISTS`, `IF EXISTS`,
+   `DO $$ ... EXCEPTION WHEN duplicate_object`. A statement that fails on a
+   lock timeout must be safe to run again with no cleanup — otherwise rule 1
+   trades an outage for a half-applied schema.
+
+4. **A cancelled DDL is an unknown, not a failure.** If the client times out
+   or the request is cancelled, the transaction's fate is undetermined. Verify
+   the actual schema state before retrying, and say so plainly rather than
+   assuming it did not run.
+
+**Diagnosing the next one.** If the app is down and SQL is unreachable, check
+whether the control plane still answers — Lovable's `get_me` and
+`get_database_status` versus `query_database`. Control plane healthy plus every
+query timing out means the database is blocked, not absent. Note that a lock can
+exhaust the connection pool, so *reads failing too* does not rule a lock out —
+that inference was drawn during this incident and it was wrong.
+
 ## Off-Limits
 
 - Never modify `supabase/migrations/` without explicit instruction — migrations touch live data.
+- Never run DDL without `lock_timeout` set — see "Database Changes" above.
 - Never push to `main` directly. Always branch.
 - Never skip pre-commit hooks.
 - Never execute specialist work yourself when a pipeline is the right tool.

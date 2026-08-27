@@ -26,6 +26,7 @@ import { useMediaPoller } from "@/hooks/useMediaPoller";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot, buildSystemPromptCached, invalidateSystemPromptCache } from "@/mavis/buildSystemPrompt";
+import { sectionsForActions, routeForActions } from "@/mavis/refreshContract";
 import { useMavisActionHandlers } from "@/mavis/useMavisActionHandlers";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage, invokeAI } from "@/mavis/chatService";
 import { loadFullAppContext } from "@/mavis/appContextLoader";
@@ -105,11 +106,23 @@ const QUICK_SPECIALISTS = [
 
 export default function MavisChat() {
   const navigate = useNavigate();
+
+  // Take the operator to the page an action's result lives on, once the reply
+  // is on screen. Safe to do mid-conversation here specifically because chat
+  // state lives in AppDataContext and survives route changes — the thread is
+  // still there when they come back. Routes come from refreshContract's
+  // ROUTE_FOR; an action with no route (or one already open) navigates
+  // nowhere rather than pushing a no-op history entry.
+  const goToActionResult = useCallback((route: string | null) => {
+    if (!route || cancelledRef.current) return;
+    if (window.location.pathname === route) return;
+    try { navigate(route); } catch (e) { console.warn("[MAVIS] navigate failed", e); }
+  }, [navigate]);
   const _appData = useAppData() as any;
   const {
     profile, quests, tasks, skills, journalEntries, vaultEntries,
     conversationId, setConversationId,
-    chatMode, setChatMode, refetchAll,
+    chatMode, setChatMode, refetchAll, refreshSections,
     rituals, councils, energySystems, inventory, allies, bpmSessions, storeItems, transformations,
   } = _appData;
   // Explicitly typed (unlike the rest of _appData, cast wholesale to `any`
@@ -1158,9 +1171,16 @@ export default function MavisChat() {
           setLastAgentMeta({ toolsUsed, actionsQueued });
           const agentExecConfirmed = (agentResult.executionResults ?? []).filter((r) => r.status === "success");
           if (agentExecConfirmed.length > 0) {
-            await new Promise((r) => setTimeout(r, 500));
             invalidateSystemPromptCache();
-            await refetchAll();
+            // Realtime is the primary path now that the tables are published
+            // (migration 20260822140000) — it arrives in milliseconds and
+            // refetches one table. This stays as a backstop for a dropped
+            // socket, and runs immediately: the 500ms sleep it replaces was
+            // there to let writes land before a refetch could see them.
+            //
+            // Scoped to what these actions actually touched; an action absent
+            // from the map resolves to "all", i.e. the old refetchAll.
+            await refreshSections(sectionsForActions(agentExecConfirmed.map((r) => r.action.type)));
             if (userId) captureProceduralMemory(userId, content, agentExecConfirmed).catch(() => {});
           }
           const agentMsg = {
@@ -1177,6 +1197,7 @@ export default function MavisChat() {
           if (agentResult.conversationId) setConversationId(agentResult.conversationId);
           if (convoId) persistMessage({ role: "assistant", content: agentText, mode: chatMode }, convoId);
           speakText(agentText);
+          goToActionResult(routeForActions(agentExecConfirmed.map((r) => r.action.type)));
         } catch (agentErr: any) {
           // Abort: don't start fallback — user cancelled or connection dropped.
           if (cancelledRef.current || agentErr?.name === "AbortError") {
@@ -1343,6 +1364,9 @@ export default function MavisChat() {
       };
 
       // AGENT chatMode: try streamAgentMessage, fall back to streamChatMessage if empty or error
+      // Set by whichever path executed actions; consumed once the reply is
+      // committed, at the end of this function.
+      let navigateTarget: string | null = null;
       let streamResult: Awaited<ReturnType<typeof streamChatMessage>>;
       if (chatMode === "AGENT") {
         try {
@@ -1371,14 +1395,19 @@ export default function MavisChat() {
           abortController.signal,
         );
       } else {
-        let reactActionsSucceeded = false;
+        const reactActionTypes: string[] = [];
         streamResult = await streamChatMessage(
           content, systemPrompt, history,
           { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
           onToken,
           (stepEvent) => {
             if (!cancelledRef.current) {
-              if (stepEvent.step === "result" && stepEvent.ok) reactActionsSucceeded = true;
+              // The type is what makes a targeted refresh possible here —
+              // this used to collapse the whole batch to a boolean, which is
+              // why this path had to shotgun refetchAll.
+              if (stepEvent.step === "result" && stepEvent.ok && stepEvent.type) {
+                reactActionTypes.push(stepEvent.type);
+              }
               setAgentSteps(prev => {
                 const label = stepEvent.type ? `${stepEvent.type}` : "";
                 if (stepEvent.step === "result" && prev.length > 0 && prev[prev.length - 1].type === stepEvent.type) {
@@ -1390,15 +1419,23 @@ export default function MavisChat() {
           },
           abortController.signal,
         );
-        // Schedule data refetch if the mavis-chat ReAct loop executed any actions.
-        // Done after streamResult so the message is finalized first.
-        if (reactActionsSucceeded || (streamResult.fnData as any)?.actionsRan) {
-          setTimeout(async () => {
-            if (!cancelledRef.current) {
-              await refetchAll();
-              setTimeout(() => refetchAll(), 1500);
-            }
-          }, 600);
+        // Refresh if the mavis-chat ReAct loop executed any actions.
+        //
+        // This used to wait 600ms, refetch everything, then refetch everything
+        // again 1.5s later. That was not a race guard — it was compensating for
+        // realtime never firing, because none of the sixteen subscribed tables
+        // were in the supabase_realtime publication. With them published
+        // (migration 20260822140000) the push channel handles freshness and
+        // this is only a backstop, so it runs once and without delay.
+        // fnData.actionsRan is the fallback for a batch whose per-action
+        // `result` events were missed (an aborted read, an older function
+        // build): it proves something ran but not what, so it refreshes
+        // everything.
+        if (reactActionTypes.length > 0) {
+          navigateTarget = routeForActions(reactActionTypes);
+          if (!cancelledRef.current) await refreshSections(sectionsForActions(reactActionTypes));
+        } else if ((streamResult.fnData as any)?.actionsRan) {
+          if (!cancelledRef.current) await refetchAll();
         }
       }
       const { cleanText, executionResults, conversationId: newConvoId, searched, imageUrl, fnData } = streamResult;
@@ -1423,17 +1460,22 @@ export default function MavisChat() {
       if (confirmed.length > 0 || failed.length > 0) {
         // Trigger data refresh after successful action writes
         if (confirmed.length > 0) {
-          await new Promise(r => setTimeout(r, 500));
-          await refetchAll();
-          setTimeout(() => { refetchAll(); }, 1500);
+          // Backstop only — see the note at the ReAct refresh above. The sleep
+          // and the 1.5s repeat that used to be here existed because realtime
+          // was inert, not because writes needed settling time.
+          await refreshSections(sectionsForActions(confirmed.map((r) => r.action.type)));
           // Hermes procedural memory: capture how this request was handled
           if (userId) captureProceduralMemory(userId, content, confirmed).catch(() => {});
         }
         const actionTypes = confirmed.map((r) => r.action.type).join(", ");
         if (failed.length > 0) {
           setActionStatus(`⚠ ${failed.length} action${failed.length > 1 ? "s" : ""} failed`);
+          setActionRoute(null);
         } else {
           setActionStatus(`✓ ${actionTypes}`);
+          // Only if the ReAct loop above did not already claim a destination —
+          // its actions ran first, so they are what the operator asked for.
+          navigateTarget ??= routeForActions(confirmed.map((r) => r.action.type));
         }
         setTimeout(() => setActionStatus(null), 3000);
       } else if (executionResults.length > 0 && pending.length === executionResults.length) {
@@ -1481,6 +1523,7 @@ export default function MavisChat() {
         await persistMessage({ role: "assistant", content: cleanText, mode: chatMode }, convoId);
       }
       saveMemoriesFromResponse(content, cleanText);
+      goToActionResult(navigateTarget);
 
       // Fire-and-forget: generate suggested follow-ups
       if (cleanText.length > 80) {
@@ -1524,7 +1567,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, refreshSections, goToActionResult, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;
@@ -1584,7 +1627,8 @@ export default function MavisChat() {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       setPendingActions(prev => prev.filter((_, i) => i !== index));
-      refetchAll?.();
+      // One known action — no reason to refetch the other sixteen sections.
+      refreshSections(sectionsForActions([result.action.type])).catch(() => {});
     } catch (err) {
       console.error("Failed to execute approved action:", err);
     }

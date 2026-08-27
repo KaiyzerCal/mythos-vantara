@@ -92,7 +92,9 @@ const ACTION_ALIASES: Record<string, string> = {
   "browse": "browse_url", "scrape_url": "browse_url", "fetch_url": "browse_url", "read_url": "browse_url",
 };
 
-function normalizeActionType(type: string): string {
+// Exported for refreshContract.ts, which keys its section map on canonical
+// types and so has to resolve aliases the same way this file does.
+export function normalizeActionType(type: string): string {
   const normalized = type.toLowerCase().trim();
   return ACTION_ALIASES[normalized] || normalized;
 }

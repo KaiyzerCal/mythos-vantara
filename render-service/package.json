@@ -1,0 +1,19 @@
+{
+  "name": "vantara-render-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HTML-to-MP4 render service for the MAVIS video pipeline",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@hyperframes/producer": "^0.8.12",
+    "hono": "^4.6.14"
+  }
+}

@@ -3,11 +3,12 @@
 // Delete used to be gated behind window.confirm(), which a WebView with no
 // JS-dialog handler resolves to false without ever showing anything — so the
 // delete silently did nothing on native. It now uses an in-app AlertDialog.
-// These tests pin the behaviour that broke: a confirmation is actually shown,
+// These tests pin the behaviour that broke: a confirmation is actually shown
+// (via the app's shared ConfirmDialog),
 // cancelling does not delete, and confirming deletes the row the user picked
 // (the stale-closure trap, since the confirm handler reads pending state).
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 const h = vi.hoisted(() => {
   const deleteEq = vi.fn().mockResolvedValue({ error: null });
@@ -63,6 +64,13 @@ async function openGallery() {
   expect(await screen.findByText("first.png")).toBeInTheDocument();
 }
 
+// The confirm dialog's buttons and the cards' Delete icons share an accessible
+// name, so scope dialog queries to the dialog itself.
+function inDialog() {
+  const heading = screen.getByText(/Delete this image\?/);
+  return within(heading.closest("div.relative") as HTMLElement);
+}
+
 function deleteButtonFor(title: string) {
   // Each card renders its own Delete affordance; pick the one in the card
   // whose caption matches.
@@ -82,7 +90,7 @@ describe("Gallery delete", () => {
 
     fireEvent.click(deleteButtonFor("second.png"));
 
-    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+    expect(await screen.findByText(/Delete this image\?/)).toBeInTheDocument();
     // Nothing is destroyed until the user confirms.
     expect(h.deleteEq).not.toHaveBeenCalled();
   });
@@ -91,9 +99,10 @@ describe("Gallery delete", () => {
     await openGallery();
 
     fireEvent.click(deleteButtonFor("second.png"));
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    await screen.findByText(/Delete this image\?/);
+    fireEvent.click(inDialog().getByRole("button", { name: "Cancel" }));
 
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/Delete this image\?/)).not.toBeInTheDocument());
     expect(h.deleteEq).not.toHaveBeenCalled();
     expect(screen.getByText("second.png")).toBeInTheDocument();
   });
@@ -102,7 +111,8 @@ describe("Gallery delete", () => {
     await openGallery();
 
     fireEvent.click(deleteButtonFor("second.png"));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await screen.findByText(/Delete this image\?/);
+    fireEvent.click(inDialog().getByRole("button", { name: "Delete" }));
 
     // The confirm handler reads the pending item out of state — if that closure
     // went stale it would delete the wrong row, or none at all.

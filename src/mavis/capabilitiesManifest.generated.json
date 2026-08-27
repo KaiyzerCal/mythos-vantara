@@ -1779,7 +1779,8 @@
     "status": "ACTIVE",
     "calledFromFrontend": [],
     "calledFromBackend": [
-      "mavis-chat"
+      "mavis-chat",
+      "mavis-video-asset-worker"
     ],
     "isCronTarget": false,
     "requiresJwt": true,
@@ -1812,6 +1813,7 @@
       "mavis-agent",
       "mavis-chat",
       "mavis-telegram-bot",
+      "mavis-video-asset-worker",
       "mavis-web-builder",
       "telegram-webhook"
     ],
@@ -3725,7 +3727,9 @@
       "src/mavis/skills/tts/index.ts",
       "src/pages/NotebookPage.tsx"
     ],
-    "calledFromBackend": [],
+    "calledFromBackend": [
+      "mavis-video-asset-worker"
+    ],
     "isCronTarget": false,
     "requiresJwt": true,
     "autonomyPathway": null
@@ -3810,6 +3814,17 @@
     "autonomyPathway": null
   },
   {
+    "name": "mavis-video-asset-worker",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-video-download",
     "category": "Media Generation",
     "purpose": "Downloads video from URL",
@@ -3866,6 +3881,19 @@
       "src/mavis/skills/video-narrator/index.ts"
     ],
     "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-video-producer",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-chat"
+    ],
     "isCronTarget": false,
     "requiresJwt": true,
     "autonomyPathway": null
