@@ -35,6 +35,13 @@ DECLARE
   published int := 0;
   skipped   int := 0;
 BEGIN
+  -- The SET above is session state, and this migration may be delivered through
+  -- a pooler that runs the DDL on a different session than the SET. set_config
+  -- with is_local => true binds the timeout to THIS transaction, so the rule
+  -- from the 2026-08-22 incident holds no matter how the file is applied.
+  PERFORM set_config('lock_timeout', '3s', true);
+  PERFORM set_config('statement_timeout', '60s', true);
+
   -- Exactly the sixteen tables AppDataContext subscribes to. Keep this list in
   -- step with the .on("postgres_changes", ...) calls there: a table subscribed
   -- but not published is silently inert, which is the bug this migration fixes.
