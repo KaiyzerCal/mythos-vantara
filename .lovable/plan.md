@@ -1,31 +1,22 @@
-# Make app data load reliably on page open
+# Make app data load reliably on page loads
 
-## What's happening today
+## What I checked
 
-All app data (quests, tasks, journal, vault, councils, inventory, etc.) is fetched once by `AppDataProvider` when the app boots. Individual pages never fetch anything themselves — they just read whatever the provider already has. So:
+- `AppDataProvider` is mounted once at the root of `src/App.tsx`, wrapping all routes.
+- Every table hook in `src/hooks/useDataHooks.ts` fetches **once on mount**. Because the provider never unmounts during navigation, opening a different page does not trigger any fetch.
+- Refetches today happen in only three places: a realtime change event, a `visibilitychange` resume (throttled 10s), or an explicit `refetchAll()` call.
+- In `makeHook`, `fetch()` returns early when `user` is null and `loading` is never set to `false` in that path; the same is true in `useProfile`. If a fetch errors, `loading` does flip but the list silently stays empty with no retry and no error surface.
 
-- If the boot fetch happens before or without a signed-in user, the hooks return early and their `loading` flag stays `true` forever — pages sit on a skeleton with no error and no retry.
-- If the boot fetch fails (network hiccup, cold start, backend blip), nothing ever retries. Opening a page later shows stale or empty data until a full app reload.
-- Heavier tables (vault, councils, transformations) are deliberately deferred to after first paint; if that idle callback is cancelled by a remount, they can be left unfetched.
+So: if the initial boot fetch happens before auth settles, is thrown away, or errors, a page opened later shows empty/spinning forever — nothing re-requests it.
 
-Note: I have not yet reproduced the exact failure you're seeing in the running app, so step 1 below is to confirm which of these is firing before changing behavior.
+## Fix
 
-## Plan
+1. **Track freshness per table.** Store a `lastFetchedAt` and a `status` (`idle | loading | ready | error`) alongside the data in `makeHook` and `useProfile`.
+2. **Refetch stale data on route change.** Add a small hook the layout calls on navigation that asks the provider to refresh any section older than a threshold (e.g. 60s) or in `error`/`idle` state. Fetches stay deduped by the existing `inflight` guard, so a fast tab-switch costs nothing.
+3. **Never strand a hook.** When `user` is null, set `loading` false and mark status `idle`; when auth resolves to a real user, kick the fetch. On error, mark `error` and keep the previous data instead of leaving a permanent blank.
+4. **Surface it.** Pages already render off `loading`; where a section is in `error`, show the existing `ErrorState` with a Retry that calls that section's `refetch`, instead of an empty list that looks like "no data".
+5. **Verify** in the running preview: load the app, navigate across Quests / Inventory / Vault / Council, and confirm each populates, plus a forced-error case recovers via Retry.
 
-1. **Confirm the failure.** Load the preview signed in, watch the network and console for each table query, and record which hooks never resolve (still `loading`) and which return errors. This decides whether the cause is the auth gate, a failed fetch, or the deferred scheduling.
+## Scope
 
-2. **Never leave a hook stuck loading.** In the shared `makeHook` factory plus `useProfile`, `useQuests`, `useEnergySystems`, and `useCurrencies`: when there is no user, clear `loading` and empty the data instead of returning early. When a fetch errors, clear `loading` and record the error so the UI can show a retry state rather than an endless skeleton.
-
-3. **Expose and surface errors.** Return an `error` alongside `data`/`loading` from the data hooks and thread it through `AppDataContext`, so pages can render the existing `ErrorState` with a retry button instead of a blank list.
-
-4. **Refresh on page open.** Add a lightweight staleness check in the provider: when a route changes, refetch only the sections that route depends on if their last successful fetch is older than a short window (about 30s). Reuses the existing `refreshSections` + section map, so it stays one or two queries per navigation, not seventeen.
-
-5. **Retry the boot fetch once on failure.** If a table's initial fetch fails, schedule a single delayed retry rather than waiting for the user to reload the app.
-
-6. **Verify.** Re-run the preview check from step 1: every section resolves, a forced failure shows a retry state instead of a permanent skeleton, and navigating between pages refreshes stale sections without a burst of duplicate queries.
-
-## Technical notes
-
-- Files touched: `src/hooks/useDataHooks.ts`, `src/hooks/useProfile.ts`, `src/hooks/useQuests.ts`, `src/contexts/AppDataContext.tsx`, and the shared `ErrorState`/`LoadingState` usage in affected pages.
-- No schema, RLS, or edge-function changes. Existing realtime subscriptions, the 250ms debounce, and the in-flight dedupe stay as they are.
-- The route-driven refresh uses the existing `Section` map in `src/mavis/refreshContract.ts`; no new fetch paths are introduced.
+Frontend only — `src/hooks/useDataHooks.ts`, `src/hooks/useProfile.ts`, `src/contexts/AppDataContext.tsx`, and the layout that triggers the route-change refresh. No schema, edge function, or backend changes.
