@@ -10,47 +10,140 @@
  * posts a composition as HTML and polls for a job; @hyperframes/producer
  * renders a project *directory* and blocks until it is done. This bridges them:
  *
- *   POST /render        { html, assets?, width?, height?, fps? } -> { job_id }
+ *   POST /render        { html, assets?, width?, height?, fps?, user_id } -> { job_id }
  *   GET  /render/:id    -> { status: queued|rendering|done|error, output_url?, error? }
- *   GET  /file/:token   -> the finished MP4
- *   GET  /health        -> { ok: true }
+ *   GET  /health        -> { ok, active, queued, in_flight }
  *
- * Both /render routes require the shared secret in X-Render-Key. /file does
- * not: the finished video is fetched by the operator's browser and by the app,
- * neither of which holds the key, so the unguessable token in the path is what
- * protects it — the same approach the producer's own /outputs/:token uses.
+ * Both /render routes require the shared secret in X-Render-Key.
+ *
+ * ── Why job state and the finished file both live outside this process ──────
+ *
+ * The first version of this service kept every job in an in-memory Map and
+ * served the finished MP4 from local disk at /file/:token, swept after six
+ * hours. That URL is what mavis-hyperframes stored as
+ * hyperframes_renders.render_url, what mavis-video-asset-worker copied into
+ * mavis_video_productions.output_url, and what landed permanently in
+ * vault_media.file_url — three layers treating a six-hour-lived local file as
+ * a permanent address. Every finished video was on a clock to go dead.
+ * Separately, a restart mid-render lost the job outright: mavis-hyperframes's
+ * status poll got a 404 and kept returning the last known "rendering" status
+ * forever, with no automatic recovery.
+ *
+ * Both problems had the same fix: stop treating this process as the durable
+ * home of anything. The finished file goes to Supabase Storage (vault-media,
+ * same bucket and path convention as beat narration — see beatAudioPath in
+ * _shared/videoAssets.ts), and a signed URL is what gets handed back — the
+ * Gallery's existing repairVaultUrls already re-signs any vault-media URL on
+ * read, so this file self-heals exactly like every other generated asset.
+ * Job status moves into Postgres (render_jobs), so ANY instance can answer a
+ * status poll, a restart does not erase what a job's outcome was, and a
+ * stale-job reaper (not just a boot-time sweep — see reapStaleJobs) turns an
+ * abandoned job into a clean, actionable "error" instead of a silent hang,
+ * regardless of which process created it.
+ *
+ * What is still local, and deliberately so: the render itself. Chrome and
+ * FFmpeg need a real process and a real filesystem, and there is no way
+ * around that short of not running this service at all. The `jobs` Map below
+ * exists only for this process's own in-flight bookkeeping (which local temp
+ * directory belongs to which job, so it can be cleaned up) — it is never
+ * consulted to answer a status query. Postgres is the only source of truth
+ * anything outside this process reads.
  */
 
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
+import { createClient } from "@supabase/supabase-js";
 import { createRenderJob, executeRenderJob } from "@hyperframes/producer";
-import { mkdtemp, writeFile, mkdir, rm, stat } from "node:fs/promises";
-import { createReadStream } from "node:fs";
-import { randomUUID, randomBytes } from "node:crypto";
+import { mkdtemp, writeFile, mkdir, rm, readdir, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const RENDER_KEY = process.env.RENDER_KEY ?? "";
-const PUBLIC_URL = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
+const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 const QUALITY = process.env.RENDER_QUALITY ?? "standard";
 // One at a time by default: a render saturates CPU, and two concurrent ones on
 // a small container are slower than two sequential ones and risk the OOM
 // killer taking both.
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT_RENDERS ?? 1);
-// Finished files are kept long enough to be fetched and stored by the caller.
-const JOB_TTL_MS = Number(process.env.JOB_TTL_MS ?? 6 * 60 * 60 * 1000);
+// Bounds every Postgres call made ON a request path (status polls, job
+// creation) so a Supabase-side network problem fails a request in bounded
+// time instead of holding the connection open indefinitely. Verified this
+// was a real risk, not a theoretical one: GET /render/:id against an
+// unreachable Supabase URL hung with zero bytes sent until the *caller's*
+// timeout fired — nothing here was bounding it from this side at all.
+const DB_CALL_TIMEOUT_MS = 10_000;
 
 if (!RENDER_KEY) {
   console.error("RENDER_KEY is not set — refusing to start an unauthenticated render service.");
   process.exit(1);
 }
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error(
+    "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set — this service can no longer " +
+    "start without them: job status lives in Postgres and the finished file goes to Storage, " +
+    "not local disk. There is no reduced mode to fall back to.",
+  );
+  process.exit(1);
+}
+
+const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+});
+
+const STORAGE_BUCKET = "vault-media";
+// 30 days, matching the narration convention in mavis-video-asset-worker. The
+// Gallery re-signs any vault-media URL it finds expired on read, so this TTL
+// only bounds how long the FIRST link (hyperframes_renders.render_url,
+// mavis_video_productions.output_url) stays live before that copy goes stale —
+// the vault_media row the asset worker writes on completion is what the
+// operator actually browses, and that one heals itself.
+const OUTPUT_URL_TTL_SECONDS = 60 * 60 * 24 * 30;
+
+function outputStoragePath(userId, jobId) {
+  // The vault-media bucket's RLS keys off the first path segment being the
+  // user id — see beatAudioPath's comment and the bug it was fixed for.
+  return `${userId}/render-jobs/${jobId}.mp4`;
+}
 
 /**
- * Jobs live in memory. A restart loses in-flight work, which is acceptable
- * because the caller polls and can resubmit — and is far simpler than adding a
- * database to a service whose only state is "is this render finished yet".
- * The tradeoff is deliberate, not an oversight: see README.
+ * Jobs abandoned by a crash or a killed container. Not boot-only: a fixed
+ * interval means any of N instances can reap a job left behind by ANY
+ * instance, including one that never comes back — no inter-instance
+ * coordination needed, because "stale" is judged from Postgres's own
+ * updated_at, not from which process remembers starting it.
+ *
+ * 20 minutes is comfortably longer than a render of the kind this pipeline
+ * produces should ever take. The tradeoff: a genuinely slower render than
+ * that, running on one instance while a second instance's reaper fires,
+ * could be marked errored out from under it — there is no heartbeat to
+ * prevent that. Known limit, not a defect; see the README.
+ */
+const STALE_AFTER_MS = 20 * 60 * 1000;
+
+async function reapStaleJobs() {
+  const cutoff = new Date(Date.now() - STALE_AFTER_MS).toISOString();
+  const { data, error } = await sb
+    .from("render_jobs")
+    .update({ status: "error", error_message: "abandoned: no update from the render process within 20 minutes" })
+    .in("status", ["queued", "rendering"])
+    .lt("updated_at", cutoff)
+    .select("id")
+    .abortSignal(AbortSignal.timeout(DB_CALL_TIMEOUT_MS));
+  if (error) {
+    console.error(`[render_jobs] reap failed: ${error.message}`);
+    return;
+  }
+  if (data && data.length > 0) {
+    console.log(`[render_jobs] reaped ${data.length} stale job(s): ${data.map((r) => r.id).join(", ")}`);
+  }
+}
+
+/**
+ * This process's own in-flight bookkeeping — never read to answer a status
+ * query. Only what a running render needs to clean up after itself.
  */
 const jobs = new Map();
 let active = 0;
@@ -67,21 +160,17 @@ function pump() {
   }
 }
 
-function sweep() {
-  const now = Date.now();
-  for (const [id, job] of jobs) {
-    if (now - job.created_at < JOB_TTL_MS) continue;
-    jobs.delete(id);
-    if (job.work_dir) rm(job.work_dir, { recursive: true, force: true }).catch(() => {});
-  }
+async function setJobStatus(id, patch) {
+  const { error } = await sb.from("render_jobs").update(patch).eq("id", id);
+  if (error) console.error(`[render] ${id} could not update status: ${error.message}`);
 }
-setInterval(sweep, 15 * 60 * 1000).unref();
 
-async function render(job, html, width, height, fps) {
-  job.status = "rendering";
+async function render(id, userId, html, width, height, fps) {
+  await setJobStatus(id, { status: "rendering" });
+
   const projectDir = await mkdtemp(join(tmpdir(), "vantara-render-"));
   const outputDir = join(projectDir, "out");
-  job.work_dir = projectDir;
+  jobs.set(id, { work_dir: projectDir });
 
   try {
     await mkdir(outputDir, { recursive: true });
@@ -100,26 +189,50 @@ async function render(job, html, width, height, fps) {
 
     // executeRenderJob treats outputPath as a directory and writes the encoded
     // file into it; find whatever landed rather than assuming a filename.
-    const { readdir } = await import("node:fs/promises");
     const produced = (await readdir(outputDir)).filter((f) => f.endsWith(".mp4"));
     if (produced.length === 0) throw new Error("the renderer produced no mp4");
 
-    job.file_path = join(outputDir, produced[0]);
-    job.status = "done";
-    job.output_url = `${PUBLIC_URL}/file/${job.token}.mp4`;
-    console.log(`[render] ${job.id} done -> ${job.output_url}`);
+    const localPath = join(outputDir, produced[0]);
+    const bytes = await readFile(localPath);
+    const storagePath = outputStoragePath(userId, id);
+
+    const { error: upErr } = await sb.storage
+      .from(STORAGE_BUCKET)
+      .upload(storagePath, bytes, { contentType: "video/mp4", upsert: true });
+    if (upErr) throw new Error(`could not store the finished video: ${upErr.message}`);
+
+    const { data: signed, error: signErr } = await sb.storage
+      .from(STORAGE_BUCKET)
+      .createSignedUrl(storagePath, OUTPUT_URL_TTL_SECONDS);
+    if (signErr || !signed?.signedUrl) {
+      throw new Error(`stored the video but could not sign a URL for it: ${signErr?.message ?? "no URL returned"}`);
+    }
+
+    await setJobStatus(id, {
+      status: "done",
+      output_path: storagePath,
+      output_url: signed.signedUrl,
+      error_message: null,
+    });
+    console.log(`[render] ${id} done -> ${storagePath}`);
   } catch (err) {
-    job.status = "error";
-    job.error = err instanceof Error ? err.message : String(err);
-    console.error(`[render] ${job.id} failed: ${job.error}`);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[render] ${id} failed: ${message}`);
+    await setJobStatus(id, { status: "error", error_message: message.slice(0, 500) });
+  } finally {
+    // Freed as soon as the upload succeeds or the render fails — not held
+    // for hours on the hope a caller will fetch a local file that no longer
+    // exists as a concept.
     await rm(projectDir, { recursive: true, force: true }).catch(() => {});
-    job.work_dir = null;
+    jobs.delete(id);
   }
 }
 
 const app = new Hono();
 
-app.get("/health", (c) => c.json({ ok: true, active, queued: queue.length, jobs: jobs.size }));
+app.get("/health", (c) => c.json({ ok: true, active, queued: queue.length, in_flight: jobs.size }));
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 app.post("/render", async (c) => {
   if (c.req.header("X-Render-Key") !== RENDER_KEY) {
@@ -136,67 +249,83 @@ app.post("/render", async (c) => {
   const html = typeof body.html === "string" ? body.html.trim() : "";
   if (!html) return c.json({ error: "html is required" }, 400);
 
+  // Required now, not optional: it is the first segment of the storage path
+  // the finished file is written to. Validated strictly — this is the one
+  // piece of untrusted input that becomes part of a filesystem-adjacent path,
+  // so a malformed value is rejected rather than sanitised and used anyway.
+  const userId = typeof body.user_id === "string" ? body.user_id.trim() : "";
+  if (!UUID_RE.test(userId)) {
+    return c.json({ error: "user_id is required and must be a UUID" }, 400);
+  }
+
   const width = Math.min(Math.max(Number(body.width) || 1920, 16), 3840);
   const height = Math.min(Math.max(Number(body.height) || 1080, 16), 2160);
   const fps = Math.min(Math.max(Number(body.fps) || 30, 1), 60);
 
-  if (!PUBLIC_URL) {
-    // Without this the job would render and then hand back a URL nothing can
-    // fetch, which looks like a renderer fault rather than a missing setting.
-    return c.json({ error: "PUBLIC_URL is not configured on the render service" }, 500);
+  const id = randomUUID();
+  const { error: insertErr } = await sb
+    .from("render_jobs")
+    .insert({ id, user_id: userId, status: "queued" })
+    .abortSignal(AbortSignal.timeout(DB_CALL_TIMEOUT_MS));
+  if (insertErr) {
+    console.error(`[render] could not create job row: ${insertErr.message}`);
+    return c.json({ error: "could not create the render job" }, 500);
   }
 
-  const job = {
-    id: randomUUID(),
-    token: randomBytes(24).toString("base64url"),
-    status: "queued",
-    created_at: Date.now(),
-    output_url: null,
-    error: null,
-    file_path: null,
-    work_dir: null,
-  };
-  jobs.set(job.id, job);
-
-  queue.push(() => render(job, html, width, height, fps));
+  queue.push(() => render(id, userId, html, width, height, fps));
   pump();
 
-  console.log(`[render] ${job.id} queued (${width}x${height} @${fps}fps, ${html.length} bytes)`);
-  return c.json({ job_id: job.id, status: "queued" });
+  console.log(`[render] ${id} queued (${width}x${height} @${fps}fps, ${html.length} bytes)`);
+  return c.json({ job_id: id, status: "queued" });
 });
 
-app.get("/render/:id", (c) => {
+app.get("/render/:id", async (c) => {
   if (c.req.header("X-Render-Key") !== RENDER_KEY) {
     return c.json({ error: "unauthorized" }, 401);
   }
-  const job = jobs.get(c.req.param("id"));
-  if (!job) return c.json({ error: "job not found" }, 404);
+  const { data: row, error } = await sb
+    .from("render_jobs")
+    .select("status,output_url,error_message")
+    .eq("id", c.req.param("id"))
+    .abortSignal(AbortSignal.timeout(DB_CALL_TIMEOUT_MS))
+    .maybeSingle();
+  if (error || !row) return c.json({ error: "job not found" }, 404);
+
+  // Wire shape unchanged from the pre-Postgres version — mavis-hyperframes
+  // reads `error`, not `error_message`; this is the one place that mapping
+  // happens.
   return c.json({
-    status: job.status,
-    ...(job.output_url ? { output_url: job.output_url } : {}),
-    ...(job.error ? { error: job.error } : {}),
+    status: row.status,
+    ...(row.output_url ? { output_url: row.output_url } : {}),
+    ...(row.error_message ? { error: row.error_message } : {}),
   });
 });
 
-app.get("/file/:name", async (c) => {
-  const token = c.req.param("name").replace(/\.mp4$/, "");
-  const job = [...jobs.values()].find((j) => j.token === token && j.status === "done");
-  if (!job?.file_path) return c.json({ error: "not found" }, 404);
+function reapStaleJobsSafely(label) {
+  // .catch() here, not a try/catch inside reapStaleJobs itself: a network
+  // failure reaching Supabase — DNS down, the project unreachable, a slow
+  // TLS handshake — must never propagate as an unhandled rejection. Verified
+  // this concern was real, not theoretical: an early version of this file
+  // awaited the initial reap before starting the HTTP server, and pointing it
+  // at an unreachable Supabase URL left the process silently hung with
+  // nothing listening — not even /health, which touches no database at all.
+  reapStaleJobs().catch((err) => {
+    console.error(`[render_jobs] ${label} reap failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
+}
 
-  try {
-    const info = await stat(job.file_path);
-    return new Response(createReadStream(job.file_path), {
-      headers: {
-        "Content-Type": "video/mp4",
-        "Content-Length": String(info.size),
-        "Cache-Control": "private, max-age=3600",
-      },
-    });
-  } catch {
-    return c.json({ error: "the rendered file is no longer available" }, 410);
-  }
-});
+function main() {
+  serve({ fetch: app.fetch, port: PORT }, () => {
+    console.log(`vantara render service listening on :${PORT} (max ${MAX_CONCURRENT} concurrent)`);
+  });
 
-serve({ fetch: app.fetch, port: PORT }, () => {
-  console.log(`vantara render service listening on :${PORT} (max ${MAX_CONCURRENT} concurrent)`);
-});
+  // Background maintenance, independent of whether the server came up
+  // cleanly or Postgres is reachable at this instant. Anything this or an
+  // earlier boot left mid-flight and never finished is truly gone — Chrome
+  // and FFmpeg do not survive a process restart — so this fails those out
+  // rather than trying to resume them.
+  reapStaleJobsSafely("initial");
+  setInterval(() => reapStaleJobsSafely("periodic"), 5 * 60 * 1000).unref();
+}
+
+main();
