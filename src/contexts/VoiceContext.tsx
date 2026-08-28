@@ -3,7 +3,7 @@
 // overlay so the WebRTC connection isn't torn down when routes change.
 // Ctrl+Shift+V (or the floating mic button) toggles it from anywhere in the app.
 
-import { createContext, useContext, useState, useCallback, useRef } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
 import { MavisRealtimeVoice } from "@/components/MavisRealtimeVoice";
 
 interface VoiceContextValue {
@@ -49,8 +49,19 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // openVoice/closeVoice/toggleVoice are stable (empty-dep useCallback), so
+  // in practice this only recomputes when isOpen actually changes — but an
+  // inline object literal here recomputed on every render regardless,
+  // including every time VoiceProvider was forced to re-render by its
+  // parent (AuthProvider, before the fix to its own value memoization —
+  // see AuthContext.tsx). Same class of bug, same fix.
+  const value = useMemo(
+    () => ({ isOpen, openVoice, closeVoice, toggleVoice }),
+    [isOpen, openVoice, closeVoice, toggleVoice],
+  );
+
   return (
-    <VoiceContext.Provider value={{ isOpen, openVoice, closeVoice, toggleVoice }}>
+    <VoiceContext.Provider value={value}>
       {children}
       {isOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm">
