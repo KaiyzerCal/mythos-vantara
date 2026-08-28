@@ -106,18 +106,21 @@ export interface AppSearchHit {
   created_at?: string;
 }
 
-/** Minimal shape of the supabase client this needs. Keeps the module portable. */
-interface QueryClient {
-  from(table: string): {
-    select(cols: string): {
-      eq(col: string, val: string): {
-        textSearch(col: string, q: string, opts: { type: string }): {
-          limit(n: number): PromiseLike<{ data: unknown[] | null; error: unknown }>;
-        };
-      };
-    };
-  };
-}
+/**
+ * The supabase client, as much of it as this needs:
+ *   sb.from(table).select(cols).eq(col, val).textSearch(col, q, opts).limit(n)
+ *
+ * Typed loosely on purpose. A hand-written interface spelling that chain out
+ * was the honest version and it did not survive contact with the real client:
+ * PostgREST's builders are deeply generic and self-referential, so structural
+ * checking against them made the compiler unfold types until it gave up
+ * (TS2589 "type instantiation is excessively deep"), and the client failed to
+ * match the interface anyway (TS2345). Callers pass clients typed three
+ * different ways — `any` in mavis-actions, a full SupabaseClient in mavis-chat
+ * — and none of them should need a cast at the call site to use a search.
+ */
+// deno-lint-ignore no-explicit-any
+type QueryClient = { from(table: string): any };
 
 /**
  * Full-text search across the operator's own rows.
