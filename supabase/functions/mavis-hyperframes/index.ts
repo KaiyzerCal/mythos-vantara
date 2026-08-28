@@ -78,7 +78,11 @@ async function handleRender(userId: string, body: RenderBody) {
     const res = await fetch(`${RENDER_URL}/render`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Render-Key": RENDER_KEY },
-      body: JSON.stringify({ html, assets, width, height, fps }),
+      // user_id is new: the render service now writes the finished file to
+      // Storage under a per-user path (vault-media/<user_id>/render-jobs/…)
+      // instead of serving it from local disk, and needs this to build that
+      // path. See render-service/server.mjs's header comment for why.
+      body: JSON.stringify({ html, assets, width, height, fps, user_id: userId }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`render service ${res.status}: ${(await res.text()).slice(0, 300)}`);

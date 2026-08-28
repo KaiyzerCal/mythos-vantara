@@ -1,0 +1,7 @@
+# Replace with your real domain before `docker compose up -d`. It needs a
+# DNS A record pointed at this machine's IP first — that is what Let's
+# Encrypt's HTTP-01 challenge checks. Caddy then gets and renews the
+# certificate automatically; nothing else to configure.
+render.yourdomain.com {
+	reverse_proxy render:8080
+}

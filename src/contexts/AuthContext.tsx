@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { withTransientRetry } from "@/lib/retryTransientFetch";
@@ -97,9 +97,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   };
 
-  return (
-    <AuthContext.Provider value={{ session, user: session?.user ?? null, loading, signOut }}>
-      {children}
-    </AuthContext.Provider>
+  // supabase-js hands back a freshly-constructed session (and therefore a
+  // new `user` object) on every TOKEN_REFRESHED event — its background
+  // auto-refresh timer, roughly hourly, and (on native) the appStateChange
+  // resume path above unconditionally does the same on every foreground
+  // resume, whether or not the token actually needed refreshing.
+  //
+  // Every one of useDataHooks.ts's ~17 hooks depends on `user` in its fetch
+  // useCallback, and AppDataContext's realtime subscription effect depends
+  // on ~16 of their `refetch` functions. Without this memo, a same-user
+  // token refresh gave `user` a new identity, which gave every `fetch` a new
+  // identity, which re-fired every hook's initial-load effect (17 refetches)
+  // AND tore down and rebuilt the entire Supabase realtime channel — on
+  // every resume, not just sign-in. That is the shape of "freezing or slow
+  // when loading a page" a user would actually notice: reopen the app,
+  // eat a full reload of every table plus a WebSocket resubscribe.
+  //
+  // Nothing downstream reads anything off `user` besides `.id` (verified:
+  // no `updateUser()` calls, no `user_metadata`/`app_metadata` reads
+  // anywhere in the app) — profile data lives in `public.profiles`, not
+  // Supabase Auth metadata — so keying the memo on the id alone is safe and
+  // loses no real update.
+  // Deliberately narrower than `session?.user`: keying on the id, not the
+  // object, is the entire fix. Depending on `session?.user` itself would
+  // recompute this memo every time supabase-js hands back a new session
+  // object for the SAME user, which is exactly the churn described above.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const user = useMemo(() => session?.user ?? null, [session?.user?.id]);
+
+  const value = useMemo(
+    () => ({ session, user, loading, signOut }),
+    [session, user, loading],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
