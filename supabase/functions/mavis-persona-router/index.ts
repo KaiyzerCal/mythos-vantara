@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
+import { buildTsQuery, truncationLabel } from "../_shared/entrySearch.ts";
+import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import {
   ProviderUnavailableError,
   isUnfundedStatus,
@@ -362,8 +364,19 @@ Examples (copy these patterns exactly):
 Direct types (you have full authority):
 • Quests/tasks: create_quest update_quest complete_quest delete_quest
 • Skills: create_skill update_skill delete_skill
-• Journal: create_journal update_journal delete_journal
-• Vault: create_vault update_vault delete_vault
+• Journal: create_journal update_journal delete_journal search_journal
+• Vault: create_vault update_vault delete_vault search_vault
+• Search anything: search_app {"query":"...","scope":"all"} — journal, vault, meeting notes,
+  quests, tasks, goals, skills, contacts, council, allies, transformations, rituals, store,
+  inventory, calendar, expenses, personas
+
+Reading beyond what is in this prompt: the JOURNAL/VAULT/QUESTS/SKILLS blocks
+below are the most recent few, and RELEVANT RECORDS holds whatever matched this
+message — that one was searched across Calvin's FULL data, every section, not
+just the recent lists. If neither contains what you need, say so plainly — do
+not guess or invent an entry. You may emit search_app/search_journal/
+search_vault, but their results arrive AFTER this reply, so use them to follow
+up next turn, never to answer now.
 • Inventory: create_inventory_item update_inventory_item delete_inventory_item
 • Council: create_council_member update_council_member delete_council_member
 • Allies: create_ally update_ally delete_ally
@@ -437,8 +450,28 @@ serve(async (req) => {
 
     // Load relationship state, conversation history, attachments, AND full app context in parallel.
     // Memory query is intentionally excluded here — it runs after embedding resolves.
+    // Terms from the operator's actual message, used to pull in the journal and
+    // vault entries this turn is about. Without this the persona only ever saw
+    // the 5 most recent of each and answered questions about the other ~150
+    // from nothing. It cannot be done as a tool call: this router is
+    // single-turn — actions are parsed and executed AFTER the model has
+    // already replied — so anything the answer depends on has to be in the
+    // prompt before the LLM runs.
+    // Only used to decide whether searching is worthwhile; searchAppData does
+    // its own tokenising internally.
+    const searchQuery = buildTsQuery(message ?? "");
+    const relevantSearch = searchQuery
+      ? searchAppData(supabase, user_id, message ?? "", { limit: 8 }).catch(() => [])
+      : Promise.resolve([]);
+
+    // Real totals, so a capped list can say how much it is hiding. Counted with
+    // head:true — this is a COUNT, it does not pull the rows.
+    const countOf = (table: string) =>
+      supabase.from(table).select("id", { count: "exact", head: true }).eq("user_id", user_id);
+
     const [queryEmbedding, relRes, histRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes,
-      tasksRes, contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes, bpmRes, storeRes, currenciesRes, activityRes, vaultMediaRes] = await Promise.all([
+      tasksRes, contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes, bpmRes, storeRes, currenciesRes, activityRes, vaultMediaRes,
+      relevantRes, journalCount, vaultCount, questsCount, skillsCount, inventoryCount, tasksCount] = await Promise.all([
       embedMessagePromise,
       supabase.from("relationship_states").select("*").eq("persona_id", persona_id).eq("user_id", user_id).single(),
       // 25 turns rather than 50. The full transcript is still in the DB and the
@@ -483,6 +516,13 @@ serve(async (req) => {
       supabase.from("currencies").select("name,amount,icon").eq("user_id", user_id),
       supabase.from("activity_log").select("event_type,xp_amount,description,created_at").eq("user_id", user_id).order("created_at", { ascending: false }).limit(5),
       supabase.from("vault_media").select("id,file_name,file_type,description,vault_entry_id").eq("user_id", user_id).order("created_at", { ascending: false }).limit(4),
+      relevantSearch,
+      countOf("journal_entries"),
+      countOf("vault_entries"),
+      countOf("quests"),
+      countOf("skills"),
+      countOf("inventory"),
+      countOf("tasks"),
     ]);
 
     const relState = relRes.data;
@@ -504,6 +544,13 @@ serve(async (req) => {
           .eq("user_id", user_id)
           .order("importance", { ascending: false })
           .limit(10);
+
+    // Merge the four searches (journal/vault x title/content), rank by how well
+    // each entry matches the message, and keep the best few. Ranking happens
+    // here rather than in SQL because ts_rank is not reachable through
+    // PostgREST, and at these row counts scoring in memory is free.
+    // searchAppData already ranked and deduped across every table it searched.
+    const relevantEntries = relevantRes ?? [];
 
     const memories = memRes.data ?? [];
     const attachments = attRes.data ?? [];
@@ -543,19 +590,21 @@ PROFILE: ${profile.inscribed_name} — Lv${profile.level} [${profile.rank}] — 
 Stats: STR:${profile.stat_str} AGI:${profile.stat_agi} INT:${profile.stat_int} VIT:${profile.stat_vit} WIS:${profile.stat_wis} CHA:${profile.stat_cha} LCK:${profile.stat_lck}
 Arc: ${profile.arc_story} | XP: ${profile.xp}/${profile.xp_to_next_level} | GPR: ${profile.gpr} | Fatigue: ${profile.fatigue}
 
-QUESTS (${(questsRes.data || []).length}):
+${truncationLabel("QUESTS", (questsRes.data || []).length, questsCount.count ?? (questsRes.data || []).length)}:
 ${(questsRes.data || []).map((q: any) => `  • [${q.id}] "${q.title}" [${q.status}/${q.type}] ${q.progress_current}/${q.progress_target}${q.description ? ` — ${q.description.slice(0, 80)}` : ""}`).join("\n") || "  None"}
 
-SKILLS (${(skillsRes.data || []).length}):
+${truncationLabel("SKILLS", (skillsRes.data || []).length, skillsCount.count ?? (skillsRes.data || []).length)}:
 ${(skillsRes.data || []).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})`).join("\n") || "  None"}
 
-JOURNAL ENTRIES:
+${formatSearchBlock(relevantEntries, !!searchQuery) || "RELEVANT RECORDS: (no search terms in this message)"}
+
+${truncationLabel("JOURNAL ENTRIES", (journalRes.data || []).length, journalCount.count ?? (journalRes.data || []).length, "search_journal")}:
 ${(journalRes.data || []).map((j: any) => `  • [${j.id}] "${j.title}" [${j.category}/${j.importance}${j.mood ? `/${j.mood}` : ""}] — ${(j.content || "").slice(0, 150)}`).join("\n") || "  None"}
 
-VAULT ENTRIES:
+${truncationLabel("VAULT ENTRIES", (vaultRes.data || []).length, vaultCount.count ?? (vaultRes.data || []).length, "search_vault")}:
 ${(vaultRes.data || []).map((v: any) => `  • [${v.id}] "${v.title}" [${v.category}/${v.importance}] — ${(v.content || "").slice(0, 130)}`).join("\n") || "  None"}
 
-INVENTORY:
+${truncationLabel("INVENTORY", (inventoryRes.data || []).length, inventoryCount.count ?? (inventoryRes.data || []).length)}:
 ${(inventoryRes.data || []).map((i: any) => `  • ${i.name} [${i.rarity}/${i.type}] x${i.quantity}${i.is_equipped ? " (equipped)" : ""}${i.effect ? ` — ${i.effect}` : ""}`).join("\n") || "  None"}
 
 ENERGY SYSTEMS:

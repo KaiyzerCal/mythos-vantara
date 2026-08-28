@@ -40,6 +40,8 @@ export function needsWebSearch(msg: string): boolean {
 // ============================================================
 // MAVIS PRIME SYSTEM PROMPT
 // ============================================================
+import { truncationLabel } from "../_shared/entrySearch.ts";
+
 export function buildMavisPrompt(
   profile: any,
   mode: string,
@@ -78,6 +80,12 @@ You are speaking with Caliyah — Calvin's daughter, the second bound Operator o
     .map((c: any) => `  • [${c.id}] ${c.name} — ${c.role} (${c.class})`).join("\n") || "  None";
   const energy = (appState.energySystems || [])
     .map((e: any) => `  • [${e.id}] ${e.type}: ${e.current_value}/${e.max_value}`).join("\n") || "  None";
+  // Totals before slicing: MAVIS was shown 5 journal and 5 vault entries under
+  // bare "JOURNAL:"/"VAULT:" headers, so it read a slice as the complete set
+  // and answered questions about the rest confidently and wrongly. Same bug
+  // the persona router had.
+  const journalTotal = (appState.journalEntries || []).length;
+  const vaultTotal = (appState.vaultEntries || []).length;
   const journal = (appState.journalEntries || []).slice(0, 5)
     .map((j: any) => `  • [${j.id}] "${j.title}" [${j.importance}]`).join("\n") || "  None";
   const vault = (appState.vaultEntries || []).slice(0, 5)
@@ -299,11 +307,11 @@ SKILLS — actions execute in order, so create the parent skill FIRST, then sub-
 When the operator asks to create a skill with sub-skills: (1) emit create_skill for the parent, (2) emit create_skill for EACH sub-skill with parent_skill_name set to the parent's name. Never create sub-skills as standalone root skills.
 :::ACTION{"type":"update_skill","params":{"skill_id":"...","proficiency":50,"tier":1,"unlocked":true}}:::
 :::ACTION{"type":"delete_skill","params":{"skill_id":"..."}}:::
-JOURNAL:
+${truncationLabel("JOURNAL", Math.min(5, journalTotal), journalTotal, "search_journal")}:
 :::ACTION{"type":"create_journal","params":{"title":"...","content":"...","tags":["tag1"],"category":"personal|business|legal|evidence|achievement","importance":"low|medium|high|critical","xp_earned":10}}:::
 :::ACTION{"type":"update_journal","params":{"entry_id":"...","title":"...","content":"...","tags":["tag1"],"category":"personal|business|legal|evidence|achievement","importance":"low|medium|high|critical","mood":"..."}}:::
 :::ACTION{"type":"delete_journal","params":{"entry_id":"..."}}:::
-VAULT:
+${truncationLabel("VAULT", Math.min(5, vaultTotal), vaultTotal, "search_vault")}:
 :::ACTION{"type":"create_vault","params":{"title":"...","content":"...","category":"legal|business|personal|evidence|achievement","importance":"low|medium|high|critical"}}:::
 :::ACTION{"type":"update_vault","params":{"entry_id":"...","title":"...","content":"...","category":"legal|business|personal|evidence|achievement","importance":"critical"}}:::
 :::ACTION{"type":"delete_vault","params":{"entry_id":"..."}}:::

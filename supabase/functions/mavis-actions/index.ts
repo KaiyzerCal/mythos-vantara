@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { buildTsQuery, extractTerms } from "../_shared/entrySearch.ts";
+import { searchAppData, resolveScope, SEARCHABLE_KEYS } from "../_shared/appSearch.ts";
 
 type MavisAction = {
   type: string;
@@ -1830,6 +1832,53 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         .order("next_review_at", { ascending: true })
         .limit(p.limit ?? 10);
       return { pending_reviews: data ?? [], count: (data ?? []).length };
+    }
+
+    // ── JOURNAL / VAULT SEARCH ────────────────────────────────
+    // The prompt only ever carries the 5 most recent of each. These are how
+    // anything older gets reached — without them, a question about entry 40
+    // of 97 was unanswerable and (before the truncation labels) answered
+    // wrongly instead of declined.
+    //
+    // Full-text search on both title and content, run as two queries and
+    // merged, because PostgREST's .textSearch() targets a single column and
+    // building an .or() filter string from user text would mean hand-escaping
+    // PostgREST filter syntax. Two safe queries beat one clever one.
+    case "search_app":
+    case "search_journal":
+    case "search_vault": {
+      // search_journal/search_vault are the same search pinned to one scope —
+      // they predate search_app and stay because MAVIS's tool defs and the
+      // persona action catalog already name them.
+      const scope = action.type === "search_journal" ? "journal"
+        : action.type === "search_vault" ? "vault"
+        : String(p.scope ?? p.in ?? p.where ?? "").trim();
+      const query = String(p.query ?? p.q ?? p.search ?? "").trim();
+      if (!query) throw new Error(`${action.type} requires a query string`);
+
+      const terms = extractTerms(query);
+      const tsQuery = buildTsQuery(query);
+      if (!tsQuery) {
+        // Every token was filler or too short. Say so rather than running a
+        // match-everything query and passing the newest rows off as hits.
+        return {
+          query,
+          results: [],
+          note: "No searchable terms in that query — name a specific word or phrase.",
+        };
+      }
+
+      const limit = Math.min(Math.max(Number(p.limit ?? 5), 1), 25);
+      const hits = await searchAppData(sb, userId, query, { scope, limit });
+
+      return {
+        query,
+        terms,
+        searched: resolveScope(scope).map((t) => t.key),
+        available_scopes: SEARCHABLE_KEYS,
+        matched: hits.length,
+        results: hits,
+      };
     }
 
     case "recall_memory": {
