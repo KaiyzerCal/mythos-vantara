@@ -5,6 +5,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import App from "./App.tsx";
 import "./index.css";
 import { checkForUpdate, confirmBootSuccess } from "./lib/liveUpdate";
+import { installChunkReloadGuard } from "./lib/chunkReloadGuard";
 
 // Optional — degrades to a no-op when VITE_SENTRY_DSN isn't set. Set it in
 // Supabase/Lovable env config to enable client-side crash reporting.
@@ -24,6 +25,10 @@ if (sentryDsn) {
 // in the background after render; if it finds an update it reloads the
 // page once that update is ready, which is a much better trade than
 // stalling every single launch on it.
+// Before render: a lazy route chunk can fail on the very first navigation
+// after a deploy, and this needs its listeners attached by then.
+installChunkReloadGuard();
+
 createRoot(document.getElementById("root")!).render(<App />);
 
 // Confirms the bundle that just rendered is good — must come after a real
