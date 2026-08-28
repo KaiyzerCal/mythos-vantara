@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
-import { buildTsQuery, extractTerms, rankEntries } from "../_shared/entrySearch.ts";
+import { buildTsQuery, extractTerms } from "../_shared/entrySearch.ts";
+import { searchAppData, resolveScope, SEARCHABLE_KEYS } from "../_shared/appSearch.ts";
 
 type MavisAction = {
   type: string;
@@ -1843,9 +1844,15 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     // merged, because PostgREST's .textSearch() targets a single column and
     // building an .or() filter string from user text would mean hand-escaping
     // PostgREST filter syntax. Two safe queries beat one clever one.
+    case "search_app":
     case "search_journal":
     case "search_vault": {
-      const table = action.type === "search_journal" ? "journal_entries" : "vault_entries";
+      // search_journal/search_vault are the same search pinned to one scope —
+      // they predate search_app and stay because MAVIS's tool defs and the
+      // persona action catalog already name them.
+      const scope = action.type === "search_journal" ? "journal"
+        : action.type === "search_vault" ? "vault"
+        : String(p.scope ?? p.in ?? p.where ?? "").trim();
       const query = String(p.query ?? p.q ?? p.search ?? "").trim();
       if (!query) throw new Error(`${action.type} requires a query string`);
 
@@ -1853,51 +1860,24 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const tsQuery = buildTsQuery(query);
       if (!tsQuery) {
         // Every token was filler or too short. Say so rather than running a
-        // match-everything query and passing off the newest rows as hits.
+        // match-everything query and passing the newest rows off as hits.
         return {
           query,
           results: [],
-          note: "No searchable terms in that query — try naming a specific word or phrase.",
+          note: "No searchable terms in that query — name a specific word or phrase.",
         };
       }
 
       const limit = Math.min(Math.max(Number(p.limit ?? 5), 1), 25);
-      const columns = "id,title,category,importance,content,created_at";
-
-      // websearch_to_tsquery never throws on odd input, and the query string
-      // is rebuilt from [a-z0-9] tokens, so nothing structural can reach it.
-      const [byTitle, byContent] = await Promise.all([
-        sb.from(table).select(columns).eq("user_id", userId)
-          .textSearch("title", tsQuery, { type: "websearch" }).limit(50),
-        sb.from(table).select(columns).eq("user_id", userId)
-          .textSearch("content", tsQuery, { type: "websearch" }).limit(50),
-      ]);
-
-      if (byTitle.error && byContent.error) {
-        throw new Error(`${action.type} failed: ${byTitle.error.message}`);
-      }
-
-      const merged = [...(byTitle.data ?? []), ...(byContent.data ?? [])];
-      const ranked = rankEntries(merged as Record<string, unknown>[], terms, limit);
+      const hits = await searchAppData(sb, userId, query, { scope, limit });
 
       return {
         query,
         terms,
-        matched: ranked.length,
-        results: ranked.map((r) => {
-          const e = r as Record<string, unknown>;
-          return {
-            id: e.id,
-            title: e.title,
-            category: e.category,
-            importance: e.importance,
-            created_at: e.created_at,
-            // Sized so a default 5-result set fits the caller's 2000-char
-            // budget (see toolDispatch). Ranked best-first, so if anything is
-            // dropped it is the weakest match.
-            excerpt: String(e.content ?? "").slice(0, 300),
-          };
-        }),
+        searched: resolveScope(scope).map((t) => t.key),
+        available_scopes: SEARCHABLE_KEYS,
+        matched: hits.length,
+        results: hits,
       };
     }
 

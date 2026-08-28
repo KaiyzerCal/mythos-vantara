@@ -204,7 +204,7 @@ describe("the fix is actually wired in", () => {
     // It is single-turn — actions run after the reply — so a tool call could
     // never inform the answer. The entries have to be in the prompt already.
     expect(ROUTER).toMatch(/relevantEntries/);
-    expect(ROUTER).toMatch(/RELEVANT ENTRIES/);
+    expect(ROUTER).toMatch(/RELEVANT RECORDS/);
     // Anchor on the actual interpolation, not the words "RELEVANT ENTRIES" —
     // those also appear earlier, in the instructions telling the persona what
     // that block is. Matching the prose instead of the code made this assert
@@ -215,7 +215,7 @@ describe("the fix is actually wired in", () => {
     // boundary was added.
     const declaration = /const relevantEntries\b\s*=/.exec(ROUTER);
     const compute = declaration?.index ?? -1;
-    const promptUse = ROUTER.indexOf("${relevantEntries");
+    const promptUse = ROUTER.indexOf("formatSearchBlock(relevantEntries");
     expect(compute, "relevantEntries is never computed").toBeGreaterThan(-1);
     expect(promptUse, "relevantEntries never reaches the prompt").toBeGreaterThan(-1);
     expect(compute, "relevantEntries must be computed before the prompt uses it")

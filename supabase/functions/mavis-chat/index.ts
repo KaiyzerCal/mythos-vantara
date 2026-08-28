@@ -7,6 +7,7 @@ import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionInte
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";
 import { buildSharedTruth } from "../_shared/context.ts";
+import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1565,6 +1566,26 @@ ${telosData
     // and skillInjection (action-triggering custom skills; council members
     // advise, they don't execute). Everything else below is operator data/
     // context that a council advisor genuinely needs to give real advice.
+    // Pull whatever in the operator's own data matches what they just said,
+    // and put it in the prompt. This is the only mechanism that reaches all
+    // three surfaces: MAVIS has tools and could search on its own, but a
+    // COUNCIL member cannot — the native tool pre-pass below is gated on
+    // (!isCouncilMode || !!personaId), which is false for a council member,
+    // so a tool would never fire for them. Retrieval into the prompt works
+    // regardless of whether the surface can call anything.
+    //
+    // Bounded on purpose: the automatic scope is the six tables that hold
+    // prose the operator actually writes, not all seventeen. Failures are
+    // swallowed — missing context is a worse answer, but a failed search
+    // must never cost the reply itself.
+    let relevantRecordsBlock = "";
+    try {
+      const hits = await searchAppData(sb, user.id, lastUserText, { limit: 8 });
+      relevantRecordsBlock = formatSearchBlock(hits, true);
+    } catch (e) {
+      console.warn("[mavis-chat] relevant-records search failed:", (e as Error)?.message);
+    }
+
     const fullPrompt = [
       systemWithPersonaMemory,
       isCouncilMode ? "" : agentConfigBlock,
@@ -1572,6 +1593,7 @@ ${telosData
       isCouncilMode ? "" : skillInjection,
       timeBlock,
       authoritativeContext,
+      relevantRecordsBlock,
       councilDebateBlock,
       compressBlock(userModelBlock),
       compressBlock(tacitBlock),

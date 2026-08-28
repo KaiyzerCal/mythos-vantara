@@ -2,7 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
-import { buildTsQuery, extractTerms, rankEntries, truncationLabel } from "../_shared/entrySearch.ts";
+import { buildTsQuery, truncationLabel } from "../_shared/entrySearch.ts";
+import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import {
   ProviderUnavailableError,
   isUnfundedStatus,
@@ -365,12 +366,17 @@ Direct types (you have full authority):
 • Skills: create_skill update_skill delete_skill
 • Journal: create_journal update_journal delete_journal search_journal
 • Vault: create_vault update_vault delete_vault search_vault
+• Search anything: search_app {"query":"...","scope":"all"} — journal, vault, meeting notes,
+  quests, tasks, goals, skills, contacts, council, allies, transformations, rituals, store,
+  inventory, calendar, expenses, personas
 
-Reading beyond what is in this prompt: the JOURNAL/VAULT blocks below are the
-most recent few, and RELEVANT ENTRIES holds whatever matched this message. If
-neither contains what you need, say so plainly — do not guess or invent an
-entry. You may emit search_journal/search_vault, but their results arrive
-AFTER this reply, so use them to follow up next turn, never to answer now.
+Reading beyond what is in this prompt: the JOURNAL/VAULT/QUESTS/SKILLS blocks
+below are the most recent few, and RELEVANT RECORDS holds whatever matched this
+message — that one was searched across Calvin's FULL data, every section, not
+just the recent lists. If neither contains what you need, say so plainly — do
+not guess or invent an entry. You may emit search_app/search_journal/
+search_vault, but their results arrive AFTER this reply, so use them to follow
+up next turn, never to answer now.
 • Inventory: create_inventory_item update_inventory_item delete_inventory_item
 • Council: create_council_member update_council_member delete_council_member
 • Allies: create_ally update_ally delete_ally
@@ -451,20 +457,12 @@ serve(async (req) => {
     // single-turn — actions are parsed and executed AFTER the model has
     // already replied — so anything the answer depends on has to be in the
     // prompt before the LLM runs.
-    const searchTerms = extractTerms(message ?? "");
+    // Only used to decide whether searching is worthwhile; searchAppData does
+    // its own tokenising internally.
     const searchQuery = buildTsQuery(message ?? "");
     const relevantSearch = searchQuery
-      ? Promise.all([
-          supabase.from("journal_entries").select("id,title,category,importance,content,created_at")
-            .eq("user_id", user_id).textSearch("title", searchQuery, { type: "websearch" }).limit(25),
-          supabase.from("journal_entries").select("id,title,category,importance,content,created_at")
-            .eq("user_id", user_id).textSearch("content", searchQuery, { type: "websearch" }).limit(25),
-          supabase.from("vault_entries").select("id,title,category,importance,content,created_at")
-            .eq("user_id", user_id).textSearch("title", searchQuery, { type: "websearch" }).limit(25),
-          supabase.from("vault_entries").select("id,title,category,importance,content,created_at")
-            .eq("user_id", user_id).textSearch("content", searchQuery, { type: "websearch" }).limit(25),
-        ]).catch(() => null)
-      : Promise.resolve(null);
+      ? searchAppData(supabase, user_id, message ?? "", { limit: 8 }).catch(() => [])
+      : Promise.resolve([]);
 
     // Real totals, so a capped list can say how much it is hiding. Counted with
     // head:true — this is a COUNT, it does not pull the rows.
@@ -551,17 +549,8 @@ serve(async (req) => {
     // each entry matches the message, and keep the best few. Ranking happens
     // here rather than in SQL because ts_rank is not reachable through
     // PostgREST, and at these row counts scoring in memory is free.
-    const relevantEntries = (() => {
-      if (!relevantRes) return [];
-      const [jTitle, jBody, vTitle, vBody] = relevantRes;
-      const tag = (rows: any, kind: string) =>
-        ((rows?.data ?? []) as any[]).map((r) => ({ ...r, kind }));
-      const all = [
-        ...tag(jTitle, "journal"), ...tag(jBody, "journal"),
-        ...tag(vTitle, "vault"), ...tag(vBody, "vault"),
-      ];
-      return rankEntries(all, searchTerms, 6);
-    })();
+    // searchAppData already ranked and deduped across every table it searched.
+    const relevantEntries = relevantRes ?? [];
 
     const memories = memRes.data ?? [];
     const attachments = attRes.data ?? [];
@@ -607,10 +596,7 @@ ${(questsRes.data || []).map((q: any) => `  • [${q.id}] "${q.title}" [${q.stat
 ${truncationLabel("SKILLS", (skillsRes.data || []).length, skillsCount.count ?? (skillsRes.data || []).length)}:
 ${(skillsRes.data || []).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})`).join("\n") || "  None"}
 
-RELEVANT ENTRIES (matched against what Calvin just asked — these are pulled from his FULL journal and vault, not just the recent ones above):
-${relevantEntries.length === 0
-  ? (searchQuery ? "  Nothing in the journal or vault matches this message." : "  (no search terms in this message)")
-  : relevantEntries.map((e: any) => `  • [${e.kind}] "${e.title}" [${e.category ?? "-"}/${e.importance ?? "-"}] (${String(e.created_at ?? "").slice(0, 10)}) — ${String(e.content || "").slice(0, 400)}`).join("\n")}
+${formatSearchBlock(relevantEntries, !!searchQuery) || "RELEVANT RECORDS: (no search terms in this message)"}
 
 ${truncationLabel("JOURNAL ENTRIES", (journalRes.data || []).length, journalCount.count ?? (journalRes.data || []).length, "search_journal")}:
 ${(journalRes.data || []).map((j: any) => `  • [${j.id}] "${j.title}" [${j.category}/${j.importance}${j.mood ? `/${j.mood}` : ""}] — ${(j.content || "").slice(0, 150)}`).join("\n") || "  None"}

@@ -147,6 +147,15 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
     },
   },
   {
+    name: "search_app",
+    description: "Search ANYTHING in the operator's app by keyword — journal, vault, meeting notes, quests, tasks, goals, skills, contacts, council, allies, transformations, rituals, store, inventory, calendar, expenses, personas. The prompt only carries a few recent items per section, so use this for anything older or on a specific topic. Omit scope to search the operator's written records (journal, vault, meeting notes, quests, tasks, goals); pass scope:'all' for everything, or a specific scope name to narrow. Prefer this over answering from the partial lists in the prompt.",
+    params: {
+      query: { type: "string", desc: "Words or phrase to search for, e.g. 'morning routine' — not a full question", required: true },
+      scope: { type: "string", desc: "Omit for written records, 'all' for everything, or a name like 'vault', 'contacts', 'calendar'" },
+      limit: { type: "number", desc: "Max results (default 5, max 25)" },
+    },
+  },
+  {
     name: "search_journal",
     description: "Search the operator's FULL journal by keyword — the system prompt only carries the 5 most recent entries, so use this for anything older or on a specific topic. Returns matching entries with excerpts. Never answer a question about what is in the journal from the prompt's recent list alone when the answer might be in an older entry — search first.",
     params: {
