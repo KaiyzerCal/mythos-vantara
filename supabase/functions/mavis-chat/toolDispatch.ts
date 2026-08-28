@@ -147,6 +147,22 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
     },
   },
   {
+    name: "search_journal",
+    description: "Search the operator's FULL journal by keyword — the system prompt only carries the 5 most recent entries, so use this for anything older or on a specific topic. Returns matching entries with excerpts. Never answer a question about what is in the journal from the prompt's recent list alone when the answer might be in an older entry — search first.",
+    params: {
+      query: { type: "string", desc: "Words or phrase to search for, e.g. 'morning routine' — not a full question", required: true },
+      limit: { type: "number", desc: "Max results (default 5, max 25)" },
+    },
+  },
+  {
+    name: "search_vault",
+    description: "Search the operator's FULL vault by keyword — the system prompt only carries the 5 most recent entries, so use this for anything older or on a specific topic. Returns matching entries with excerpts. Never answer a question about what is in the vault from the prompt's recent list alone when the answer might be in an older entry — search first.",
+    params: {
+      query: { type: "string", desc: "Words or phrase to search for — not a full question", required: true },
+      limit: { type: "number", desc: "Max results (default 5, max 25)" },
+    },
+  },
+  {
     name: "create_note",
     description: "Create a note in the operator's knowledge base",
     params: {
@@ -1110,8 +1126,13 @@ export async function resolveActionsNative(
       }
       // All other tools go through the executor
       const { ok, result } = await executeAgentAction(supabaseUrl, serviceKey, userId, call.name, call.args);
+      // 200 chars is plenty to confirm "quest created", but it would reduce a
+      // journal/vault search to a fragment of its first hit — the tool would
+      // appear to work while telling MAVIS almost nothing. Read tools get the
+      // same budget the ReAct path's formatToolResults already allows.
+      const budget = call.name.startsWith("search_") ? 2000 : 200;
       lines.push(ok
-        ? `✓ ${call.name}(${Object.entries(call.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")}): ${JSON.stringify(result).slice(0, 200)}`
+        ? `✓ ${call.name}(${Object.entries(call.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")}): ${JSON.stringify(result).slice(0, budget)}`
         : `✗ ${call.name}: ${JSON.stringify(result).slice(0, 100)}`
       );
     } catch { /* non-critical */ }
