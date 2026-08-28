@@ -242,13 +242,13 @@ describe("every surface is wired to it", () => {
     // One insertion point covers both: council routes through mavis-chat but
     // is excluded from the tool path, so this is the only thing that reaches
     // a council member.
-    expect(CHAT).toMatch(/searchAppData\(sb, user\.id, lastUserText/);
+    expect(CHAT).toMatch(/searchAppData\(\s*sb, user\.id, lastUserText/);
     expect(CHAT).toMatch(/relevantRecordsBlock/);
   });
 
   it("the retrieval block is actually assembled into the prompt", () => {
     // Computing it and forgetting to include it would be a silent no-op.
-    const compute = /let relevantRecordsBlock/.exec(CHAT)?.index ?? -1;
+    const compute = /relevantRecordsBlock\b\s*=/.exec(CHAT)?.index ?? -1;
     const assembled = CHAT.indexOf("\n      relevantRecordsBlock,");
     expect(compute).toBeGreaterThan(-1);
     expect(assembled, "relevantRecordsBlock never reaches fullPrompt").toBeGreaterThan(compute);

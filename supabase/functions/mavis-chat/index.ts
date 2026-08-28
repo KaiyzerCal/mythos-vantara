@@ -7,7 +7,7 @@ import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionInte
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";
 import { buildSharedTruth } from "../_shared/context.ts";
-import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
+import { searchAppData, formatSearchBlock, type AppSearchHit } from "../_shared/appSearch.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -639,6 +639,20 @@ ${telosData
           } catch { return null; }
         })()
       : Promise.resolve(null);
+
+    // Whatever in the operator's own data matches what they just said. Started
+    // here, next to the embedding above and for the same reason: it is a dozen
+    // parallel queries whose result is not needed until the prompt is
+    // assembled ~900 lines below, so awaiting it there would add a round-trip
+    // to every message for no reason. Rejections are absorbed at creation —
+    // this promise sits unawaited through the whole preamble, and an
+    // unhandled rejection in Deno takes the worker down.
+    const relevantRecordsPromise: Promise<AppSearchHit[]> = searchAppData(
+      sb, user.id, lastUserText, { limit: 8 },
+    ).catch((e) => {
+      console.warn("[mavis-chat] relevant-records search failed:", (e as Error)?.message);
+      return [] as AppSearchHit[];
+    });
 
     if (lastUserMsg && tavilyKey && needsWebSearch(lastUserText)) {
       webSearchResults = await tavilySearch(lastUserText, tavilyKey);
@@ -1575,16 +1589,11 @@ ${telosData
     // regardless of whether the surface can call anything.
     //
     // Bounded on purpose: the automatic scope is the six tables that hold
-    // prose the operator actually writes, not all seventeen. Failures are
-    // swallowed — missing context is a worse answer, but a failed search
+    // prose the operator actually writes, not all seventeen. Started up in
+    // the preamble so it costs no round-trip here; failures were absorbed
+    // there, because missing context is a worse answer but a failed search
     // must never cost the reply itself.
-    let relevantRecordsBlock = "";
-    try {
-      const hits = await searchAppData(sb, user.id, lastUserText, { limit: 8 });
-      relevantRecordsBlock = formatSearchBlock(hits, true);
-    } catch (e) {
-      console.warn("[mavis-chat] relevant-records search failed:", (e as Error)?.message);
-    }
+    const relevantRecordsBlock = formatSearchBlock(await relevantRecordsPromise, true);
 
     const fullPrompt = [
       systemWithPersonaMemory,
