@@ -1647,6 +1647,7 @@ export type Database = {
           content: string
           created_at: string
           dominant_emotion: string | null
+          embedding: string | null
           emotion_scores: Json | null
           emotion_tagged: boolean | null
           id: string
@@ -1663,6 +1664,7 @@ export type Database = {
           content?: string
           created_at?: string
           dominant_emotion?: string | null
+          embedding?: string | null
           emotion_scores?: Json | null
           emotion_tagged?: boolean | null
           id?: string
@@ -1679,6 +1681,7 @@ export type Database = {
           content?: string
           created_at?: string
           dominant_emotion?: string | null
+          embedding?: string | null
           emotion_scores?: Json | null
           emotion_tagged?: boolean | null
           id?: string
@@ -11270,6 +11273,7 @@ export type Database = {
           category: string
           content: string
           created_at: string
+          embedding: string | null
           id: string
           importance: string
           title: string
@@ -11281,6 +11285,7 @@ export type Database = {
           category?: string
           content?: string
           created_at?: string
+          embedding?: string | null
           id?: string
           importance?: string
           title: string
@@ -11292,6 +11297,7 @@ export type Database = {
           category?: string
           content?: string
           created_at?: string
+          embedding?: string | null
           id?: string
           importance?: string
           title?: string
@@ -12892,6 +12898,23 @@ export type Database = {
           title: string
           url: string
           word_count: number
+        }[]
+      }
+      match_operator_entries: {
+        Args: {
+          p_count?: number
+          p_query: string
+          p_scope?: string
+          p_user_id: string
+        }
+        Returns: {
+          category: string
+          content: string
+          created_at: string
+          id: string
+          kind: string
+          similarity: number
+          title: string
         }[]
       }
       match_persona_memory: {
