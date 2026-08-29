@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
+import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -3059,13 +3060,27 @@ Deno.serve(async (req) => {
     // had zero awareness of either.
     const systemSettingsFragmentP: Promise<string> = withTimeout(buildSystemSettingsFragment(supabase, userId));
 
+    // Retrieval over the operator's own records, matched against what they just
+    // asked. AGENT mode assembles its own prompt and so never inherited the
+    // block mavis-chat builds — it could only ever see the recent slices in the
+    // shared truth fragment, which is why an entry the operator asked about by
+    // name looked missing.
+    const recordsFragmentP: Promise<string> = (goalText && userId)
+      ? searchAppData(supabase, userId, goalText, { limit: 8 })
+          .then((hits) => {
+            const block = formatSearchBlock(hits, true);
+            return block ? `\n\n${block}` : "";
+          })
+          .catch(() => "")
+      : Promise.resolve("");
+
     // Latency budget: none of these enrichment fragments is worth delaying the
     // first token for. If one is slow (embedding cold start, a slow RPC), drop it
     // for this turn rather than letting it gate the whole request.
     const withBudget = (p: Promise<string>, ms: number): Promise<string> =>
       Promise.race([p.catch(() => ""), new Promise<string>((r) => setTimeout(() => r(""), ms))]);
 
-    const [memoryFragment, prefsFragment, specialistFragment, timeFragment, systemSettingsFragment] =
+    const [memoryFragment, prefsFragment, specialistFragment, timeFragment, systemSettingsFragment, recordsFragment] =
       await Promise.all([
         withBudget(memoryFragmentP, 1500),
         withBudget(prefsFragmentP, 1200),
@@ -3073,10 +3088,12 @@ Deno.serve(async (req) => {
         // Shared truth carries identity/time — worth a slightly longer budget.
         withBudget(timeFragmentP, 2500),
         withBudget(systemSettingsFragmentP, 1200),
+        // Two waves of small queries; given the same headroom as shared truth.
+        withBudget(recordsFragmentP, 2500),
       ]);
     // Memory fragment replaced the base prompt in the original ordering; keep the
     // same final composition: SYSTEM_PROMPT + memory + prefs + specialist + time + settings.
-    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment + timeFragment + systemSettingsFragment;
+    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment + timeFragment + systemSettingsFragment + recordsFragment;
 
     // Merge client-provided system prompt with MAVIS core context
     const clientSystemPrompt = String(body.systemPrompt ?? "");

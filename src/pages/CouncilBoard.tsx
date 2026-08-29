@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { loadFullAppContext, type AppContextSnapshot } from "@/mavis/appContextLoader";
 import {
   sendCouncilMessage,
+  buildContextWithRecords,
   type CouncilBoardMessage,
 } from "@/mavis/councilBoardService";
 import type { CouncilMember } from "@/mavis/councilPersona";
@@ -376,8 +377,20 @@ export default function CouncilBoard() {
         ...summonedPersonas.map(p => ({ id: p.id, name: p.name, role: p.role, bio: (p as any).bio, adjectives: (p as any).adjectives, topics: (p as any).topics, speakerType: "persona" as const })),
       ];
 
+      // The runner already accepts a context_block and simply was not being
+      // given one, so every debate ran with no knowledge of the operator's
+      // own records. Searched against the topic, which is the question here.
+      const contextBlock = appCtx
+        ? await buildContextWithRecords(appCtx, discourseTopic.trim())
+        : "";
+
       const res = await supabase.functions.invoke("mavis-discourse-runner", {
-        body: { user_id: userId, topic: discourseTopic.trim(), participants },
+        body: {
+          user_id: userId,
+          topic: discourseTopic.trim(),
+          participants,
+          context_block: contextBlock,
+        },
       });
 
       if (res.error) throw new Error(res.error.message ?? "Discourse failed");

@@ -13,7 +13,7 @@
 // So retrieval into the prompt is the mechanism that reaches all three, and
 // the tool is the extra for surfaces that can loop.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -356,6 +356,82 @@ describe("formatSearchBlock", () => {
 
   it("adds nothing at all when there was no query to run", () => {
     expect(formatSearchBlock([], false)).toBe("");
+  });
+});
+
+describe("no conversational surface is left without it", () => {
+  // The lesson of this round. Retrieval was added to mavis-chat,
+  // mavis-persona-router and mavis-actions, and it looked complete — but the
+  // council board builds its prompts in the browser, AGENT mode runs through
+  // mavis-agent, and council sessions run through mavis-council-session. All
+  // three assembled their own prompts and inherited nothing, so Calvin's
+  // council members still could not see his entries. Nothing enumerated the
+  // set of surfaces, so nothing caught it. This does.
+  const FUNCTIONS = join(ROOT, "supabase/functions");
+
+  /**
+   * buildSharedTruth is the marker: it is the identity + time + app-snapshot
+   * block that every operator-facing conversation assembles, and nothing else
+   * has a reason to. A function that builds it is talking to Calvin, and a
+   * function talking to Calvin has to be able to look things up.
+   */
+  const conversationalSurfaces = readdirSync(FUNCTIONS, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith("_"))
+    .map((e) => ({ name: e.name, path: join(FUNCTIONS, e.name, "index.ts") }))
+    .filter((f) => {
+      try { return readFileSync(f.path, "utf8").includes("buildSharedTruth"); }
+      catch { return false; }
+    });
+
+  it("finds the surfaces at all", () => {
+    // Guards the guard: if the marker stops matching, every assertion below
+    // passes vacuously over an empty list.
+    expect(conversationalSurfaces.map((f) => f.name).sort())
+      .toEqual(["mavis-agent", "mavis-chat", "mavis-council-session", "mavis-persona-router"]);
+  });
+
+  it.each(
+    // Computed at collection time so a new surface shows up as its own case.
+    readdirSync(FUNCTIONS, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith("_"))
+      .map((e) => e.name)
+      .filter((name) => {
+        try { return readFileSync(join(FUNCTIONS, name, "index.ts"), "utf8").includes("buildSharedTruth"); }
+        catch { return false; }
+      }),
+  )("%s can search the operator's records", (name) => {
+    const src = readFileSync(join(FUNCTIONS, name, "index.ts"), "utf8");
+    expect(src, `${name} talks to the operator but cannot look anything up`)
+      .toMatch(/searchAppData\(/);
+  });
+
+  it("the council board searches too, even though it builds its prompt client-side", () => {
+    // It posts an already-assembled prompt to the edge functions, so no
+    // server-side fix could ever have reached it.
+    const svc = read("src/mavis/councilBoardService.ts");
+    expect(svc).toMatch(/export async function buildContextWithRecords/);
+    const compute = /searchAppData\(supabase, uid, question\)|searchAppData\(supabase, uid, question,/.exec(svc)?.index ?? -1;
+    const use = svc.indexOf("summary += ");
+    expect(compute, "the council board never searches").toBeGreaterThan(-1);
+    expect(use, "the block never reaches the prompt").toBeGreaterThan(compute);
+    // And the board's own turn must actually call it.
+    expect(svc).toMatch(/await buildContextWithRecords\(appContext, userMessage\)/);
+  });
+
+  it("the discourse runner is finally given the context block it accepts", () => {
+    // mavis-discourse-runner has always taken an optional context_block and
+    // simply was never passed one, so every council debate ran with no
+    // knowledge of the operator's records at all.
+    const page = read("src/pages/CouncilBoard.tsx");
+    const invoke = page.indexOf('invoke("mavis-discourse-runner"');
+    expect(invoke).toBeGreaterThan(-1);
+    const call = page.slice(invoke, invoke + 400);
+    expect(call, "discourse still runs context-free").toMatch(/context_block/);
+    expect(page).toMatch(/buildContextWithRecords\(appCtx, discourseTopic/);
+  });
+
+  it("a failed council search cannot cost the turn", () => {
+    expect(read("src/mavis/councilBoardService.ts")).toMatch(/catch[\s\S]{0,160}Council record search failed/);
   });
 });
 
