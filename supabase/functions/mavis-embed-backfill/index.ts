@@ -77,7 +77,12 @@ serve(async (req) => {
       let embedded = 0;
       let failed = 0;
 
-      for (const row of (rows ?? []) as Record<string, unknown>[]) {
+      // `as unknown as` because the select list is built from variables:
+      // supabase-js parses select strings at the type level and a dynamic
+      // template yields ParserError rather than a row type, which a direct
+      // cast is not allowed to bridge (TS2352). deno-check caught this; tsc
+      // never sees this directory.
+      for (const row of (rows ?? []) as unknown as Record<string, unknown>[]) {
         const text = embeddableText(row[titleCol], row[bodyCol]);
         if (!text) {
           // Nothing to embed. Left NULL on purpose: marking it done would need
