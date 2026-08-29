@@ -10,10 +10,10 @@
 //             after the model has already replied, so a tool it calls can
 //             never inform the answer it is giving. Anything the reply depends
 //             on must be in the prompt before the LLM runs.
-//   council   routes through mavis-chat but is excluded from the tool path
-//             entirely — the native pre-pass is gated on
-//             (!isCouncilMode || !!personaId), which is false for a council
-//             member. A tool alone would never have reached them.
+//   council   routes through mavis-chat. It used to be excluded from the tool
+//             path entirely, so retrieval was the only thing that reached it;
+//             council members are now in the pre-pass on the same terms as
+//             everyone else, and retrieval still runs for them regardless.
 //
 // So the mechanism that actually serves all three is retrieval into the
 // prompt, not a tool. The tool is the extra that multi-turn surfaces can use
