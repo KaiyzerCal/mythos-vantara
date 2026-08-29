@@ -8086,6 +8086,7 @@ export type Database = {
           attendees: string[] | null
           created_at: string | null
           decisions: string[] | null
+          embedding: string | null
           id: string
           key_points: string[] | null
           meeting_date: string | null
@@ -8099,6 +8100,7 @@ export type Database = {
           attendees?: string[] | null
           created_at?: string | null
           decisions?: string[] | null
+          embedding?: string | null
           id?: string
           key_points?: string[] | null
           meeting_date?: string | null
@@ -8112,6 +8114,7 @@ export type Database = {
           attendees?: string[] | null
           created_at?: string | null
           decisions?: string[] | null
+          embedding?: string | null
           id?: string
           key_points?: string[] | null
           meeting_date?: string | null
@@ -8445,6 +8448,7 @@ export type Database = {
         Row: {
           created_at: string | null
           description: string | null
+          embedding: string | null
           emoji: string
           id: string
           title: string
@@ -8454,6 +8458,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           description?: string | null
+          embedding?: string | null
           emoji?: string
           id?: string
           title?: string
@@ -8463,6 +8468,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           description?: string | null
+          embedding?: string | null
           emoji?: string
           id?: string
           title?: string
@@ -9853,6 +9859,7 @@ export type Database = {
           difficulty: string
           difficulty_rating: number | null
           effort_tier: string | null
+          embedding: string | null
           id: string
           ideal_state: string | null
           is_consequence: boolean | null
@@ -9887,6 +9894,7 @@ export type Database = {
           difficulty?: string
           difficulty_rating?: number | null
           effort_tier?: string | null
+          embedding?: string | null
           id?: string
           ideal_state?: string | null
           is_consequence?: boolean | null
@@ -9921,6 +9929,7 @@ export type Database = {
           difficulty?: string
           difficulty_rating?: number | null
           effort_tier?: string | null
+          embedding?: string | null
           id?: string
           ideal_state?: string | null
           is_consequence?: boolean | null
