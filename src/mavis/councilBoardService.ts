@@ -268,6 +268,43 @@ function mergeConsecutiveAssistants(
   return out;
 }
 
+/**
+ * The app snapshot plus whatever the operator's own records say about this
+ * question.
+ *
+ * The council board and the discourse runner build their prompts here in the
+ * browser and post them to the edge functions already assembled, so the
+ * retrieval the server-side surfaces got never reached them — a council member
+ * could only ever see the slices AppDataContext happened to have loaded, which
+ * is why they could not look anything up.
+ *
+ * appSearch is pure TypeScript and asks only for `.from(table)`, which the
+ * browser client satisfies, so the same search and the same ranking run here
+ * against the same tables as on the server.
+ *
+ * One search per turn, shared by every member: it is matched against the
+ * operator's message, which does not differ between them.
+ */
+export async function buildContextWithRecords(
+  appContext: AppContextSnapshot,
+  question: string,
+): Promise<string> {
+  let summary = buildContextSummary(appContext);
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const uid = session?.user?.id;
+    if (uid) {
+      const hits = await searchAppData(supabase, uid, question, { limit: 8 });
+      const block = formatSearchBlock(hits, true);
+      if (block) summary += `\n\n${block}`;
+    }
+  } catch (err) {
+    // Thinner context is a worse answer; a failed search must not cost the turn.
+    console.warn("Council record search failed:", err);
+  }
+  return summary;
+}
+
 export async function sendCouncilMessage(
   userMessage: string,
   history: CouncilBoardMessage[],
@@ -275,28 +312,7 @@ export async function sendCouncilMessage(
   appContext: AppContextSnapshot,
   sessionOptions?: CouncilSessionOptions,
 ): Promise<CouncilBoardResult> {
-  // The council board builds its prompts here in the browser and posts them to
-  // the edge functions already assembled, so the retrieval the server-side
-  // surfaces got never reached it — a council member could only ever see the
-  // slices AppDataContext happens to have loaded. appSearch is pure TypeScript
-  // and asks only for `.from(table)`, which the browser client satisfies, so
-  // the same search and the same ranking run here against the same tables.
-  //
-  // Every member in this session shares one search: it is matched against the
-  // operator's message, which does not change between them.
-  let contextSummary = buildContextSummary(appContext);
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const uid = session?.user?.id;
-    if (uid) {
-      const hits = await searchAppData(supabase, uid, userMessage, { limit: 8 });
-      const block = formatSearchBlock(hits, true);
-      if (block) contextSummary += `\n\n${block}`;
-    }
-  } catch (err) {
-    // Thinner context is a worse answer; a failed search must not cost the turn.
-    console.warn("Council record search failed:", err);
-  }
+  const contextSummary = await buildContextWithRecords(appContext, userMessage);
   const maxDeliberationRounds = sessionOptions?.deliberationRounds ?? 1;
 
   // Council board produces multiple assistant messages per user turn (MAVIS + each member).

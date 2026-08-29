@@ -409,11 +409,25 @@ describe("no conversational surface is left without it", () => {
     // It posts an already-assembled prompt to the edge functions, so no
     // server-side fix could ever have reached it.
     const svc = read("src/mavis/councilBoardService.ts");
-    expect(svc).toMatch(/searchAppData\(supabase, uid, userMessage/);
-    const compute = svc.indexOf("searchAppData(supabase, uid, userMessage");
-    const use = svc.indexOf("contextSummary +=");
-    expect(compute).toBeGreaterThan(-1);
+    expect(svc).toMatch(/export async function buildContextWithRecords/);
+    const compute = /searchAppData\(supabase, uid, question\)|searchAppData\(supabase, uid, question,/.exec(svc)?.index ?? -1;
+    const use = svc.indexOf("summary += ");
+    expect(compute, "the council board never searches").toBeGreaterThan(-1);
     expect(use, "the block never reaches the prompt").toBeGreaterThan(compute);
+    // And the board's own turn must actually call it.
+    expect(svc).toMatch(/await buildContextWithRecords\(appContext, userMessage\)/);
+  });
+
+  it("the discourse runner is finally given the context block it accepts", () => {
+    // mavis-discourse-runner has always taken an optional context_block and
+    // simply was never passed one, so every council debate ran with no
+    // knowledge of the operator's records at all.
+    const page = read("src/pages/CouncilBoard.tsx");
+    const invoke = page.indexOf('invoke("mavis-discourse-runner"');
+    expect(invoke).toBeGreaterThan(-1);
+    const call = page.slice(invoke, invoke + 400);
+    expect(call, "discourse still runs context-free").toMatch(/context_block/);
+    expect(page).toMatch(/buildContextWithRecords\(appCtx, discourseTopic/);
   });
 
   it("a failed council search cannot cost the turn", () => {
