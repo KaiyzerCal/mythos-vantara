@@ -67,8 +67,8 @@ export const SEARCHABLE: SearchableTable[] = [
 
   // Reachable by explicit search. Not automatic: these are mostly short
   // labels, so they add query cost on every turn for little prose to match.
-  { key: "skills",         table: "skills",          titleCol: "name",  bodyCol: "description", extraCols: ["category"], hasCreatedAt: true },
-  { key: "contacts",       table: "contacts",        titleCol: "name",  bodyCol: "notes",                                hasCreatedAt: true },
+  { key: "skills",         table: "skills",          titleCol: "name",  bodyCol: "description", extraCols: ["category"], hasCreatedAt: true, auto: true },
+  { key: "contacts",       table: "contacts",        titleCol: "name",  bodyCol: "notes",                                hasCreatedAt: true, auto: true },
   { key: "council",        table: "councils",        titleCol: "name",  bodyCol: "notes",       extraCols: ["role", "specialty"], hasCreatedAt: true },
   { key: "allies",         table: "allies",          titleCol: "name",  bodyCol: "notes",       extraCols: ["specialty"], hasCreatedAt: true },
   { key: "transformations",table: "transformations", titleCol: "name",  bodyCol: "description", extraCols: ["category"], hasCreatedAt: true },
@@ -78,6 +78,24 @@ export const SEARCHABLE: SearchableTable[] = [
   { key: "calendar",       table: "calendar_events", titleCol: "title", bodyCol: "description" },
   { key: "expenses",       table: "mavis_expenses",  titleCol: "description",                   extraCols: ["category"], hasCreatedAt: true },
   { key: "personas",       table: "personas",        titleCol: "name",  bodyCol: "role",                                 hasCreatedAt: true },
+
+  // Pages that were invisible to every agent until now. Column names and the
+  // presence of created_at are taken from the generated Supabase types, not
+  // assumed: energy_systems and achievements have no created_at, and asking
+  // for one returns nothing rather than erroring.
+  //
+  // notebook_messages is deliberately absent: it has no user_id column —
+  // ownership runs through notebooks.chat_id — so the .eq("user_id", ...)
+  // every search applies would match zero rows and look like an empty
+  // notebook. The notebook itself is indexed instead.
+  { key: "rankings",     table: "rankings_profiles", titleCol: "display_name", bodyCol: "notes",       extraCols: ["rank", "role"], hasCreatedAt: true },
+  { key: "energy",       table: "energy_systems",    titleCol: "type",         bodyCol: "description", extraCols: ["status"] },
+  { key: "tower",        table: "tower_floors",      titleCol: "name",         bodyCol: "function",    extraCols: ["law"],          hasCreatedAt: true },
+  { key: "notebooks",    table: "notebooks",         titleCol: "title",        bodyCol: "description",                              hasCreatedAt: true, auto: true },
+  { key: "achievements", table: "achievements",      titleCol: "title",        bodyCol: "description", extraCols: ["category"] },
+  { key: "bpm",          table: "bpm_sessions",      titleCol: "form",         bodyCol: "notes",       extraCols: ["mood"],         hasCreatedAt: true },
+  { key: "time",         table: "time_logs",         titleCol: "project",      bodyCol: "description",                              hasCreatedAt: true },
+  { key: "finance",      table: "plaid_transactions", titleCol: "name",        bodyCol: "merchant_name", extraCols: ["category"],   hasCreatedAt: true },
 ];
 
 export const SEARCHABLE_KEYS = SEARCHABLE.map((t) => t.key);

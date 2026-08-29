@@ -94,6 +94,44 @@ describe("the registry", () => {
   });
 });
 
+describe("the registry matches the real schema", () => {
+  // A wrong column name is a silent empty result, never an error — the search
+  // just quietly finds nothing and the model reports it cannot see the entry.
+  // That is the exact failure Calvin hit twice, so every name the registry
+  // claims is checked against the generated Supabase types rather than
+  // restated here by hand.
+  const TYPES = read("src/integrations/supabase/types.ts");
+
+  function columnsOf(table: string): string[] {
+    const m = new RegExp(`\\n      ${table}: \\{\\n        Row: \\{\\n(.*?)\\n        \\}\\n`, "s").exec(TYPES);
+    if (!m) return [];
+    return m[1].split("\n").map((l) => l.trim().split(":")[0].trim()).filter(Boolean);
+  }
+
+  it.each(SEARCHABLE.map((t) => [t.key, t] as const))("%s names only real columns", (_key, t) => {
+    const cols = columnsOf(t.table);
+    expect(cols.length, `no generated type for ${t.table}`).toBeGreaterThan(0);
+    expect(cols, `${t.key}: titleCol "${t.titleCol}" does not exist`).toContain(t.titleCol);
+    if (t.bodyCol) expect(cols, `${t.key}: bodyCol "${t.bodyCol}" does not exist`).toContain(t.bodyCol);
+    for (const c of t.extraCols ?? []) {
+      expect(cols, `${t.key}: extraCol "${c}" does not exist`).toContain(c);
+    }
+    // hasCreatedAt is a claim about the table, and getting it wrong either
+    // drops the date from every hit or breaks the query.
+    expect(cols.includes("created_at"), `${t.key}: hasCreatedAt is ${!!t.hasCreatedAt} but the column ${cols.includes("created_at") ? "exists" : "does not exist"}`)
+      .toBe(!!t.hasCreatedAt);
+  });
+
+  it.each(SEARCHABLE.map((t) => [t.key, t] as const))("%s is scoped by user_id", (_key, t) => {
+    // Every search applies .eq("user_id", ...). A table without that column
+    // matches zero rows forever and reads as an empty section — which is how
+    // notebook_messages nearly got indexed, since it keys ownership through
+    // notebooks.chat_id instead.
+    expect(columnsOf(t.table), `${t.table} has no user_id; searching it can only ever return nothing`)
+      .toContain("user_id");
+  });
+});
+
 describe("resolveScope", () => {
   // Every assertion below checks non-emptiness too: [].every() is true, so a
   // resolveScope that returned nothing would have satisfied the naive form of
@@ -402,6 +440,27 @@ describe("council members can act, not only advise", () => {
     expect(idx, "the pre-pass gate moved — re-check this").toBeGreaterThan(-1);
     const gate = CHAT.slice(CHAT.lastIndexOf("if (", idx), idx + 60);
     expect(gate, "council is excluded from tools again").not.toMatch(/isCouncilMode/);
+  });
+});
+
+describe("every scope is advertised where an agent can see it", () => {
+  // A scope that exists but is never named is a scope no model will ever ask
+  // for — the same failure as an action nothing is told about. Eight pages sat
+  // unreachable for exactly this reason once they were in the registry but not
+  // in any catalog.
+  const catalogs: Array<[string, string]> = [
+    ["MAVIS tool def", DISPATCH],
+    ["persona catalog", ROUTER],
+    ["council prompt", read("src/mavis/councilPersona.ts")],
+  ];
+
+  it.each(catalogs)("%s names every searchable scope", (_name, src) => {
+    const missing = SEARCHABLE_KEYS.filter((k) => {
+      // meeting_notes is written "meeting notes" in the prose catalogs.
+      const variants = [k, k.replace(/_/g, " ")];
+      return !variants.some((v) => src.includes(v));
+    });
+    expect(missing, `scopes an agent is never told about: ${missing.join(", ")}`).toEqual([]);
   });
 });
 
