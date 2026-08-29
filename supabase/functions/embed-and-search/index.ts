@@ -54,7 +54,10 @@ async function generateEmbedding(text: string): Promise<number[]> {
         return gd?.embedding?.values ?? [];
       }
     }
-    throw new Error(`Embedding failed: ${res.status} ${t}`);
+    // Terminal gateway states (402/403 credit or policy blocks) and any other
+    // failure degrade gracefully: search returns no semantic hits instead of 500.
+    console.warn(`Embedding unavailable: ${res.status} ${t}`);
+    return [];
   }
   const data = await res.json();
   return data?.data?.[0]?.embedding ?? [];
