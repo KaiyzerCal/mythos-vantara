@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.4"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -7713,6 +7713,74 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_video_beats: {
+        Row: {
+          asset_url: string | null
+          attempts: number
+          audio_url: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          idx: number
+          narration: string
+          on_screen_text: string
+          production_id: string
+          provider: string | null
+          provider_job_id: string | null
+          seconds: number
+          status: string
+          updated_at: string
+          user_id: string
+          visual_prompt: string
+        }
+        Insert: {
+          asset_url?: string | null
+          attempts?: number
+          audio_url?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          idx: number
+          narration?: string
+          on_screen_text?: string
+          production_id: string
+          provider?: string | null
+          provider_job_id?: string | null
+          seconds?: number
+          status?: string
+          updated_at?: string
+          user_id: string
+          visual_prompt?: string
+        }
+        Update: {
+          asset_url?: string | null
+          attempts?: number
+          audio_url?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          idx?: number
+          narration?: string
+          on_screen_text?: string
+          production_id?: string
+          provider?: string | null
+          provider_job_id?: string | null
+          seconds?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+          visual_prompt?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_video_beats_production_id_fkey"
+            columns: ["production_id"]
+            isOneToOne: false
+            referencedRelation: "mavis_video_productions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mavis_video_jobs: {
         Row: {
           aspect_ratio: string | null
@@ -7760,6 +7828,86 @@ export type Database = {
           video_url?: string | null
         }
         Relationships: []
+      }
+      mavis_video_productions: {
+        Row: {
+          avatar_key: string | null
+          avatar_name: string | null
+          brief: string
+          created_at: string
+          error_message: string | null
+          format: string
+          generation_budget: number
+          generations_used: number
+          id: string
+          output_url: string | null
+          persona_id: string | null
+          production_type: string
+          render_id: string | null
+          status: string
+          target_seconds: number
+          title: string
+          updated_at: string
+          user_id: string
+          visual_mode: string
+          voice_id: string | null
+          warnings: Json
+        }
+        Insert: {
+          avatar_key?: string | null
+          avatar_name?: string | null
+          brief: string
+          created_at?: string
+          error_message?: string | null
+          format?: string
+          generation_budget?: number
+          generations_used?: number
+          id?: string
+          output_url?: string | null
+          persona_id?: string | null
+          production_type?: string
+          render_id?: string | null
+          status?: string
+          target_seconds?: number
+          title?: string
+          updated_at?: string
+          user_id: string
+          visual_mode?: string
+          voice_id?: string | null
+          warnings?: Json
+        }
+        Update: {
+          avatar_key?: string | null
+          avatar_name?: string | null
+          brief?: string
+          created_at?: string
+          error_message?: string | null
+          format?: string
+          generation_budget?: number
+          generations_used?: number
+          id?: string
+          output_url?: string | null
+          persona_id?: string | null
+          production_type?: string
+          render_id?: string | null
+          status?: string
+          target_seconds?: number
+          title?: string
+          updated_at?: string
+          user_id?: string
+          visual_mode?: string
+          voice_id?: string | null
+          warnings?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mavis_video_productions_persona_id_fkey"
+            columns: ["persona_id"]
+            isOneToOne: false
+            referencedRelation: "personas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       mavis_workflow_executions: {
         Row: {
@@ -8690,17 +8838,21 @@ export type Database = {
         Row: {
           agent_folders: Json
           archetype: string
+          asset_paths: Json
           avatar_key: string | null
           can_join_council: boolean | null
           content_niche: string | null
           created_at: string
           data_access_tier: string | null
+          domain_tags: string[]
           embodiment_endpoint: string | null
           id: string
           is_active: boolean
           model: string
           name: string
+          overlay_style: string
           personality: Json
+          rendering_style: string
           role: string
           system_prompt: string
           telegram_enabled: boolean | null
@@ -8714,17 +8866,21 @@ export type Database = {
         Insert: {
           agent_folders?: Json
           archetype: string
+          asset_paths?: Json
           avatar_key?: string | null
           can_join_council?: boolean | null
           content_niche?: string | null
           created_at?: string
           data_access_tier?: string | null
+          domain_tags?: string[]
           embodiment_endpoint?: string | null
           id?: string
           is_active?: boolean
           model?: string
           name: string
+          overlay_style?: string
           personality?: Json
+          rendering_style?: string
           role: string
           system_prompt: string
           telegram_enabled?: boolean | null
@@ -8738,17 +8894,21 @@ export type Database = {
         Update: {
           agent_folders?: Json
           archetype?: string
+          asset_paths?: Json
           avatar_key?: string | null
           can_join_council?: boolean | null
           content_niche?: string | null
           created_at?: string
           data_access_tier?: string | null
+          domain_tags?: string[]
           embodiment_endpoint?: string | null
           id?: string
           is_active?: boolean
           model?: string
           name?: string
+          overlay_style?: string
           personality?: Json
+          rendering_style?: string
           role?: string
           system_prompt?: string
           telegram_enabled?: boolean | null
@@ -10138,6 +10298,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      render_jobs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          output_path: string | null
+          output_url: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          output_path?: string | null
+          output_url?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          output_path?: string | null
+          output_url?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       rituals: {
         Row: {
