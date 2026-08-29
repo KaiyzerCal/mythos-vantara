@@ -47,8 +47,15 @@ const TABLES: Record<string, Backfillable> = {
   // vectors are narrower — see _shared/embedding.ts. mavis-memory-embed was
   // meant to fill these using Supabase's built-in gte-small, but its cron was
   // never created and the model exhausts the edge worker's memory
-  // (WORKER_RESOURCE_LIMIT) when invoked. Hence 2633 rows with no vectors and
-  // a semantic memory search that could only ever return nothing.
+  // (WORKER_RESOURCE_LIMIT) when invoked.
+  //
+  // Which of these two the search actually reads is not obvious from the
+  // names. search_memories_hybrid, search_memories_semantic and
+  // match_agent_memory all query mavis_agent_memories (72 rows). None of them
+  // reads mavis_memory, despite it holding 2633 rows of conversation history
+  // — so embedding that table feeds nothing today. It is kept here because
+  // the column exists and the rows are real, but wiring it into a search is
+  // a separate decision, not something this backfill implies.
   memory:         { table: "mavis_memory",         bodyCol: "content", dims: 384 },
   agent_memories: { table: "mavis_agent_memories", bodyCol: "content", dims: 768 },
 };

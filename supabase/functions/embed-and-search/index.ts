@@ -24,12 +24,20 @@ function isRateLimited(userId: string): boolean {
 /**
  * The query-side embedding for memory search.
  *
- * Must be 384 dimensions, because that is what mavis_memory.embedding
- * declares. This previously asked the Lovable gateway for
- * google/gemini-embedding-001 and fell back to text-embedding-004 — neither
- * of which emits 384. The result was a search that could not match even if
- * the rows had been embedded, because comparing vectors of different widths
- * is a runtime error, not a poor score.
+ * Must be 768 dimensions — the width of mavis_agent_memories.embedding.
+ *
+ * Getting this right needs the table the RPCs actually read, not the one the
+ * function is named after. All three of search_memories_hybrid,
+ * search_memories_semantic and match_agent_memory query
+ * mavis_agent_memories. None of them touches mavis_memory, despite that
+ * table being far larger and the more obvious candidate.
+ *
+ * I set this to 384 first, matching mavis_memory, and every search returned
+ * an empty result with a 200. The RPC surfaced it only when called directly:
+ * "different vector dimensions 768 and 384". Comparing vectors of unequal
+ * width is a runtime error, not a weak score — and the edge function
+ * swallowed it into an empty list, which is indistinguishable from "you have
+ * no memories about that".
  *
  * It also fixes a live outage: the gateway has been returning 403
  * credit_limit_reached for this workspace, so memory search was returning
@@ -40,7 +48,7 @@ function isRateLimited(userId: string): boolean {
  * Still returns [] on failure rather than throwing: the caller treats no
  * semantic hits as an empty result, never as an error.
  */
-const MEMORY_DIMS = 384;
+const MEMORY_DIMS = 768;
 
 async function generateEmbedding(text: string): Promise<number[]> {
   const vec = await embedText(text, MEMORY_DIMS);
