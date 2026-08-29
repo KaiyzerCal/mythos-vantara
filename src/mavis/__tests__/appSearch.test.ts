@@ -455,6 +455,31 @@ describe("semantic search", () => {
     expect(hits.map((h) => h.id)).toEqual(["k1"]);
   });
 
+  it("keeps the embedded-scope lists in step across all three places", () => {
+    // The set of tables carrying vectors is stated in three files: the SQL
+    // function that searches them, the backfill that populates them, and the
+    // allowlist that decides whether to call the RPC at all. Drift is silent
+    // in both directions — a scope named here but missing from the migration
+    // returns nothing, and one embedded but missing here is never searched.
+    const APP = read("supabase/functions/_shared/appSearch.ts");
+    const BACKFILL = read("supabase/functions/mavis-embed-backfill/index.ts");
+    const MIGRATION = read("supabase/migrations/20260829170000_semantic_search_journal_vault.sql");
+
+    const declared = /const EMBEDDED_SCOPES = \[([^\]]+)\]/.exec(APP)?.[1] ?? "";
+    const scopes = [...declared.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    expect(scopes.length, "EMBEDDED_SCOPES not found").toBeGreaterThan(0);
+
+    for (const scope of scopes) {
+      expect(BACKFILL, `${scope} is searchable but the backfill never populates it`)
+        .toMatch(new RegExp(`\\b${scope}:\\s*\\{`));
+      expect(MIGRATION, `${scope} is searchable but the RPC does not cover it`)
+        .toMatch(new RegExp(`'${scope}'`));
+      // And the table must actually have the column, per the migration.
+      expect(MIGRATION, `${scope} has no ADD COLUMN in the migration`)
+        .toMatch(/ADD COLUMN IF NOT EXISTS embedding vector\(1536\)/);
+    }
+  });
+
   it("does not call the RPC for a scope with nothing embedded", async () => {
     // Only journal and vault carry vectors; asking about contacts would spend
     // a round trip to be told nothing.
