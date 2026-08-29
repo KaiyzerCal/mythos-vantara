@@ -57,7 +57,12 @@ export const SEARCHABLE: SearchableTable[] = [
   { key: "vault",         table: "vault_entries",   titleCol: "title",     bodyCol: "content",     extraCols: ["category", "importance"], hasCreatedAt: true, auto: true },
   { key: "meeting_notes", table: "meeting_notes",   titleCol: "title",     bodyCol: "summary",                                            hasCreatedAt: true, auto: true },
   { key: "quests",        table: "quests",          titleCol: "title",     bodyCol: "description", extraCols: ["category"],               hasCreatedAt: true, auto: true },
-  { key: "tasks",         table: "tasks",           titleCol: "title",     bodyCol: "description",                                        hasCreatedAt: true, auto: true },
+  // NOT auto, deliberately. There is no /tasks route and buildSystemPrompt
+  // tells every agent "there is no tasks system... create_task/update_task/
+  // delete_task are DISABLED". The rows are real operator data so they stay
+  // reachable by an explicit search, but injecting them on every message
+  // would have agents citing records from a page the app does not have.
+  { key: "tasks",         table: "tasks",           titleCol: "title",     bodyCol: "description",                                        hasCreatedAt: true },
   { key: "goals",         table: "mavis_goals",     titleCol: "objective",                                                                hasCreatedAt: true, auto: true },
 
   // Reachable by explicit search. Not automatic: these are mostly short

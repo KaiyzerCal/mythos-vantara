@@ -89,6 +89,9 @@ create_ranking, update_ranking, update_profile, update_energy, award_xp,
 recall_memory, get_biometric_state, get_standing_orders, add_standing_order,
 remove_standing_order, list_skills, get_pending_reviews,
 search_app, search_journal, search_vault, create_contact, update_contact,
+create_calendar_event, update_calendar_event, delete_calendar_event,
+create_meeting_note, update_meeting_note, delete_meeting_note,
+create_goal, update_goal, delete_goal,
 create_ritual, update_ritual, delete_ritual, create_store_item,
 create_energy_system, log_expense, create_note, update_note, delete_note.
 

@@ -1844,6 +1844,121 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     // merged, because PostgREST's .textSearch() targets a single column and
     // building an .or() filter string from user text would mean hand-escaping
     // PostgREST filter syntax. Two safe queries beat one clever one.
+    // ── Pages that had no write path at all ──────────────────────────────
+    // /calendar, /meetings and /goals are real routes with real tables, and
+    // every agent could search them but none could create, change or remove a
+    // row. Column names are taken from the generated Supabase types, not
+    // guessed: calendar_events and meeting_notes have no updated_at, so
+    // stamping one would fail the whole write.
+
+    case "create_calendar_event": {
+      const title = String(p.title || p.summary || "New Event");
+      const { error } = await sb.from("calendar_events").insert({
+        user_id: userId,
+        title,
+        description: p.description ? String(p.description) : null,
+        location: p.location ? String(p.location) : null,
+        start_at: String(p.start_at || p.start || p.date || new Date().toISOString()),
+        end_at: p.end_at || p.end ? String(p.end_at || p.end) : null,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "calendar_event_created", `Event: ${title}`, 0);
+      return;
+    }
+
+    case "update_calendar_event": {
+      const id = await resolveId(sb, userId, "calendar_events", (p.event_id || p.id) as string, (p.event_title || p.title) as string, "title");
+      const updates: Record<string, unknown> = {};
+      for (const key of ["title", "description", "location", "start_at", "end_at"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      const { data, error } = await sb.from("calendar_events").update(updates).eq("id", id).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error(`calendar_events: update matched no row for id "${id}"`);
+      return;
+    }
+
+    case "delete_calendar_event": {
+      const id = await resolveId(sb, userId, "calendar_events", (p.event_id || p.id) as string, (p.event_title || p.title) as string, "title");
+      const { error } = await sb.from("calendar_events").delete().eq("id", id).eq("user_id", userId);
+      if (error) throw error;
+      return;
+    }
+
+    case "create_meeting_note": {
+      const title = String(p.title || "Meeting");
+      const { error } = await sb.from("meeting_notes").insert({
+        user_id: userId,
+        title,
+        summary: p.summary ? String(p.summary) : null,
+        meeting_date: p.meeting_date ? String(p.meeting_date) : new Date().toISOString(),
+        attendees: asStringArray(p.attendees),
+        key_points: asStringArray(p.key_points),
+        decisions: asStringArray(p.decisions),
+        raw_transcript: p.raw_transcript ? String(p.raw_transcript) : null,
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "meeting_note_created", `Meeting: ${title}`, 0);
+      return;
+    }
+
+    case "update_meeting_note": {
+      const id = await resolveId(sb, userId, "meeting_notes", (p.note_id || p.id) as string, (p.note_title || p.title) as string, "title");
+      const updates: Record<string, unknown> = {};
+      for (const key of ["title", "summary", "meeting_date", "raw_transcript"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      for (const key of ["attendees", "key_points", "decisions"]) {
+        if (p[key] !== undefined) updates[key] = asStringArray(p[key]);
+      }
+      const { data, error } = await sb.from("meeting_notes").update(updates).eq("id", id).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error(`meeting_notes: update matched no row for id "${id}"`);
+      return;
+    }
+
+    case "delete_meeting_note": {
+      const id = await resolveId(sb, userId, "meeting_notes", (p.note_id || p.id) as string, (p.note_title || p.title) as string, "title");
+      const { error } = await sb.from("meeting_notes").delete().eq("id", id).eq("user_id", userId);
+      if (error) throw error;
+      return;
+    }
+
+    case "create_goal": {
+      // mavis_goals, the /goals page. Distinct from set_goal, which writes an
+      // autonomy objective to mavis_tasks — different table, different page.
+      const objective = String(p.objective || p.title || p.goal || "New goal");
+      const { error } = await sb.from("mavis_goals").insert({
+        user_id: userId,
+        objective,
+        context: p.context ? String(p.context) : null,
+        status: String(p.status || "active"),
+      });
+      if (error) throw error;
+      await logActivity(sb, userId, "goal_created", `Goal: ${objective}`, 0);
+      return;
+    }
+
+    case "update_goal": {
+      const id = await resolveId(sb, userId, "mavis_goals", (p.goal_id || p.id) as string, (p.objective || p.title) as string, "objective");
+      const updates: Record<string, unknown> = {};
+      for (const key of ["objective", "context", "status"]) {
+        if (p[key] !== undefined) updates[key] = p[key];
+      }
+      updates.updated_at = new Date().toISOString();
+      const { data, error } = await sb.from("mavis_goals").update(updates).eq("id", id).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error(`mavis_goals: update matched no row for id "${id}"`);
+      return;
+    }
+
+    case "delete_goal": {
+      const id = await resolveId(sb, userId, "mavis_goals", (p.goal_id || p.id) as string, (p.objective || p.title) as string, "objective");
+      const { error } = await sb.from("mavis_goals").delete().eq("id", id).eq("user_id", userId);
+      if (error) throw error;
+      return;
+    }
+
     case "search_app":
     case "search_journal":
     case "search_vault": {

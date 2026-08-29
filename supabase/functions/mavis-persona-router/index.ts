@@ -366,6 +366,9 @@ Direct types (you have full authority):
 • Skills: create_skill update_skill delete_skill
 • Journal: create_journal update_journal delete_journal search_journal
 • Vault: create_vault update_vault delete_vault search_vault
+• Calendar: create_calendar_event update_calendar_event delete_calendar_event
+• Meetings: create_meeting_note update_meeting_note delete_meeting_note
+• Goals: create_goal update_goal delete_goal
 • Search anything: search_app {"query":"...","scope":"all"} — journal, vault, meeting notes,
   quests, tasks, goals, skills, contacts, council, allies, transformations, rituals, store,
   inventory, calendar, expenses, personas

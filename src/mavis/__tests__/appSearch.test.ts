@@ -46,8 +46,19 @@ describe("the registry", () => {
     // These are where prose the operator writes actually lives. Losing one
     // silently narrows what every surface can reference on every turn.
     expect(auto).toEqual(
-      expect.arrayContaining(["journal", "vault", "meeting_notes", "quests", "tasks", "goals"]),
+      expect.arrayContaining(["journal", "vault", "meeting_notes", "quests", "goals"]),
     );
+  });
+
+  it("does not automatically search the legacy tasks table", () => {
+    // There is no /tasks route, and buildSystemPrompt tells every agent "there
+    // is no tasks system... create_task/update_task/delete_task are DISABLED".
+    // Injecting those rows on every message had agents able to cite records
+    // from a page the app does not have. Still reachable by explicit search —
+    // the rows are real operator data — just not by default.
+    const tasks = SEARCHABLE.find((t) => t.key === "tasks")!;
+    expect(tasks, "tasks must stay searchable on request").toBeTruthy();
+    expect(tasks.auto, "tasks is legacy; it must not be searched by default").toBeFalsy();
   });
 
   it("keeps the automatic scope bounded", () => {
