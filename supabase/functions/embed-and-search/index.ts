@@ -1,11 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { embedText } from "../_shared/embedding.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -21,46 +21,34 @@ function isRateLimited(userId: string): boolean {
   return false;
 }
 
+/**
+ * The query-side embedding for memory search.
+ *
+ * Must be 384 dimensions, because that is what mavis_memory.embedding
+ * declares. This previously asked the Lovable gateway for
+ * google/gemini-embedding-001 and fell back to text-embedding-004 — neither
+ * of which emits 384. The result was a search that could not match even if
+ * the rows had been embedded, because comparing vectors of different widths
+ * is a runtime error, not a poor score.
+ *
+ * It also fixes a live outage: the gateway has been returning 403
+ * credit_limit_reached for this workspace, so memory search was returning
+ * nothing regardless. OpenAI's text-embedding-3-small can emit 384 natively
+ * via the `dimensions` parameter, uses the key the rest of the backend
+ * already has, and matches exactly what mavis-embed-backfill writes.
+ *
+ * Still returns [] on failure rather than throwing: the caller treats no
+ * semantic hits as an empty result, never as an error.
+ */
+const MEMORY_DIMS = 384;
+
 async function generateEmbedding(text: string): Promise<number[]> {
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
-    method: "POST",
-    headers: {
-      "Lovable-API-Key": LOVABLE_API_KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "google/gemini-embedding-001",
-      input: text.slice(0, 2000),
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    // Free fallback: direct Gemini embedding API with the project's own key.
-    const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? Deno.env.get("GOOGLE_API_KEY") ?? "";
-    if (geminiKey) {
-      const g = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${geminiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "models/text-embedding-004",
-            content: { parts: [{ text: text.slice(0, 2000) }] },
-          }),
-        },
-      );
-      if (g.ok) {
-        const gd = await g.json();
-        return gd?.embedding?.values ?? [];
-      }
-    }
-    // Terminal gateway states (402/403 credit or policy blocks) and any other
-    // failure degrade gracefully: search returns no semantic hits instead of 500.
-    console.warn(`Embedding unavailable: ${res.status} ${t}`);
+  const vec = await embedText(text, MEMORY_DIMS);
+  if (!vec) {
+    console.warn("[embed-and-search] embedding unavailable — returning no semantic hits");
     return [];
   }
-  const data = await res.json();
-  return data?.data?.[0]?.embedding ?? [];
+  return vec;
 }
 
 Deno.serve(async (req) => {
@@ -75,11 +63,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ results: [] }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // The Lovable gateway key used to gate this. It is no longer the embedding
+    // provider, so keeping the guard would return zero results whenever that
+    // unrelated key is absent. generateEmbedding already degrades to [] on its
+    // own failures, which is the only check this needs.
 
     if (isRateLimited(user_id)) {
       return new Response(JSON.stringify({ results: [], rate_limited: true }), {

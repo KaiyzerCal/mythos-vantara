@@ -12,7 +12,22 @@
 // OPENAI_API to prefer it over OPENAI_API_KEY, so this matches that order
 // rather than inventing a third convention.
 
-/** The dimension every vector column in this database is declared with. */
+/**
+ * The default dimension — what journal, vault, quests, meeting notes,
+ * notebooks and mavis_notes all declare.
+ *
+ * It is NOT universal. The older memory tables were built against different
+ * models and declare narrower vectors:
+ *
+ *   mavis_memory          vector(384)   built for Supabase's gte-small
+ *   mavis_agent_memories  vector(768)
+ *
+ * text-embedding-3-small can emit any of these natively via the `dimensions`
+ * parameter (Matryoshka representation learning), so one API and one key
+ * still serve every table — pass the column's width and the vector fits.
+ * Writing a 1536 vector into a vector(384) column is rejected outright, so
+ * this is a correctness requirement, not a tuning knob.
+ */
 export const EMBEDDING_DIMS = 1536;
 const MODEL = "text-embedding-3-small";
 /** Beyond this the model truncates anyway; sending more just costs latency. */
@@ -30,7 +45,7 @@ export function embeddingKey(): string {
  * enhancement over keyword search, and a missing key or a slow embedding
  * endpoint must degrade to keyword results rather than fail the reply.
  */
-export async function embedText(text: string): Promise<number[] | null> {
+export async function embedText(text: string, dims: number = EMBEDDING_DIMS): Promise<number[] | null> {
   const key = embeddingKey();
   const input = (text ?? "").trim();
   if (!key || input.length === 0) return null;
@@ -39,7 +54,13 @@ export async function embedText(text: string): Promise<number[] | null> {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: MODEL, input: input.slice(0, MAX_INPUT_CHARS) }),
+      body: JSON.stringify({
+        model: MODEL,
+        input: input.slice(0, MAX_INPUT_CHARS),
+        // Omitted at the default so the request stays byte-identical to what
+        // every existing caller already sends.
+        ...(dims !== EMBEDDING_DIMS ? { dimensions: dims } : {}),
+      }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!res.ok) return null;
@@ -49,8 +70,8 @@ export async function embedText(text: string): Promise<number[] | null> {
     // A wrong-length vector would be rejected by Postgres on write and match
     // nothing on read. Refusing it here turns a confusing failure into a
     // clean fall back to keyword search.
-    if (vec.length !== EMBEDDING_DIMS) {
-      console.warn(`[embedding] expected ${EMBEDDING_DIMS} dims, got ${vec.length} — ignoring`);
+    if (vec.length !== dims) {
+      console.warn(`[embedding] expected ${dims} dims, got ${vec.length} — ignoring`);
       return null;
     }
     return vec as number[];

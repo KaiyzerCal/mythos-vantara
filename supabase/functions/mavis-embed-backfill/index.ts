@@ -24,12 +24,33 @@ const corsHeaders = {
 const DEFAULT_BATCH = 25;
 const MAX_BATCH = 100;
 
-const TABLES: Record<string, { table: string; titleCol: string; bodyCol: string }> = {
+interface Backfillable {
+  table: string;
+  /** Omitted where the table has no name-ish column — memory rows are prose only. */
+  titleCol?: string;
+  bodyCol: string;
+  /**
+   * The width the column declares. Not decoration: Postgres rejects a vector
+   * of the wrong length outright, so getting this wrong fails every row.
+   */
+  dims?: number;
+}
+
+const TABLES: Record<string, Backfillable> = {
   journal:       { table: "journal_entries", titleCol: "title", bodyCol: "content" },
   vault:         { table: "vault_entries",   titleCol: "title", bodyCol: "content" },
   quests:        { table: "quests",          titleCol: "title", bodyCol: "description" },
   meeting_notes: { table: "meeting_notes",   titleCol: "title", bodyCol: "summary" },
   notebooks:     { table: "notebooks",       titleCol: "title", bodyCol: "description" },
+
+  // The memory system. Older tables, built against different models, so their
+  // vectors are narrower — see _shared/embedding.ts. mavis-memory-embed was
+  // meant to fill these using Supabase's built-in gte-small, but its cron was
+  // never created and the model exhausts the edge worker's memory
+  // (WORKER_RESOURCE_LIMIT) when invoked. Hence 2633 rows with no vectors and
+  // a semantic memory search that could only ever return nothing.
+  memory:         { table: "mavis_memory",         bodyCol: "content", dims: 384 },
+  agent_memories: { table: "mavis_agent_memories", bodyCol: "content", dims: 768 },
 };
 
 serve(async (req) => {
@@ -67,11 +88,12 @@ serve(async (req) => {
     const report: Record<string, { embedded: number; failed: number; remaining: number }> = {};
 
     for (const key of wanted) {
-      const { table, titleCol, bodyCol } = TABLES[key];
+      const { table, titleCol, bodyCol, dims } = TABLES[key];
+      const cols = titleCol ? `id,${titleCol},${bodyCol}` : `id,${bodyCol}`;
 
       const { data: rows, error } = await supabase
         .from(table)
-        .select(`id,${titleCol},${bodyCol}`)
+        .select(cols)
         .eq("user_id", userId)
         .is("embedding", null)
         .limit(batch);
@@ -86,14 +108,14 @@ serve(async (req) => {
       // cast is not allowed to bridge (TS2352). deno-check caught this; tsc
       // never sees this directory.
       for (const row of (rows ?? []) as unknown as Record<string, unknown>[]) {
-        const text = embeddableText(row[titleCol], row[bodyCol]);
+        const text = embeddableText(titleCol ? row[titleCol] : "", row[bodyCol]);
         if (!text) {
           // Nothing to embed. Left NULL on purpose: marking it done would need
           // a sentinel vector, and a row with no text is not findable anyway.
           failed++;
           continue;
         }
-        const vec = await embedText(text);
+        const vec = await embedText(text, dims);
         if (!vec) { failed++; continue; }
 
         const { error: upErr } = await supabase
