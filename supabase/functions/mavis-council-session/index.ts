@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
+import { embedText } from "../_shared/embedding.ts";
 import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
@@ -399,7 +400,7 @@ serve(async (req) => {
       // never cost the reply.
       const [sharedTruth, recordsBlock] = await Promise.all([
         buildSharedTruth(supabase, userId, { surface: "council" }).then((t) => t.text, () => ""),
-        searchAppData(supabase, userId, content, { limit: 8 })
+        searchAppData(supabase, userId, content, { limit: 8, embed: embedText })
           .then((hits) => formatSearchBlock(hits, true))
           .catch((e) => {
             console.warn("[mavis-council-session] record search failed:", (e as Error)?.message);

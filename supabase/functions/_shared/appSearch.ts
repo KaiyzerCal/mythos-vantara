@@ -148,7 +148,7 @@ export interface AppSearchHit {
  * mavis-chat — and none should need a cast at the call site to run a search.
  */
 // deno-lint-ignore no-explicit-any
-type QueryClient = { from(table: string): any };
+type QueryClient = { from(table: string): any; rpc?: (fn: string, args: Record<string, unknown>) => any };
 
 /** Columns worth having before a row is known to be worth fetching. */
 function selectForCandidates(t: SearchableTable): string {
@@ -213,7 +213,20 @@ export async function searchAppData(
   sb: QueryClient,
   userId: string,
   query: string,
-  opts: { scope?: string | null; limit?: number; candidateCap?: number } = {},
+  opts: {
+    scope?: string | null;
+    limit?: number;
+    candidateCap?: number;
+    /**
+     * Turns on the semantic half of the search.
+     *
+     * Passed in rather than imported so this module stays runnable in the
+     * browser, where there is no embedding key: the council board calls the
+     * same function and simply gets keyword results. Server callers hand in
+     * embedText from _shared/embedding.ts.
+     */
+    embed?: (text: string) => Promise<number[] | null>;
+  } = {},
 ): Promise<AppSearchHit[]> {
   const terms = extractTerms(query);
   const orQuery = buildTsQuery(query);
@@ -253,6 +266,13 @@ export async function searchAppData(
     }
   }
 
+  // Started here, beside the keyword probes. It used to run after the
+  // shortlist was built, behind an early return taken when keyword search
+  // found nothing — which is precisely when semantic search is the only thing
+  // that can answer. A question sharing no words with the entry got no
+  // results at all, the one case the feature exists for.
+  const semanticP = semanticHits(sb, userId, query, opts);
+
   const settled = await Promise.all(probes);
 
   const byKey = new Map<string, Candidate>();
@@ -288,9 +308,12 @@ export async function searchAppData(
     })
     .slice(0, Math.max(0, limit));
 
-  if (shortlist.length === 0) return [];
+  const semantic = await semanticP;
+  if (shortlist.length === 0 && semantic.length === 0) return [];
 
   // Phase 2 — whole rows, only for what survived.
+  // May be empty when only the semantic half matched; the loops below simply
+  // do nothing and `full` starts from the semantic hits alone.
   const wanted = new Map<string, { t: SearchableTable; ids: string[] }>();
   for (const c of shortlist) {
     const e = wanted.get(c.t.key) ?? { t: c.t, ids: [] };
@@ -317,6 +340,28 @@ export async function searchAppData(
     })),
   );
 
+  // Semantic hits, merged in. Keyword search finds entries that share words
+  // with the question; this finds the ones that share meaning — "my custody
+  // case" reaching an entry titled "Joanna's Timesharing Violation", which no
+  // amount of stemming will do. The two are complementary, so both run and
+  // the union is ranked, rather than one replacing the other.
+  //
+  // Only journal and vault are embedded today, so this widens what those two
+  // can match rather than covering every table.
+  for (const hit of semantic) {
+    const key = `${hit.kind}:${hit.id}`;
+    if (!full.some((f) => f.id === key)) {
+      full.push({
+        id: key,
+        kind: hit.kind,
+        title: hit.title,
+        content: hit.content,
+        category: hit.category,
+        created_at: hit.created_at,
+      });
+    }
+  }
+
   // Final order is body-aware now that the bodies are actually here.
   return rankEntries(full, terms, limit).map((r) => ({
     kind: r.kind,
@@ -326,6 +371,54 @@ export async function searchAppData(
     category: r.category,
     created_at: r.created_at,
   }));
+}
+
+/**
+ * Nearest neighbours for the question, via the match_operator_entries RPC.
+ *
+ * Returns [] for every failure mode — no embed function, no key, an RPC that
+ * does not exist yet, a row whose embedding was never backfilled. Semantic
+ * search is an addition to keyword search, never a replacement, so nothing
+ * here may cost the caller its keyword results.
+ */
+async function semanticHits(
+  sb: QueryClient,
+  userId: string,
+  query: string,
+  opts: { scope?: string | null; limit?: number; embed?: (t: string) => Promise<number[] | null> },
+): Promise<Array<{ kind: string; id: string; title: string; content: string; category?: string; created_at?: string }>> {
+  if (!opts.embed) return [];
+  try {
+    const vec = await opts.embed(query);
+    if (!vec) return [];
+
+    // The RPC covers journal and vault. Any other explicit scope has nothing
+    // embedded, so asking would only cost a round trip.
+    const raw = String(opts.scope ?? "").trim().toLowerCase();
+    const rpcScope = raw === "journal" || raw === "vault" ? raw : "all";
+    if (raw && !["all", "everything", "*", "auto", "default", "journal", "vault"].includes(raw)) return [];
+
+    // Guarded rather than assumed: rpc is optional on the minimal client shape
+    // this module accepts, and the test stubs do not provide it.
+    if (typeof sb.rpc !== "function") return [];
+
+    const { data } = await sb.rpc("match_operator_entries", {
+      p_user_id: userId,
+      p_query: vec,
+      p_count: (opts.limit ?? 8) * 2,
+      p_scope: rpcScope,
+    });
+    return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+      kind: String(r.kind ?? ""),
+      id: String(r.id ?? ""),
+      title: String(r.title ?? "") || "(untitled)",
+      content: String(r.content ?? ""),
+      category: String(r.category ?? "") || undefined,
+      created_at: String(r.created_at ?? "") || undefined,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /** The prompt block. Empty string when there is nothing worth adding. */

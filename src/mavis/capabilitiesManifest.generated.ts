@@ -1260,6 +1260,17 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-embed-backfill",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-emotion-engine",
     "category": "Persona & Identity",
     "purpose": "Analyzes emotional state from conversation; updates relationship_states",

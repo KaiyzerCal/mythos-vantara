@@ -4,6 +4,7 @@ import { buildSharedTruth } from "../_shared/context.ts";
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { buildTsQuery, truncationLabel } from "../_shared/entrySearch.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
+import { embedText } from "../_shared/embedding.ts";
 import {
   ProviderUnavailableError,
   isUnfundedStatus,
@@ -464,7 +465,7 @@ serve(async (req) => {
     // its own tokenising internally.
     const searchQuery = buildTsQuery(message ?? "");
     const relevantSearch = searchQuery
-      ? searchAppData(supabase, user_id, message ?? "", { limit: 8 }).catch(() => [])
+      ? searchAppData(supabase, user_id, message ?? "", { limit: 8, embed: embedText }).catch(() => [])
       : Promise.resolve([]);
 
     // Real totals, so a capped list can say how much it is hiding. Counted with

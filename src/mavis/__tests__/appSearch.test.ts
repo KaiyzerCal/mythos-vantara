@@ -384,6 +384,86 @@ describe("searchAppData", () => {
   });
 });
 
+describe("semantic search", () => {
+  /** Keyword-matching stub plus a stand-in for the match_operator_entries RPC. */
+  function hybridDb(keywordRows: Record<string, unknown>[], semanticRows: Record<string, unknown>[]) {
+    const calls: string[] = [];
+    const client = {
+      from() {
+        const node: Record<string, unknown> = {};
+        const finish = () => Promise.resolve({ data: keywordRows, error: null });
+        Object.assign(node, {
+          select: () => node, eq: () => node, in: () => finish(),
+          textSearch: () => node, order: () => node, limit: () => finish(),
+        });
+        return node;
+      },
+      rpc(fn: string) {
+        calls.push(fn);
+        return Promise.resolve({ data: semanticRows, error: null });
+      },
+    };
+    return { client: client as never, calls };
+  }
+
+  const embed = async () => new Array(1536).fill(0.01);
+
+  it("finds an entry that shares meaning but no words", async () => {
+    // The whole point. "custody case" and "Joanna's Timesharing Violation"
+    // have no term in common, so no amount of stemming reaches it.
+    const { client } = hybridDb([], [
+      { kind: "vault", id: "v9", title: "Joanna's Timesharing Violation", content: "hearing notes", created_at: "2026-05-07T00:00:00Z" },
+    ]);
+    const hits = await searchAppData(client, "u1", "my custody case", { scope: "vault", limit: 5, embed });
+    expect(hits.map((h) => h.title)).toEqual(["Joanna's Timesharing Violation"]);
+  });
+
+  it("adds to keyword results rather than replacing them", async () => {
+    // Both halves answer different questions; a semantic pass that displaced
+    // exact matches would be a regression dressed as a feature.
+    const { client } = hybridDb(
+      [{ id: "k1", title: "custody case", content: "", created_at: "2026-01-01T00:00:00Z" }],
+      [{ kind: "vault", id: "s1", title: "Joanna's Timesharing Violation", content: "", created_at: "2026-05-07T00:00:00Z" }],
+    );
+    const hits = await searchAppData(client, "u1", "custody case", { scope: "vault", limit: 5, embed });
+    expect(hits.map((h) => h.id).sort()).toEqual(["k1", "s1"]);
+  });
+
+  it("does not double-count a row both halves found", async () => {
+    const { client } = hybridDb(
+      [{ id: "same", title: "custody case", content: "", created_at: "2026-01-01T00:00:00Z" }],
+      [{ kind: "vault", id: "same", title: "custody case", content: "", created_at: "2026-01-01T00:00:00Z" }],
+    );
+    const hits = await searchAppData(client, "u1", "custody case", { scope: "vault", limit: 5, embed });
+    expect(hits).toHaveLength(1);
+  });
+
+  it("stays keyword-only when no embedder is supplied", async () => {
+    // The council board runs this in the browser, where there is no API key.
+    // It must degrade, not fail.
+    const { client, calls } = hybridDb([{ id: "k1", title: "custody case", content: "" }], []);
+    const hits = await searchAppData(client, "u1", "custody case", { scope: "vault", limit: 5 });
+    expect(calls).toEqual([]);
+    expect(hits.map((h) => h.id)).toEqual(["k1"]);
+  });
+
+  it("keeps the keyword results when embedding fails", async () => {
+    // No key, a rate limit, a timeout — every one of these must cost the
+    // semantic half only.
+    const { client } = hybridDb([{ id: "k1", title: "custody case", content: "" }], []);
+    const hits = await searchAppData(client, "u1", "custody case", { scope: "vault", limit: 5, embed: async () => null });
+    expect(hits.map((h) => h.id)).toEqual(["k1"]);
+  });
+
+  it("does not call the RPC for a scope with nothing embedded", async () => {
+    // Only journal and vault carry vectors; asking about contacts would spend
+    // a round trip to be told nothing.
+    const { client, calls } = hybridDb([], []);
+    await searchAppData(client, "u1", "custody case", { scope: "contacts", limit: 5, embed });
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("formatSearchBlock", () => {
   const hit: AppSearchHit = {
     kind: "vault", id: "v1", title: "Launch plan",

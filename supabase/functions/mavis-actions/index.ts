@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
 import { buildTsQuery, extractTerms } from "../_shared/entrySearch.ts";
 import { searchAppData, resolveScope, SEARCHABLE_KEYS } from "../_shared/appSearch.ts";
+import { embedText, embeddableText } from "../_shared/embedding.ts";
 
 type MavisAction = {
   type: string;
@@ -170,6 +171,31 @@ function normalizeActionType(type: string): string {
 }
 
 // ── Action executor ────────────────────────────────────────
+/**
+ * Refresh one row's embedding after it is written.
+ *
+ * Fire-and-forget on purpose: the operator's create or update has already
+ * succeeded, and an embedding endpoint being slow must not hold up the reply
+ * or fail the action. A row that misses its embedding here is simply picked
+ * up by the next mavis-embed-backfill run, since that selects on
+ * embedding IS NULL.
+ *
+ * Without this, semantic search would work on the day it was backfilled and
+ * silently rot afterwards — every entry written since would be invisible to
+ * it. That is how the database ended up with 2632 memories and no vectors.
+ */
+function reembedRow(sb: any, table: string, id: string, userId: string): void {
+  (async () => {
+    try {
+      const { data } = await sb.from(table).select("title,content").eq("id", id).eq("user_id", userId).maybeSingle();
+      if (!data) return;
+      const vec = await embedText(embeddableText(data.title, data.content));
+      if (!vec) return;
+      await sb.from(table).update({ embedding: vec }).eq("id", id).eq("user_id", userId);
+    } catch { /* non-critical: the backfill will catch it */ }
+  })();
+}
+
 async function executeAction(sb: any, userId: string, action: MavisAction) {
   // Support nested { type, params: {...} }, flat { type, title, ... }, and
   // double-encoded { type, params: "{\"description\":\"...\"}" } (GPT-4o-mini quirk).
@@ -348,6 +374,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (error) throw error;
       await awardXP(sb, userId, xp);
       await logActivity(sb, userId, "journal_created", `Journal: ${String(p.title || "New Entry")}`, xp);
+      if (newEntry?.id) reembedRow(sb, "journal_entries", String(newEntry.id), userId);
 
       // After successful journal entry insert, tag emotions asynchronously
       if (newEntry?.id) {
@@ -375,6 +402,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const { data: updated, error } = await sb.from("journal_entries").update(updates).eq("id", entryId).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!updated || updated.length === 0) throw new Error(`journal_entries: update matched no row for id "${entryId}"`);
+      reembedRow(sb, "journal_entries", entryId, userId);
       return;
     }
 
@@ -398,6 +426,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       }).select("id").maybeSingle();
       if (error) throw error;
       await logActivity(sb, userId, "vault_created", `Vault: ${String(p.title || "New Entry")}`, 0);
+      if (vd?.id) reembedRow(sb, "vault_entries", String(vd.id), userId);
       return { entryId: vd?.id ?? null };
     }
 
@@ -416,6 +445,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const { data: updated, error: updErr } = await sb.from("vault_entries").update(updates).eq("id", entryId).eq("user_id", userId).select("id");
       if (updErr) throw updErr;
       if (!updated || updated.length === 0) throw new Error(`vault_entries: update matched no row for id "${entryId}"`);
+      reembedRow(sb, "vault_entries", entryId, userId);
       return;
     }
 
@@ -1984,7 +2014,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       }
 
       const limit = Math.min(Math.max(Number(p.limit ?? 5), 1), 25);
-      const hits = await searchAppData(sb, userId, query, { scope, limit });
+      const hits = await searchAppData(sb, userId, query, { scope, limit, embed: embedText });
 
       return {
         query,
