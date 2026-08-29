@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
+import { embedText } from "../_shared/embedding.ts";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -3066,7 +3067,7 @@ Deno.serve(async (req) => {
     // shared truth fragment, which is why an entry the operator asked about by
     // name looked missing.
     const recordsFragmentP: Promise<string> = (goalText && userId)
-      ? searchAppData(supabase, userId, goalText, { limit: 8 })
+      ? searchAppData(supabase, userId, goalText, { limit: 8, embed: embedText })
           .then((hits) => {
             const block = formatSearchBlock(hits, true);
             return block ? `\n\n${block}` : "";

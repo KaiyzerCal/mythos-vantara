@@ -8,6 +8,7 @@ import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock, type AppSearchHit } from "../_shared/appSearch.ts";
+import { embedText } from "../_shared/embedding.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -648,7 +649,7 @@ ${telosData
     // this promise sits unawaited through the whole preamble, and an
     // unhandled rejection in Deno takes the worker down.
     const relevantRecordsPromise: Promise<AppSearchHit[]> = searchAppData(
-      sb, user.id, lastUserText, { limit: 8 },
+      sb, user.id, lastUserText, { limit: 8, embed: embedText },
     ).catch((e) => {
       console.warn("[mavis-chat] relevant-records search failed:", (e as Error)?.message);
       return [] as AppSearchHit[];
