@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
+import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { aiComplete } from "../_shared/providers.ts";
 
 const corsHeaders = {
@@ -390,9 +391,23 @@ serve(async (req) => {
       if (session.topic) ctxLines.push(`Session topic: ${session.topic}`);
       ctxLines.push(`Council members on this call: ${allMembers.map((m: any) => `${m.name} (${m.role ?? m.specialty ?? "advisor"})`).join(", ")}`);
       // Shared source of truth — identical block used by MAVIS, agent mode and personas.
-      const sharedTruth = await buildSharedTruth(supabase, userId, { surface: "council" })
-        .then((t) => t.text, () => "");
-      const contextSummary = ctxLines.join("\n") + sharedTruth;
+      // Retrieval, so a council member can reach the operator's actual records
+      // rather than only the recent slices in the shared truth block. Council
+      // members have no tool path at all — this function never offers them
+      // one — so if it is not in the prompt they genuinely cannot see it.
+      // Failure is swallowed: thinner context is a worse answer, but it must
+      // never cost the reply.
+      const [sharedTruth, recordsBlock] = await Promise.all([
+        buildSharedTruth(supabase, userId, { surface: "council" }).then((t) => t.text, () => ""),
+        searchAppData(supabase, userId, content, { limit: 8 })
+          .then((hits) => formatSearchBlock(hits, true))
+          .catch((e) => {
+            console.warn("[mavis-council-session] record search failed:", (e as Error)?.message);
+            return "";
+          }),
+      ]);
+      const contextSummary = ctxLines.join("\n") + sharedTruth +
+        (recordsBlock ? `\n\n${recordsBlock}` : "");
 
       // Append user message to history view for LLM context
       const historyWithUser = [

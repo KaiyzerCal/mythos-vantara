@@ -1,5 +1,6 @@
 import type { AppContextSnapshot } from "./appContextLoader";
 import { buildCouncilMemberPrompt, buildContextSummary, buildDeliberationPrompt, type CouncilMember } from "./councilPersona";
+import { searchAppData, formatSearchBlock } from "../../supabase/functions/_shared/appSearch";
 import { buildCouncilAgentPrompt, buildPersonaCouncilPrompt } from "./agentPersona";
 import { buildSystemPromptFromSnapshot } from "./buildSystemPrompt";
 import { invokeAI } from "./chatService";
@@ -274,7 +275,28 @@ export async function sendCouncilMessage(
   appContext: AppContextSnapshot,
   sessionOptions?: CouncilSessionOptions,
 ): Promise<CouncilBoardResult> {
-  const contextSummary = buildContextSummary(appContext);
+  // The council board builds its prompts here in the browser and posts them to
+  // the edge functions already assembled, so the retrieval the server-side
+  // surfaces got never reached it — a council member could only ever see the
+  // slices AppDataContext happens to have loaded. appSearch is pure TypeScript
+  // and asks only for `.from(table)`, which the browser client satisfies, so
+  // the same search and the same ranking run here against the same tables.
+  //
+  // Every member in this session shares one search: it is matched against the
+  // operator's message, which does not change between them.
+  let contextSummary = buildContextSummary(appContext);
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const uid = session?.user?.id;
+    if (uid) {
+      const hits = await searchAppData(supabase, uid, userMessage, { limit: 8 });
+      const block = formatSearchBlock(hits, true);
+      if (block) contextSummary += `\n\n${block}`;
+    }
+  } catch (err) {
+    // Thinner context is a worse answer; a failed search must not cost the turn.
+    console.warn("Council record search failed:", err);
+  }
   const maxDeliberationRounds = sessionOptions?.deliberationRounds ?? 1;
 
   // Council board produces multiple assistant messages per user turn (MAVIS + each member).
