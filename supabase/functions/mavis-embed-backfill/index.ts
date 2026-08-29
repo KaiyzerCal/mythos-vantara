@@ -25,8 +25,11 @@ const DEFAULT_BATCH = 25;
 const MAX_BATCH = 100;
 
 const TABLES: Record<string, { table: string; titleCol: string; bodyCol: string }> = {
-  journal: { table: "journal_entries", titleCol: "title", bodyCol: "content" },
-  vault:   { table: "vault_entries",   titleCol: "title", bodyCol: "content" },
+  journal:       { table: "journal_entries", titleCol: "title", bodyCol: "content" },
+  vault:         { table: "vault_entries",   titleCol: "title", bodyCol: "content" },
+  quests:        { table: "quests",          titleCol: "title", bodyCol: "description" },
+  meeting_notes: { table: "meeting_notes",   titleCol: "title", bodyCol: "summary" },
+  notebooks:     { table: "notebooks",       titleCol: "title", bodyCol: "description" },
 };
 
 serve(async (req) => {

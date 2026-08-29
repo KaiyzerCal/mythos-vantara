@@ -392,11 +392,16 @@ async function semanticHits(
     const vec = await opts.embed(query);
     if (!vec) return [];
 
-    // The RPC covers journal and vault. Any other explicit scope has nothing
-    // embedded, so asking would only cost a round trip.
+    // Which scopes actually carry vectors. Anything else has nothing embedded,
+    // so asking would spend a round trip to be told nothing. Kept in step with
+    // match_operator_entries and the backfill's table map — a scope named here
+    // but absent there returns empty, and one embedded but missing here is
+    // simply never searched.
+    const EMBEDDED_SCOPES = ["journal", "vault", "quests", "meeting_notes", "notebooks"];
+    const ANY_SCOPE = ["all", "everything", "*", "auto", "default"];
     const raw = String(opts.scope ?? "").trim().toLowerCase();
-    const rpcScope = raw === "journal" || raw === "vault" ? raw : "all";
-    if (raw && !["all", "everything", "*", "auto", "default", "journal", "vault"].includes(raw)) return [];
+    const rpcScope = EMBEDDED_SCOPES.includes(raw) ? raw : "all";
+    if (raw && !ANY_SCOPE.includes(raw) && !EMBEDDED_SCOPES.includes(raw)) return [];
 
     // Guarded rather than assumed: rpc is optional on the minimal client shape
     // this module accepts, and the test stubs do not provide it.

@@ -22,13 +22,62 @@ NAVI app (`NAVI.EXE-lovable`). Consequences that matter every session:
 - Lovable writes back to the GitHub repo. A branch pushed from here and an edit
   made in the Lovable editor can diverge; check which side is authoritative
   before assuming a local push reached the running app.
-- Likely Lovable project: workspace "Cal's Lovable"
-  (`ggIVIJ8dhqNxDaOjtFhU`) → **mavisprimevantara** / "Mythos RPG Nexus"
-  (`6ec06b14-9242-48d0-8241-2a2f8a075e7f`, https://mavisprimevantara.lovable.app).
-  Its Lovable description matches this codebase feature-for-feature (personas,
-  council, vault uploads, ElevenLabs TTS, Telegram bot), but the git URL it
-  records is `rork-mythos-nexus-rpg-clone.git`, not `mythos-vantara` —
-  **confirm the mapping before acting on it.**
+- Lovable project — **confirmed** 2026-08-29, no longer a guess: workspace
+  "Cal's Lovable" (`ggIVIJ8dhqNxDaOjtFhU`) → **mavisprimevantara** /
+  "Mythos RPG Nexus" (`6ec06b14-9242-48d0-8241-2a2f8a075e7f`,
+  https://mavisprimevantara.lovable.app). Proof: its `latest_commit_sha`
+  tracks merges made from this repo within minutes. The git URL it records,
+  `rork-mythos-nexus-rpg-clone.git`, is stale from a rename — ignore it.
+
+### Edge functions do NOT deploy on publish — this cost a whole session
+
+Confirmed 2026-08-29, the hard way. Merging to `main` and calling Lovable's
+`deploy_project` publishes the **frontend** and nothing else. Every function
+under `supabase/functions/` keeps running whatever code was last explicitly
+deployed. Nothing warns you: the merge succeeds, the publish succeeds,
+`latest_commit_sha` advances to your merge, and the app serves stale
+functions.
+
+Five rounds of correct, CI-green, merged fixes changed nothing in the running
+app because of this. The tell was a probe that should have been run on the
+*second* report of "it's still broken", not the tenth.
+
+**Deploying them.** The Lovable agent has a `supabase--deploy_edge_functions`
+tool. Ask it in plain language and name every function, including new ones:
+
+> Please deploy the Supabase edge functions to the backend. Do not change any
+> code — this is a deployment-only request. Functions: mavis-chat,
+> mavis-actions, ... Deploy them exactly as they are in the repository.
+
+Say "do not change any code" explicitly; the agent will otherwise "fix" what
+it thinks is broken. It reports which functions it deployed.
+
+Other paths do NOT work from a Claude Code session:
+- The Supabase MCP is permission-denied on this project — it is Lovable
+  provisioned and outside Calvin's own org.
+- `*.supabase.co` egress is 403 at the sandbox gateway, so functions cannot
+  be invoked directly either.
+
+**Verify, never assume.** After any edge-function change, prove the deployed
+code is yours before reporting it shipped. The database can reach the
+functions even when the sandbox cannot — `pg_net` plus the same secrets the
+33 existing cron jobs use:
+
+```sql
+SELECT net.http_post(
+  url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='supabase_url')
+         || '/functions/v1/<function>',
+  headers := jsonb_build_object('Content-Type','application/json',
+    'Authorization','Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets
+                                  WHERE name='service_role_key')),
+  body := '{}'::jsonb, timeout_milliseconds := 60000);
+-- then, a few seconds later:
+SELECT status_code, content FROM net._http_response WHERE id = <returned id>;
+```
+
+Probe something that only exists in the new code. A new action type returning
+"Unknown MAVIS action" or a new function returning 404 NOT_FOUND means it did
+not deploy, whatever the merge and publish said.
 
 ## What's Here
 
