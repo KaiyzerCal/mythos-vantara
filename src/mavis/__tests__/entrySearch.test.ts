@@ -21,6 +21,8 @@ import {
   scoreEntry,
   rankEntries,
   truncationLabel,
+  termOccurs,
+  buildTsQueryAll,
 } from "../../../supabase/functions/_shared/entrySearch.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -110,18 +112,26 @@ describe("scoreEntry / rankEntries", () => {
     expect(scoreEntry({ title: "anything", content: "anything" }, [])).toBe(0);
   });
 
-  it("drops non-matches instead of padding the list", () => {
-    // Returning unrelated entries would recreate the original bug: the model
-    // treating whatever it was handed as the answer.
+  it("sorts a weak match last instead of deleting it", () => {
+    // This deliberately reverses an earlier contract, and the reversal is the
+    // fix for the bug Calvin hit. Dropping score-0 rows sounds safe, but
+    // every row reaching here was matched by a tsquery under the english
+    // config — which stems, while scoreEntry compares text. So rows Postgres
+    // had correctly matched scored 0 and were deleted: the search found the
+    // entry and threw it away before the prompt ever saw it.
+    //
+    // Relevance is still enforced, just not here: only rows the database
+    // matched are ever passed in, and the caller's limit decides how many
+    // survive. Ranking orders them; it does not get a veto over the index.
     const ranked = rankEntries(
       [
-        { id: "a", title: "Launch plan", content: "" },
-        { id: "b", title: "Grocery list", content: "milk" },
+        { id: "weak", title: "Grocery list", content: "milk" },
+        { id: "strong", title: "Launch plan", content: "" },
       ],
       terms,
       10,
     );
-    expect(ranked.map((r) => r.id)).toEqual(["a"]);
+    expect(ranked.map((r) => r.id)).toEqual(["strong", "weak"]);
   });
 
   it("deduplicates by id, since title and content are queried separately", () => {
@@ -144,6 +154,41 @@ describe("scoreEntry / rankEntries", () => {
   it("respects the limit", () => {
     const rows = Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, title: "launch plan", content: "" }));
     expect(rankEntries(rows, terms, 6)).toHaveLength(6);
+  });
+});
+
+describe("termOccurs", () => {
+  it("matches across the stemming Postgres already did", () => {
+    // The live default_text_search_config is pg_catalog.english, so a query
+    // for "squats" matches an entry that only ever says "Squat". Scoring has
+    // to agree with that or it discards the row the operator asked about.
+    expect(termOccurs("squats", "bioneer 3d squat mechanics")).toBe(true);
+    expect(termOccurs("policies", "umbrella insurance policy")).toBe(true);
+    expect(termOccurs("squat", "bioneer 3d squats")).toBe(true);
+  });
+
+  it("does not match on a prefix too short to mean anything", () => {
+    // Trimming without a floor would make "running" match "rug" via "ru".
+    expect(termOccurs("running", "rug")).toBe(false);
+    expect(termOccurs("plan", "pliers")).toBe(false);
+  });
+
+  it("is still a plain containment test for exact words", () => {
+    expect(termOccurs("launch", "the launch plan")).toBe(true);
+    expect(termOccurs("launch", "grocery list")).toBe(false);
+  });
+});
+
+describe("buildTsQueryAll", () => {
+  it("ANDs the terms, as the sharpest ranking signal available", () => {
+    // Measured on the live vault: ORed, "content production fitness videos"
+    // matches 41 entries; ANDed it matches 1 — the one being asked about.
+    expect(buildTsQueryAll("content production fitness videos"))
+      .toBe("content production fitness videos");
+  });
+
+  it("is empty when there is nothing to search for", () => {
+    expect(buildTsQueryAll("what about it?")).toBe("");
   });
 });
 

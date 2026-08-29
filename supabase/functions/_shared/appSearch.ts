@@ -24,7 +24,13 @@
 // inconsistent (title vs name vs objective; content vs description vs notes
 // vs summary) and a wrong name is a silent empty result, not an error.
 
-import { buildTsQuery, extractTerms, rankEntries } from "./entrySearch.ts";
+import {
+  buildTsQuery,
+  buildTsQueryAll,
+  extractTerms,
+  rankEntries,
+  termOccurs,
+} from "./entrySearch.ts";
 
 export interface SearchableTable {
   /** Scope name the model uses, and the label shown on a hit. */
@@ -107,69 +113,179 @@ export interface AppSearchHit {
 }
 
 /**
- * The supabase client, as much of it as this needs:
- *   sb.from(table).select(cols).eq(col, val).textSearch(col, q, opts).limit(n)
+ * The supabase client, as much of it as this needs.
  *
- * Typed loosely on purpose. A hand-written interface spelling that chain out
- * was the honest version and it did not survive contact with the real client:
- * PostgREST's builders are deeply generic and self-referential, so structural
- * checking against them made the compiler unfold types until it gave up
- * (TS2589 "type instantiation is excessively deep"), and the client failed to
- * match the interface anyway (TS2345). Callers pass clients typed three
- * different ways — `any` in mavis-actions, a full SupabaseClient in mavis-chat
- * — and none of them should need a cast at the call site to use a search.
+ * Typed loosely on purpose. A hand-written interface spelling the builder
+ * chain out was the honest version and it did not survive contact with the
+ * real client: PostgREST's builders are deeply generic and self-referential,
+ * so structural checking against them made the compiler unfold types until it
+ * gave up (TS2589 "type instantiation is excessively deep"), and the client
+ * failed to match the interface anyway (TS2345). Callers pass clients typed
+ * different ways — `any` in mavis-actions, a full SupabaseClient in
+ * mavis-chat — and none should need a cast at the call site to run a search.
  */
 // deno-lint-ignore no-explicit-any
 type QueryClient = { from(table: string): any };
 
+/** Columns worth having before a row is known to be worth fetching. */
+function selectForCandidates(t: SearchableTable): string {
+  const cols = ["id", t.titleCol];
+  if (t.extraCols?.length) cols.push(t.extraCols[0]);
+  if (t.hasCreatedAt) cols.push("created_at");
+  return [...new Set(cols)].join(",");
+}
+
+/** A row the database matched, before its body has been fetched. */
+interface Candidate {
+  t: SearchableTable;
+  id: string;
+  title: string;
+  category?: string;
+  created_at?: string;
+  /** The query terms hit the title. The strongest signal available here. */
+  titleHits: number;
+  /** The body matched the ORed terms — relevant, but weakly. */
+  bodyHit: boolean;
+  /** Every term matched at once. Almost always the row being asked about. */
+  allHit: boolean;
+}
+
+const SCORE_TITLE_TERM = 3;
+const SCORE_ALL_TERMS = 5;
+const SCORE_BODY = 1;
+
+function scoreCandidate(c: Candidate): number {
+  return c.titleHits * SCORE_TITLE_TERM +
+    (c.allHit ? SCORE_ALL_TERMS : 0) +
+    (c.bodyHit ? SCORE_BODY : 0);
+}
+
 /**
  * Full-text search across the operator's own rows.
  *
- * Two queries per table (title and body) because PostgREST's .textSearch()
- * targets one column, and building an .or() filter string from user text
- * would mean hand-escaping PostgREST's filter grammar. Two safe queries beat
- * one clever one.
+ * Two phases, and the split is what makes complete coverage affordable.
+ *
+ * Phase 1 asks which rows match and selects only id, title and a date — the
+ * body column is searched but never returned. One vault entry averages 3.7 KB
+ * and reaches 28 KB, so fetching bodies just to rank them costs most of a
+ * megabyte on every message to produce 300-character excerpts. Without the
+ * body in the payload the cap can be high enough to take every match there
+ * is, which removes the arbitrary truncation that used to decide the answer:
+ * the old code took whatever twenty rows Postgres happened to return, out of
+ * forty-one matches, with no ORDER BY.
+ *
+ * Phase 2 fetches whole rows for the handful that survived ranking.
+ *
+ * Two queries per table for retrieval (title and body) because PostgREST's
+ * .textSearch() targets one column, and building an .or() filter from user
+ * text would mean hand-escaping PostgREST's filter grammar. A third asks
+ * which rows match every term at once, which is the sharpest ranking signal
+ * available without ts_rank (unreachable through PostgREST).
  *
  * A failure on one table never fails the search — a missing column or a
- * permissions edge on some obscure table should cost that table's results,
- * not the answer.
+ * permissions edge on some obscure table costs that table's results, not the
+ * answer.
  */
 export async function searchAppData(
   sb: QueryClient,
   userId: string,
   query: string,
-  opts: { scope?: string | null; limit?: number; perTable?: number } = {},
+  opts: { scope?: string | null; limit?: number; candidateCap?: number } = {},
 ): Promise<AppSearchHit[]> {
   const terms = extractTerms(query);
-  const tsQuery = buildTsQuery(query);
-  if (!tsQuery) return [];
+  const orQuery = buildTsQuery(query);
+  if (!orQuery) return [];
+  const andQuery = buildTsQueryAll(query);
 
   const tables = resolveScope(opts.scope);
-  const perTable = opts.perTable ?? 20;
+  const limit = opts.limit ?? 8;
+  // High enough to cover every row of every table at present sizes, so
+  // truncation is not what decides whether the operator's entry is seen.
+  const candidateCap = opts.candidateCap ?? 200;
 
-  const runs: Promise<{ t: SearchableTable; rows: Record<string, unknown>[] }>[] = [];
+  type Probe = { t: SearchableTable; kind: "title" | "body" | "all"; rows: Record<string, unknown>[] };
+
+  const probes: Promise<Probe>[] = [];
   for (const t of tables) {
-    const cols = selectFor(t);
-    const columnsToSearch = t.bodyCol ? [t.titleCol, t.bodyCol] : [t.titleCol];
-    for (const col of columnsToSearch) {
-      runs.push(
-        Promise.resolve(
-          sb.from(t.table).select(cols).eq("user_id", userId)
-            .textSearch(col, tsQuery, { type: "websearch" }).limit(perTable),
-        )
-          .then((r) => ({ t, rows: ((r as { data?: unknown[] }).data ?? []) as Record<string, unknown>[] }))
-          .catch(() => ({ t, rows: [] as Record<string, unknown>[] })),
+    const cols = selectForCandidates(t);
+    const run = (kind: "title" | "body" | "all", col: string, q: string) => {
+      let builder = sb.from(t.table).select(cols).eq("user_id", userId)
+        .textSearch(col, q, { type: "websearch" });
+      // Deterministic, so a cap that is ever reached cuts the oldest rather
+      // than whatever the planner happened to emit.
+      if (t.hasCreatedAt) builder = builder.order("created_at", { ascending: false });
+      probes.push(
+        Promise.resolve(builder.limit(candidateCap))
+          .then((r: { data?: unknown[] }) => ({
+            t, kind, rows: (r.data ?? []) as Record<string, unknown>[],
+          }))
+          .catch(() => ({ t, kind, rows: [] as Record<string, unknown>[] })),
       );
+    };
+    run("title", t.titleCol, orQuery);
+    if (t.bodyCol) {
+      run("body", t.bodyCol, orQuery);
+      // Only worth asking when there is more than one term to require.
+      if (terms.length > 1) run("all", t.bodyCol, andQuery);
     }
   }
 
-  const settled = await Promise.all(runs);
+  const settled = await Promise.all(probes);
 
-  // Normalise to the shape rankEntries scores, keeping the source table so a
-  // hit can say where it came from.
-  const normalised = settled.flatMap(({ t, rows }) =>
+  const byKey = new Map<string, Candidate>();
+  for (const { t, kind, rows } of settled) {
+    for (const row of rows) {
+      // kind+id, not id: two tables can legitimately hold the same id value.
+      const key = `${t.key}:${String(row.id ?? "")}`;
+      let c = byKey.get(key);
+      if (!c) {
+        const title = String(row[t.titleCol] ?? "") || "(untitled)";
+        c = {
+          t,
+          id: String(row.id ?? ""),
+          title,
+          category: t.extraCols?.length ? String(row[t.extraCols[0]] ?? "") || undefined : undefined,
+          created_at: t.hasCreatedAt ? String(row.created_at ?? "") || undefined : undefined,
+          titleHits: terms.filter((term) => termOccurs(term, title.toLowerCase())).length,
+          bodyHit: false,
+          allHit: false,
+        };
+        byKey.set(key, c);
+      }
+      if (kind === "body") c.bodyHit = true;
+      if (kind === "all") c.allHit = true;
+    }
+  }
+
+  const shortlist = [...byKey.values()]
+    .sort((a, b) => {
+      const d = scoreCandidate(b) - scoreCandidate(a);
+      if (d !== 0) return d;
+      return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+    })
+    .slice(0, Math.max(0, limit));
+
+  if (shortlist.length === 0) return [];
+
+  // Phase 2 — whole rows, only for what survived.
+  const wanted = new Map<string, { t: SearchableTable; ids: string[] }>();
+  for (const c of shortlist) {
+    const e = wanted.get(c.t.key) ?? { t: c.t, ids: [] };
+    e.ids.push(c.id);
+    wanted.set(c.t.key, e);
+  }
+
+  const fetched = await Promise.all(
+    [...wanted.values()].map(({ t, ids }) =>
+      Promise.resolve(sb.from(t.table).select(selectFor(t)).eq("user_id", userId).in("id", ids))
+        .then((r: { data?: unknown[] }) => ({ t, rows: (r.data ?? []) as Record<string, unknown>[] }))
+        .catch(() => ({ t, rows: [] as Record<string, unknown>[] })),
+    ),
+  );
+
+  const full = fetched.flatMap(({ t, rows }) =>
     rows.map((row) => ({
-      id: String(row.id ?? ""),
+      id: `${t.key}:${String(row.id ?? "")}`,
       kind: t.key,
       title: String(row[t.titleCol] ?? "") || "(untitled)",
       content: t.bodyCol ? String(row[t.bodyCol] ?? "") : "",
@@ -178,15 +294,8 @@ export async function searchAppData(
     })),
   );
 
-  // Dedupe across tables by kind+id — the same row arrives from the title and
-  // body queries, and two tables can legitimately share an id value.
-  const ranked = rankEntries(
-    normalised.map((n) => ({ ...n, id: `${n.kind}:${n.id}` })),
-    terms,
-    opts.limit ?? 8,
-  );
-
-  return ranked.map((r) => ({
+  // Final order is body-aware now that the bodies are actually here.
+  return rankEntries(full, terms, limit).map((r) => ({
     kind: r.kind,
     id: String(r.id).slice(String(r.kind).length + 1),
     title: r.title,

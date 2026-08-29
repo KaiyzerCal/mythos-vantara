@@ -118,24 +118,60 @@ describe("resolveScope", () => {
 });
 
 describe("searchAppData", () => {
-  /** Minimal stub of the query-builder chain the helper uses. */
-  function clientFor(rowsByTable: Record<string, Record<string, unknown>[]>, failing: string[] = []) {
-    const calls: Array<{ table: string; col: string }> = [];
+  /**
+   * A stand-in for the database that stems the way Postgres does.
+   *
+   * That detail is the whole point. The live config is pg_catalog.english, so
+   * a tsquery for "squats" matches a row whose text only ever says "squat". A
+   * stub that matched on raw substrings would agree with the old broken
+   * scorer and every test here would pass while the feature stayed broken.
+   */
+  function fakeDb(rowsByTable: Record<string, Record<string, unknown>[]>, failing: string[] = []) {
+    const probes: Array<{ table: string; col: string; q: string; cols: string; ordered: boolean; limit: number }> = [];
+    const fetches: Array<{ table: string; cols: string; ids: string[] }> = [];
+
+    const stemHit = (text: string, term: string) =>
+      text.includes(term) || (term.length > 4 && text.includes(term.replace(/s$/, "")));
+
+    const matches = (text: string, q: string) => {
+      const t = String(text ?? "").toLowerCase();
+      return q.includes(" OR ")
+        ? q.split(" OR ").some((term) => stemHit(t, term))
+        : q.split(" ").every((term) => stemHit(t, term));
+    };
+
     const client = {
       from(table: string) {
+        const rows = () => rowsByTable[table] ?? [];
+        const reject = () => failing.includes(table);
         return {
-          select() {
+          select(cols: string) {
             return {
               eq() {
+                const search = (col: string, q: string) => {
+                  const node = {
+                    order: () => ({ ...node, _ordered: true, limit: (n: number) => finish(col, q, n, true) }),
+                    limit: (n: number) => finish(col, q, n, false),
+                  };
+                  return node;
+                };
+                const finish = (col: string, q: string, n: number, ordered: boolean) => {
+                  probes.push({ table, col, q, cols, ordered, limit: n });
+                  if (reject()) return Promise.reject(new Error("boom"));
+                  return Promise.resolve({
+                    data: rows().filter((r) => matches(String(r[col] ?? ""), q)).slice(0, n),
+                    error: null,
+                  });
+                };
                 return {
-                  textSearch(col: string) {
-                    calls.push({ table, col });
-                    return {
-                      limit() {
-                        if (failing.includes(table)) return Promise.reject(new Error("boom"));
-                        return Promise.resolve({ data: rowsByTable[table] ?? [], error: null });
-                      },
-                    };
+                  textSearch: search,
+                  in(_col: string, ids: string[]) {
+                    fetches.push({ table, cols, ids });
+                    if (reject()) return Promise.reject(new Error("boom"));
+                    return Promise.resolve({
+                      data: rows().filter((r) => ids.includes(String(r.id))),
+                      error: null,
+                    });
                   },
                 };
               },
@@ -144,37 +180,123 @@ describe("searchAppData", () => {
         };
       },
     };
-    return { client: client as never, calls };
+    return { client: client as never, probes, fetches };
   }
 
+  const SQUAT = {
+    id: "v1",
+    title: "Bioneer 3D Squat Mechanics",
+    content: "pilot production script",
+    category: "business",
+    created_at: "2026-08-14T00:00:00Z",
+  };
+
   it("returns nothing when the message has no searchable terms", async () => {
-    const { client, calls } = clientFor({});
+    const { client, probes } = fakeDb({});
     expect(await searchAppData(client, "u1", "what about it?")).toEqual([]);
-    // And must not have queried at all — a match-everything search would pass
-    // the newest rows off as hits.
-    expect(calls).toHaveLength(0);
+    // And must not query at all — a match-everything search would pass the
+    // newest rows off as hits.
+    expect(probes).toHaveLength(0);
   });
 
-  it("searches title and body of each table in scope", async () => {
-    const { client, calls } = clientFor({});
+  it("keeps an entry Postgres matched by stemming", async () => {
+    // The reported bug, reduced. Asking about "squats" matches an entry that
+    // only says "Squat"; the old scorer tested `title.includes("squats")`,
+    // scored it 0 and dropped it — so the search found the entry and threw it
+    // away, and the persona said it could not see it. On the live vault one
+    // such query matched 19 entries and kept 2.
+    const { client } = fakeDb({ vault_entries: [SQUAT] });
+    const hits = await searchAppData(client, "u1", "squats", { scope: "vault" });
+    expect(hits.map((h) => h.title)).toEqual(["Bioneer 3D Squat Mechanics"]);
+  });
+
+  it("never drops a matched row for scoring badly", async () => {
+    // Ranking is allowed to sort a weak match last. It is not allowed to
+    // delete it: the database already ruled on relevance, and it stems while
+    // the scorer does not, so the scorer is the less reliable judge.
+    const odd = { id: "v9", title: "Untitled", content: "policies and coverage", created_at: "2026-01-01T00:00:00Z" };
+    const { client } = fakeDb({ vault_entries: [odd] });
+    const hits = await searchAppData(client, "u1", "policies", { scope: "vault" });
+    expect(hits).toHaveLength(1);
+    expect(hits[0].id).toBe("v9");
+  });
+
+  it("never asks for the body column while ranking", async () => {
+    // Phase 1 searches the body but must not select it. A vault entry
+    // averages 3.7 KB and reaches 28 KB on the live data, so selecting bodies
+    // to rank them costs most of a megabyte per message to produce
+    // 300-character excerpts.
+    const { client, probes } = fakeDb({ vault_entries: [SQUAT] });
+    await searchAppData(client, "u1", "squat mechanics", { scope: "vault" });
+    expect(probes.length).toBeGreaterThan(0);
+    for (const p of probes) {
+      expect(p.cols.split(","), `phase 1 selected the body in ${p.table}`).not.toContain("content");
+    }
+  });
+
+  it("fetches whole rows only for what survived ranking", async () => {
+    const rows = Array.from({ length: 40 }, (_, i) => ({
+      id: `v${i}`, title: "launch plan", content: "x", created_at: `2026-08-${String(i % 28 + 1).padStart(2, "0")}T00:00:00Z`,
+    }));
+    const { client, fetches } = fakeDb({ vault_entries: rows });
+    const hits = await searchAppData(client, "u1", "launch plan", { scope: "vault", limit: 5 });
+    expect(hits).toHaveLength(5);
+    expect(fetches).toHaveLength(1);
+    expect(fetches[0].ids).toHaveLength(5);
+    expect(fetches[0].cols.split(",")).toContain("content");
+  });
+
+  it("takes every candidate rather than an arbitrary slice", async () => {
+    // The old code took whatever 20 rows came back, unordered, out of 41
+    // matches on the live vault — so which entries the model could see was
+    // decided by the query planner.
+    const { client, probes } = fakeDb({ vault_entries: [SQUAT] });
+    await searchAppData(client, "u1", "squat mechanics", { scope: "vault" });
+    for (const p of probes) {
+      expect(p.limit, "candidate cap must cover the whole table").toBeGreaterThanOrEqual(200);
+      expect(p.ordered, "a cap that can bite must cut deterministically").toBe(true);
+    }
+  });
+
+  it("lets the all-terms match win the last shortlist slot", async () => {
+    // Isolates the all-terms signal: neither row matches in its title, both
+    // match the ORed query in the body, and the loser is the more recent —
+    // so with the signal removed, recency takes the slot and the row that
+    // actually answers the question never gets fetched. An earlier version
+    // of this test set it up so the title score decided the order, which
+    // meant it passed with the signal deleted.
+    const both = { id: "both", title: "Notes", content: "fitness video production", created_at: "2026-01-01T00:00:00Z" };
+    const one = { id: "one", title: "Other notes", content: "production", created_at: "2026-08-01T00:00:00Z" };
+    const { client } = fakeDb({ vault_entries: [both, one] });
+    const hits = await searchAppData(client, "u1", "fitness video production", { scope: "vault", limit: 1 });
+    expect(hits.map((h) => h.id)).toEqual(["both"]);
+  });
+
+  it("searches title and body, and asks which rows match every term", async () => {
+    const { client, probes } = fakeDb({});
     await searchAppData(client, "u1", "launch plan", { scope: "vault" });
-    expect(calls).toEqual([
-      { table: "vault_entries", col: "title" },
-      { table: "vault_entries", col: "content" },
+    expect(probes.map((p) => `${p.col}:${p.q}`)).toEqual([
+      "title:launch OR plan",
+      "content:launch OR plan",
+      "content:launch plan",
     ]);
   });
 
+  it("skips the all-terms probe when there is only one term", async () => {
+    const { client, probes } = fakeDb({});
+    await searchAppData(client, "u1", "launch", { scope: "vault" });
+    expect(probes.map((p) => p.col)).toEqual(["title", "content"]);
+  });
+
   it("searches only the title when a table has no body column", async () => {
-    const { client, calls } = clientFor({});
+    const { client, probes } = fakeDb({});
     await searchAppData(client, "u1", "ship the thing", { scope: "goals" });
-    expect(calls).toEqual([{ table: "mavis_goals", col: "objective" }]);
+    expect(probes.map((p) => `${p.table}.${p.col}`)).toEqual(["mavis_goals.objective"]);
   });
 
   it("tags each hit with the table it came from", async () => {
-    const { client } = clientFor({
-      vault_entries: [{ id: "v1", title: "Launch plan", content: "the launch plan", category: "business" }],
-    });
-    const hits = await searchAppData(client, "u1", "launch plan", { scope: "vault" });
+    const { client } = fakeDb({ vault_entries: [SQUAT] });
+    const hits = await searchAppData(client, "u1", "squat", { scope: "vault" });
     expect(hits).toHaveLength(1);
     expect(hits[0].kind).toBe("vault");
     expect(hits[0].id).toBe("v1");
@@ -182,9 +304,9 @@ describe("searchAppData", () => {
   });
 
   it("keeps ids distinct across tables that share an id value", async () => {
-    // Two tables can legitimately hold the same id; collapsing them would drop
-    // a real result.
-    const { client } = clientFor({
+    // Two tables can legitimately hold the same id; collapsing them drops a
+    // real result.
+    const { client } = fakeDb({
       vault_entries: [{ id: "same", title: "Launch plan", content: "" }],
       journal_entries: [{ id: "same", title: "Launch plan", content: "" }],
     });
@@ -197,7 +319,7 @@ describe("searchAppData", () => {
   it("survives one table failing", async () => {
     // A missing column or a permissions edge on one obscure table must cost
     // that table's results, not the whole answer.
-    const { client } = clientFor(
+    const { client } = fakeDb(
       { vault_entries: [{ id: "v1", title: "Launch plan", content: "" }] },
       ["journal_entries"],
     );
@@ -207,7 +329,7 @@ describe("searchAppData", () => {
 
   it("respects the result limit", async () => {
     const rows = Array.from({ length: 30 }, (_, i) => ({ id: `v${i}`, title: "launch plan", content: "" }));
-    const { client } = clientFor({ vault_entries: rows });
+    const { client } = fakeDb({ vault_entries: rows });
     expect(await searchAppData(client, "u1", "launch plan", { scope: "vault", limit: 4 })).toHaveLength(4);
   });
 });
