@@ -1577,16 +1577,15 @@ ${telosData
 
     // Council mode still skips agentConfigBlock (MAVIS's own personality/voice
     // "constitution" — wrong to inject into a different council member's voice)
-    // and skillInjection (action-triggering custom skills; council members
-    // advise, they don't execute). Everything else below is operator data/
-    // context that a council advisor genuinely needs to give real advice.
+    // and skillInjection (custom skills are MAVIS's own trigger set).
+    // Everything else below is operator data/context that a council advisor
+    // genuinely needs to give real advice.
     // Pull whatever in the operator's own data matches what they just said,
-    // and put it in the prompt. This is the only mechanism that reaches all
-    // three surfaces: MAVIS has tools and could search on its own, but a
-    // COUNCIL member cannot — the native tool pre-pass below is gated on
-    // (!isCouncilMode || !!personaId), which is false for a council member,
-    // so a tool would never fire for them. Retrieval into the prompt works
-    // regardless of whether the surface can call anything.
+    // and put it in the prompt. Every surface gets this, and it is the only
+    // thing that reaches one with no way to ask for more — a persona reply is
+    // single-turn, so a tool it calls lands after the answer is already
+    // written. Retrieval works regardless of whether the surface can call
+    // anything, which is why it is not gated on mode.
     //
     // Bounded on purpose: the automatic scope is the six tables that hold
     // prose the operator actually writes, not all seventeen. Started up in
@@ -1665,8 +1664,13 @@ ${telosData
     // reference executed actions in its live response rather than after-the-fact.
     // Falls back gracefully — if this returns nothing, fullPromptFinal === fullPrompt.
     let fullPromptFinal = fullPrompt;
-    // In persona mode always run the pre-pass — persona chats need A2A even when intent isn't explicit
-    if ((!isCouncilMode || !!personaId) && (!!personaId || hasActionIntent(lastUserText)) && (geminiKey || claudeKey)) {
+    // In persona mode always run the pre-pass — persona chats need A2A even when intent isn't explicit.
+    // Council members are in it too. They used to be excluded here, which left
+    // them proposal-only: they could suggest a change into the approval queue
+    // but never look anything up or carry one out. Calvin asked for them to be
+    // at parity with MAVIS and personas, so the gate is now the same intent
+    // test everyone else gets rather than a blanket exclusion by mode.
+    if ((!!personaId || hasActionIntent(lastUserText)) && (geminiKey || claudeKey)) {
       try {
         // A real deep_research pass (multi-angle search + synthesis) routinely runs past
         // the default 12s tool-call budget — give it more room when the message looks

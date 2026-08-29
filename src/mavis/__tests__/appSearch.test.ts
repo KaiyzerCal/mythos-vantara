@@ -7,8 +7,9 @@
 //   MAVIS     multi-turn with tools — a tool works.
 //   personas  mavis-persona-router is single-turn; actions run AFTER the reply,
 //             so a tool it calls can never inform the answer being given.
-//   council   routed through mavis-chat but excluded from the tool path by
-//             (!isCouncilMode || !!personaId) — a tool would never fire at all.
+//   council   routed through mavis-chat. Was excluded from the tool path, so
+//             retrieval was the only thing that reached it; council members
+//             now run the pre-pass on the same terms as everyone else.
 //
 // So retrieval into the prompt is the mechanism that reaches all three, and
 // the tool is the extra for surfaces that can loop.
@@ -45,8 +46,19 @@ describe("the registry", () => {
     // These are where prose the operator writes actually lives. Losing one
     // silently narrows what every surface can reference on every turn.
     expect(auto).toEqual(
-      expect.arrayContaining(["journal", "vault", "meeting_notes", "quests", "tasks", "goals"]),
+      expect.arrayContaining(["journal", "vault", "meeting_notes", "quests", "goals"]),
     );
+  });
+
+  it("does not automatically search the legacy tasks table", () => {
+    // There is no /tasks route, and buildSystemPrompt tells every agent "there
+    // is no tasks system... create_task/update_task/delete_task are DISABLED".
+    // Injecting those rows on every message had agents able to cite records
+    // from a page the app does not have. Still reachable by explicit search —
+    // the rows are real operator data — just not by default.
+    const tasks = SEARCHABLE.find((t) => t.key === "tasks")!;
+    expect(tasks, "tasks must stay searchable on request").toBeTruthy();
+    expect(tasks.auto, "tasks is legacy; it must not be searched by default").toBeFalsy();
   });
 
   it("keeps the automatic scope bounded", () => {
@@ -356,6 +368,40 @@ describe("formatSearchBlock", () => {
 
   it("adds nothing at all when there was no query to run", () => {
     expect(formatSearchBlock([], false)).toBe("");
+  });
+});
+
+describe("council members can act, not only advise", () => {
+  const COUNCIL = read("src/mavis/councilPersona.ts");
+
+  it("is told it can search, and told not to give up without searching", () => {
+    // Its CONTEXT block is a snapshot. Without this it answers "I don't see
+    // that entry" from the snapshot alone — the original complaint.
+    expect(COUNCIL).toMatch(/search_app/);
+    expect(COUNCIL).toMatch(/search_journal/);
+    expect(COUNCIL).toMatch(/search_vault/);
+    expect(COUNCIL, "nothing tells it to search before denying")
+      .toMatch(/Never claim an entry does not exist without having searched/);
+  });
+
+  it("is given the executing syntax, not only the proposal syntax", () => {
+    // PROPOSE_ACTION queues a suggestion for approval; ACTION runs. Council
+    // used to be given only the former, which is why it could never actually
+    // create, update or delete anything.
+    expect(COUNCIL).toMatch(/:::ACTION\{/);
+    expect(COUNCIL).toMatch(/DIRECT ACTIONS — YOU HAVE FULL AUTHORITY/);
+    // And the proposal path stays, for genuinely speculative suggestions.
+    expect(COUNCIL).toMatch(/:::PROPOSE_ACTION\{/);
+  });
+
+  it("mavis-chat no longer excludes council from the tool pre-pass", () => {
+    // The council tab posts to mavis-chat with mode COUNCIL. While the
+    // pre-pass was gated on (!isCouncilMode || !!personaId) a council member
+    // could never reach a tool at all.
+    const idx = CHAT.indexOf("hasActionIntent(lastUserText)) && (geminiKey || claudeKey)");
+    expect(idx, "the pre-pass gate moved — re-check this").toBeGreaterThan(-1);
+    const gate = CHAT.slice(CHAT.lastIndexOf("if (", idx), idx + 60);
+    expect(gate, "council is excluded from tools again").not.toMatch(/isCouncilMode/);
   });
 });
 

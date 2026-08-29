@@ -10,10 +10,10 @@
 //             after the model has already replied, so a tool it calls can
 //             never inform the answer it is giving. Anything the reply depends
 //             on must be in the prompt before the LLM runs.
-//   council   routes through mavis-chat but is excluded from the tool path
-//             entirely — the native pre-pass is gated on
-//             (!isCouncilMode || !!personaId), which is false for a council
-//             member. A tool alone would never have reached them.
+//   council   routes through mavis-chat. It used to be excluded from the tool
+//             path entirely, so retrieval was the only thing that reached it;
+//             council members are now in the pre-pass on the same terms as
+//             everyone else, and retrieval still runs for them regardless.
 //
 // So the mechanism that actually serves all three is retrieval into the
 // prompt, not a tool. The tool is the extra that multi-turn surfaces can use
@@ -57,7 +57,12 @@ export const SEARCHABLE: SearchableTable[] = [
   { key: "vault",         table: "vault_entries",   titleCol: "title",     bodyCol: "content",     extraCols: ["category", "importance"], hasCreatedAt: true, auto: true },
   { key: "meeting_notes", table: "meeting_notes",   titleCol: "title",     bodyCol: "summary",                                            hasCreatedAt: true, auto: true },
   { key: "quests",        table: "quests",          titleCol: "title",     bodyCol: "description", extraCols: ["category"],               hasCreatedAt: true, auto: true },
-  { key: "tasks",         table: "tasks",           titleCol: "title",     bodyCol: "description",                                        hasCreatedAt: true, auto: true },
+  // NOT auto, deliberately. There is no /tasks route and buildSystemPrompt
+  // tells every agent "there is no tasks system... create_task/update_task/
+  // delete_task are DISABLED". The rows are real operator data so they stay
+  // reachable by an explicit search, but injecting them on every message
+  // would have agents citing records from a page the app does not have.
+  { key: "tasks",         table: "tasks",           titleCol: "title",     bodyCol: "description",                                        hasCreatedAt: true },
   { key: "goals",         table: "mavis_goals",     titleCol: "objective",                                                                hasCreatedAt: true, auto: true },
 
   // Reachable by explicit search. Not automatic: these are mostly short
