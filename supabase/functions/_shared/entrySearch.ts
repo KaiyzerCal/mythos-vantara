@@ -83,6 +83,52 @@ export function buildTsQuery(text: string): string {
   return extractTerms(text).join(" OR ");
 }
 
+/**
+ * The same terms ANDed rather than ORed.
+ *
+ * A row matching every term is almost always the row being asked about: on
+ * the live data, "content production fitness videos" ORed matches 41 vault
+ * entries and ANDed matches exactly 1. Too strict to retrieve with — one
+ * filler word the entry happens not to contain and it matches nothing — so
+ * it is used as a ranking signal alongside the OR query, not instead of it.
+ */
+export function buildTsQueryAll(text: string): string {
+  return extractTerms(text).join(" ");
+}
+
+/** Longest suffix termOccurs will strip looking for a stem. */
+const MAX_SUFFIX_TRIM = 3;
+/** Below this many characters a prefix stops discriminating. */
+const MIN_STEM_LENGTH = 4;
+
+/**
+ * Whether `term` occurs in `text`, allowing for the stemming Postgres has
+ * already done.
+ *
+ * This is the fix for a bug that made the whole search look broken. The rows
+ * being scored here came back from a tsquery under the english config, which
+ * stems: asking about "squats" matches an entry that only ever says "squat".
+ * A raw `text.includes(term)` then says no, the entry scored 0, and it was
+ * dropped — so the search found the entry and threw it away, and the model
+ * said it could not see it. Measured against the live vault: one query
+ * matched 19 entries and the raw-substring scorer kept 2.
+ *
+ * Trying the term's shorter prefixes recovers the ordinary English cases
+ * (plurals, -ed, -ing) without reimplementing Postgres's stemmer, which we
+ * would only get subtly wrong. It is a ranking aid, not a gate — nothing is
+ * dropped for failing it.
+ */
+export function termOccurs(term: string, text: string): boolean {
+  if (!term || !text) return false;
+  if (text.includes(term)) return true;
+  for (let trim = 1; trim <= MAX_SUFFIX_TRIM; trim++) {
+    const stem = term.slice(0, term.length - trim);
+    if (stem.length < MIN_STEM_LENGTH) break;
+    if (text.includes(stem)) return true;
+  }
+  return false;
+}
+
 export interface SearchableEntry {
   id?: string;
   title?: string | null;
@@ -108,14 +154,22 @@ export function scoreEntry(entry: SearchableEntry, terms: readonly string[]): nu
 
   let score = 0;
   for (const term of terms) {
-    if (title.includes(term)) score += 3;
-    else if (body.includes(term)) score += 1;
+    if (termOccurs(term, title)) score += 3;
+    else if (termOccurs(term, body)) score += 1;
   }
   return score;
 }
 
 /**
- * Best entries first, dropping anything that matched nothing.
+ * Best entries first.
+ *
+ * Ranks; it does not filter. Every row handed to this came back from a
+ * tsquery, so the database has already ruled on relevance — and it is the
+ * better judge, because it stems and this does not. Re-deciding here is what
+ * broke the search: rows Postgres had matched scored 0 on a raw substring
+ * test and were discarded, so an entry could be found and then thrown away
+ * before it ever reached the prompt. A weak score now sorts a row last
+ * instead of deleting it.
  *
  * Deduplicates by id: the caller runs one query per searched column, so the
  * same row legitimately arrives more than once.
@@ -133,7 +187,6 @@ export function rankEntries<T extends SearchableEntry>(
 
   return [...byId.values()]
     .map((entry) => ({ entry, score: scoreEntry(entry, terms) }))
-    .filter((row) => row.score > 0)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       // Recency breaks ties so the answer skews to what is current.
