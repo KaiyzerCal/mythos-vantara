@@ -493,6 +493,33 @@ describe("semantic search", () => {
     }
   });
 
+  it("never re-selects rows it can never embed, so the backfill terminates", () => {
+    // 89 of mavis_memory's rows have empty content. An unordered scan returns
+    // them first, so every run spent most of its batch re-reading the same
+    // dead rows — a batch of 100 embedded about 36 — and `remaining` could
+    // not fall below 89, leaving the every-5-minute cron to spin forever on
+    // work it was never able to finish.
+    //
+    // The filter has to be on BOTH queries: on the select so real rows get
+    // picked up, and on the count so `done` can ever become true. Guarding
+    // only the select would fix throughput and still never terminate.
+    const BACKFILL = read("supabase/functions/mavis-embed-backfill/index.ts");
+
+    expect(BACKFILL, "onlyEmbeddable is gone — dead rows are back in the batch")
+      .toMatch(/function onlyEmbeddable\(/);
+
+    const guarded = [...BACKFILL.matchAll(/onlyEmbeddable\(\s*supabase/g)];
+    expect(guarded.length, "both the row select and the remaining-count must be filtered")
+      .toBe(2);
+
+    // Nothing may ask for unembedded rows outside that filter.
+    for (const m of BACKFILL.matchAll(/\.is\("embedding", null\)/g)) {
+      const before = BACKFILL.slice(Math.max(0, (m.index ?? 0) - 400), m.index ?? 0);
+      expect(before, "an `embedding IS NULL` query that bypasses onlyEmbeddable")
+        .toMatch(/onlyEmbeddable\(/);
+    }
+  });
+
   it("does not call the RPC for a scope with nothing embedded", async () => {
     // Only journal and vault carry vectors; asking about contacts would spend
     // a round trip to be told nothing.
