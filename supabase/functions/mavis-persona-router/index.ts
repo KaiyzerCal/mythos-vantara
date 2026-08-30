@@ -372,7 +372,7 @@ Direct types (you have full authority):
 • Goals: create_goal update_goal delete_goal
 • Search anything: search_app {"query":"...","scope":"all"} — journal, vault, meeting notes,
   quests, tasks, goals, skills, contacts, council, allies, transformations, rituals, store,
-  inventory, calendar, expenses, personas, rankings, energy, tower, notebooks, achievements, bpm, time, finance
+  inventory, calendar, expenses, personas, rankings, energy, tower, notebooks, achievements, bpm, time, finance, memory
 
 Reading beyond what is in this prompt: the JOURNAL/VAULT/QUESTS/SKILLS blocks
 below are the most recent few, and RELEVANT RECORDS holds whatever matched this

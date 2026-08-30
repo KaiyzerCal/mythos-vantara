@@ -96,6 +96,16 @@ export const SEARCHABLE: SearchableTable[] = [
   { key: "bpm",          table: "bpm_sessions",      titleCol: "form",         bodyCol: "notes",       extraCols: ["mood"],         hasCreatedAt: true },
   { key: "time",         table: "time_logs",         titleCol: "project",      bodyCol: "description",                              hasCreatedAt: true },
   { key: "finance",      table: "plaid_transactions", titleCol: "name",        bodyCol: "merchant_name", extraCols: ["category"],   hasCreatedAt: true },
+
+  // Conversation history — by row count the largest thing the operator has,
+  // and until now reachable by nothing. Not automatic: 2600+ chat turns would
+  // crowd out authored entries on every message, and a passing remark in an
+  // old conversation is rarely the answer when a journal entry exists. It is
+  // there when asked for, and semantic search reaches it either way.
+  //
+  // titleCol is the content itself: the table has no name column, so the
+  // keyword pass searches the same text it displays.
+  { key: "memory",       table: "mavis_memory",      titleCol: "content",                                                            hasCreatedAt: true },
 ];
 
 export const SEARCHABLE_KEYS = SEARCHABLE.map((t) => t.key);
@@ -397,7 +407,7 @@ async function semanticHits(
     // match_operator_entries and the backfill's table map — a scope named here
     // but absent there returns empty, and one embedded but missing here is
     // simply never searched.
-    const EMBEDDED_SCOPES = ["journal", "vault", "quests", "meeting_notes", "notebooks"];
+    const EMBEDDED_SCOPES = ["journal", "vault", "quests", "meeting_notes", "notebooks", "memory"];
     const ANY_SCOPE = ["all", "everything", "*", "auto", "default"];
     const raw = String(opts.scope ?? "").trim().toLowerCase();
     const rpcScope = EMBEDDED_SCOPES.includes(raw) ? raw : "all";

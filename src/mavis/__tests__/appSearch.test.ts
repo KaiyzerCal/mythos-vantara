@@ -478,6 +478,19 @@ describe("semantic search", () => {
       expect(MIGRATION, `${scope} has no ADD COLUMN in the migration`)
         .toMatch(/ADD COLUMN IF NOT EXISTS embedding vector\(1536\)/);
     }
+
+    // The reverse direction, which this test originally missed: a branch in
+    // the RPC that nothing lists here is a table embedded at real cost and
+    // then never searched. Removing "memory" from EMBEDDED_SCOPES passed
+    // cleanly until this was added, because the loop above only walks what
+    // the list already contains.
+    const fn = MIGRATION.slice(MIGRATION.lastIndexOf("CREATE OR REPLACE FUNCTION public.match_operator_entries"));
+    const covered = [...fn.matchAll(/SELECT '([a-z_]+)'::text/g)].map((m) => m[1]);
+    expect(covered.length, "no branches found — the RPC shape changed").toBeGreaterThan(1);
+    for (const branch of covered) {
+      expect(scopes, `the RPC searches ${branch} but EMBEDDED_SCOPES omits it, so it is embedded and never queried`)
+        .toContain(branch);
+    }
   });
 
   it("does not call the RPC for a scope with nothing embedded", async () => {
