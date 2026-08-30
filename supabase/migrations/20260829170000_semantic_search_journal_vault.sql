@@ -140,3 +140,78 @@ LANGUAGE sql STABLE AS $$
   ORDER BY hits.similarity DESC
   LIMIT greatest(p_count, 0);
 $$;
+
+-- ── Conversation history joins the search ─────────────────────────────────
+-- mavis_memory holds 2633 rows — by count the largest thing the operator has
+-- — and was reachable by nothing. The three memory RPCs
+-- (search_memories_hybrid, search_memories_semantic, match_agent_memory) all
+-- read mavis_agent_memories, never this table, which is easy to miss from
+-- the names alone.
+--
+-- Its column was vector(384), built for a gte-small path that never ran. It
+-- is widened to 1536 so a single query embedding serves every searchable
+-- table; the alternative was a second embedding call at a second width on
+-- every search.
+--
+-- DROP + ADD rather than ALTER TYPE: a type change rewrites the table under
+-- an exclusive lock, while dropping a column and adding a nullable one with
+-- no default are both catalogue-only in PG11+. The 384-wide vectors
+-- discarded here are derived data that nothing read, and the backfill
+-- regenerates them at the new width.
+
+BEGIN;
+SELECT set_config('lock_timeout', '3s', true);
+SELECT set_config('statement_timeout', '60s', true);
+
+ALTER TABLE public.mavis_memory DROP COLUMN IF EXISTS embedding;
+ALTER TABLE public.mavis_memory ADD COLUMN IF NOT EXISTS embedding vector(1536);
+
+COMMIT;
+
+-- Six tables. The memory branch derives a title from the text, prefixed with
+-- the speaker: a hit reading "[user] ..." or "[assistant] ..." tells the
+-- model whose words it is looking at, which matters more here than in the
+-- authored tables where a real title exists.
+CREATE OR REPLACE FUNCTION public.match_operator_entries(
+  p_user_id uuid, p_query vector(1536), p_count int DEFAULT 8, p_scope text DEFAULT 'all'
+)
+RETURNS TABLE (kind text, id uuid, title text, content text,
+               category text, created_at timestamptz, similarity double precision)
+LANGUAGE sql STABLE AS $$
+  SELECT * FROM (
+    SELECT 'journal'::text AS kind, j.id AS id, j.title AS title, j.content AS content,
+           j.category AS category, j.created_at AS created_at,
+           1 - (j.embedding <=> p_query) AS similarity
+    FROM public.journal_entries j
+    WHERE j.user_id = p_user_id AND j.embedding IS NOT NULL AND p_scope IN ('all','journal')
+    UNION ALL
+    SELECT 'vault'::text, v.id, v.title, v.content, v.category, v.created_at,
+           1 - (v.embedding <=> p_query)
+    FROM public.vault_entries v
+    WHERE v.user_id = p_user_id AND v.embedding IS NOT NULL AND p_scope IN ('all','vault')
+    UNION ALL
+    SELECT 'quests'::text, q.id, q.title, q.description, q.category, q.created_at,
+           1 - (q.embedding <=> p_query)
+    FROM public.quests q
+    WHERE q.user_id = p_user_id AND q.embedding IS NOT NULL AND p_scope IN ('all','quests')
+    UNION ALL
+    SELECT 'meeting_notes'::text, m.id, m.title, m.summary, NULL::text, m.created_at,
+           1 - (m.embedding <=> p_query)
+    FROM public.meeting_notes m
+    WHERE m.user_id = p_user_id AND m.embedding IS NOT NULL AND p_scope IN ('all','meeting_notes')
+    UNION ALL
+    SELECT 'notebooks'::text, n.id, n.title, n.description, NULL::text, n.created_at,
+           1 - (n.embedding <=> p_query)
+    FROM public.notebooks n
+    WHERE n.user_id = p_user_id AND n.embedding IS NOT NULL AND p_scope IN ('all','notebooks')
+    UNION ALL
+    SELECT 'memory'::text, mm.id,
+           '[' || coalesce(mm.role, 'msg') || '] ' || left(regexp_replace(mm.content, '\s+', ' ', 'g'), 80),
+           mm.content, NULL::text, mm.created_at,
+           1 - (mm.embedding <=> p_query)
+    FROM public.mavis_memory mm
+    WHERE mm.user_id = p_user_id AND mm.embedding IS NOT NULL AND p_scope IN ('all','memory')
+  ) hits
+  ORDER BY hits.similarity DESC
+  LIMIT greatest(p_count, 0);
+$$;
