@@ -79,6 +79,41 @@ Probe something that only exists in the new code. A new action type returning
 "Unknown MAVIS action" or a new function returning 404 NOT_FOUND means it did
 not deploy, whatever the merge and publish said.
 
+### A batch job's progress is not its throughput
+
+Confirmed 2026-08-30 while draining 2637 mavis_memory rows. The backfill
+selects `WHERE embedding IS NULL ... LIMIT 100` with no ORDER BY. 89 of those
+rows have empty content and can never embed, and an unordered heap scan
+returns them *first* — so every run reported `embedded 36, failed 64` and the
+counter still went down, which looked like slow-but-working progress.
+
+It was not working. Two separate faults hid behind a falling number:
+
+- Most of each batch was spent re-reading the same dead rows.
+- `remaining` could never fall below 89, so `done` was unreachable and the
+  cron would have re-run forever on work it was structurally unable to
+  finish.
+
+**The diagnostic that settled it in one call:** pause every cron, then fire a
+single request with `batch: 10`. It embedded 0 of 10. Zero concurrency rules
+out rate limiting immediately; a deterministic result points at scan order.
+Guessing from the aggregate ratio would not have distinguished the two, and
+"it's probably OpenAI throttling us" was the wrong first instinct.
+
+The rule generalises: **any resumable job whose work queue is a filtered scan
+must exclude the rows it can never complete, in both the select and the
+count.** Filtering only the select fixes throughput and still never
+terminates. In PostgREST, `neq ''` also drops NULLs, because `NULL <> ''` is
+NULL and gets filtered out.
+
+Two habits worth keeping from this:
+
+1. A falling counter is not proof of health. Read the per-run `failed` number,
+   not just `remaining`.
+2. Verify a PostgREST filter against the live REST API before shipping code
+   that depends on its exact syntax — `net.http_get` to `/rest/v1/<table>?...`
+   with the service-role key answers it in one round trip.
+
 ## What's Here
 
 ```
