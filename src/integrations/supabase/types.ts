@@ -421,6 +421,7 @@ export type Database = {
         Row: {
           chat_kind: string
           created_at: string
+          embedding: string | null
           error_message: string | null
           extracted_text: string
           file_name: string
@@ -440,6 +441,7 @@ export type Database = {
         Insert: {
           chat_kind: string
           created_at?: string
+          embedding?: string | null
           error_message?: string | null
           extracted_text?: string
           file_name: string
@@ -459,6 +461,7 @@ export type Database = {
         Update: {
           chat_kind?: string
           created_at?: string
+          embedding?: string | null
           error_message?: string | null
           extracted_text?: string
           file_name?: string
@@ -1959,6 +1962,7 @@ export type Database = {
           brief_type: string
           calendar_preview: string | null
           created_at: string
+          embedding: string | null
           id: string
           raw_data: Json | null
           summary: string | null
@@ -1970,6 +1974,7 @@ export type Database = {
           brief_type?: string
           calendar_preview?: string | null
           created_at?: string
+          embedding?: string | null
           id?: string
           raw_data?: Json | null
           summary?: string | null
@@ -1981,6 +1986,7 @@ export type Database = {
           brief_type?: string
           calendar_preview?: string | null
           created_at?: string
+          embedding?: string | null
           id?: string
           raw_data?: Json | null
           summary?: string | null
@@ -2957,6 +2963,7 @@ export type Database = {
           created_at: string | null
           direction: string
           duration_seconds: number | null
+          embedding: string | null
           ended_at: string | null
           from_number: string | null
           id: string
@@ -2977,6 +2984,7 @@ export type Database = {
           created_at?: string | null
           direction?: string
           duration_seconds?: number | null
+          embedding?: string | null
           ended_at?: string | null
           from_number?: string | null
           id?: string
@@ -2997,6 +3005,7 @@ export type Database = {
           created_at?: string | null
           direction?: string
           duration_seconds?: number | null
+          embedding?: string | null
           ended_at?: string | null
           from_number?: string | null
           id?: string
@@ -3095,6 +3104,7 @@ export type Database = {
           created_at: string
           description: string
           effect: string
+          embedding: string | null
           id: string
           lag_days: number
           sample_size: number
@@ -3109,6 +3119,7 @@ export type Database = {
           created_at?: string
           description: string
           effect: string
+          embedding?: string | null
           id?: string
           lag_days?: number
           sample_size?: number
@@ -3123,6 +3134,7 @@ export type Database = {
           created_at?: string
           description?: string
           effect?: string
+          embedding?: string | null
           id?: string
           lag_days?: number
           sample_size?: number
@@ -3253,6 +3265,7 @@ export type Database = {
       mavis_council_discourse: {
         Row: {
           created_at: string
+          embedding: string | null
           id: string
           participants: Json
           rounds: Json
@@ -3263,6 +3276,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          embedding?: string | null
           id?: string
           participants?: Json
           rounds?: Json
@@ -3273,6 +3287,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          embedding?: string | null
           id?: string
           participants?: Json
           rounds?: Json
@@ -3408,6 +3423,7 @@ export type Database = {
           agent_results: Json | null
           created_at: string | null
           duration_ms: number | null
+          embedding: string | null
           goal: string
           id: string
           run_id: string | null
@@ -3420,6 +3436,7 @@ export type Database = {
           agent_results?: Json | null
           created_at?: string | null
           duration_ms?: number | null
+          embedding?: string | null
           goal: string
           id?: string
           run_id?: string | null
@@ -3432,6 +3449,7 @@ export type Database = {
           agent_results?: Json | null
           created_at?: string | null
           duration_ms?: number | null
+          embedding?: string | null
           goal?: string
           id?: string
           run_id?: string | null
@@ -3551,6 +3569,7 @@ export type Database = {
           brief_date: string
           brief_text: string
           created_at: string
+          embedding: string | null
           id: string
           sections: Json
           user_id: string
@@ -3559,6 +3578,7 @@ export type Database = {
           brief_date: string
           brief_text: string
           created_at?: string
+          embedding?: string | null
           id?: string
           sections?: Json
           user_id: string
@@ -3567,6 +3587,7 @@ export type Database = {
           brief_date?: string
           brief_text?: string
           created_at?: string
+          embedding?: string | null
           id?: string
           sections?: Json
           user_id?: string
@@ -4667,6 +4688,7 @@ export type Database = {
         Row: {
           category: string
           content: string
+          embedding: string | null
           generated_at: string
           id: string
           read_at: string | null
@@ -4677,6 +4699,7 @@ export type Database = {
         Insert: {
           category: string
           content: string
+          embedding?: string | null
           generated_at?: string
           id?: string
           read_at?: string | null
@@ -4687,6 +4710,7 @@ export type Database = {
         Update: {
           category?: string
           content?: string
+          embedding?: string | null
           generated_at?: string
           id?: string
           read_at?: string | null
@@ -4811,6 +4835,7 @@ export type Database = {
           contact_name: string | null
           contact_title: string | null
           created_at: string
+          embedding: string | null
           id: string
           linkedin_url: string | null
           outreach_draft: string | null
@@ -4826,6 +4851,7 @@ export type Database = {
           contact_name?: string | null
           contact_title?: string | null
           created_at?: string
+          embedding?: string | null
           id?: string
           linkedin_url?: string | null
           outreach_draft?: string | null
@@ -4841,6 +4867,7 @@ export type Database = {
           contact_name?: string | null
           contact_title?: string | null
           created_at?: string
+          embedding?: string | null
           id?: string
           linkedin_url?: string | null
           outreach_draft?: string | null
@@ -5196,6 +5223,7 @@ export type Database = {
           attendees: string[]
           context_notes: string | null
           created_at: string
+          embedding: string | null
           event_id: string
           event_start: string
           event_title: string
@@ -5209,6 +5237,7 @@ export type Database = {
           attendees?: string[]
           context_notes?: string | null
           created_at?: string
+          embedding?: string | null
           event_id: string
           event_start: string
           event_title: string
@@ -5222,6 +5251,7 @@ export type Database = {
           attendees?: string[]
           context_notes?: string | null
           created_at?: string
+          embedding?: string | null
           event_id?: string
           event_start?: string
           event_title?: string
@@ -5348,6 +5378,7 @@ export type Database = {
         Row: {
           arc: string | null
           created_at: string | null
+          embedding: string | null
           id: string
           identity_summary: string
           narrative: string
@@ -5357,6 +5388,7 @@ export type Database = {
         Insert: {
           arc?: string | null
           created_at?: string | null
+          embedding?: string | null
           id?: string
           identity_summary?: string
           narrative?: string
@@ -5366,6 +5398,7 @@ export type Database = {
         Update: {
           arc?: string | null
           created_at?: string | null
+          embedding?: string | null
           id?: string
           identity_summary?: string
           narrative?: string
@@ -5678,6 +5711,7 @@ export type Database = {
           confidence_score: number | null
           created_at: string
           due_check_at: string
+          embedding: string | null
           evidence_data: Json | null
           id: string
           outcome_status: string
@@ -5693,6 +5727,7 @@ export type Database = {
           confidence_score?: number | null
           created_at?: string
           due_check_at?: string
+          embedding?: string | null
           evidence_data?: Json | null
           id?: string
           outcome_status?: string
@@ -5708,6 +5743,7 @@ export type Database = {
           confidence_score?: number | null
           created_at?: string
           due_check_at?: string
+          embedding?: string | null
           evidence_data?: Json | null
           id?: string
           outcome_status?: string
@@ -5724,6 +5760,7 @@ export type Database = {
           contact_name: string
           created_at: string
           drafted_message: string
+          embedding: string | null
           id: string
           status: string
           user_id: string
@@ -5732,6 +5769,7 @@ export type Database = {
           contact_name: string
           created_at?: string
           drafted_message: string
+          embedding?: string | null
           id?: string
           status?: string
           user_id: string
@@ -5740,6 +5778,7 @@ export type Database = {
           contact_name?: string
           created_at?: string
           drafted_message?: string
+          embedding?: string | null
           id?: string
           status?: string
           user_id?: string
@@ -5879,6 +5918,7 @@ export type Database = {
           context: Json | null
           created_at: string | null
           done_steps: number
+          embedding: string | null
           goal: string
           id: string
           status: string
@@ -5892,6 +5932,7 @@ export type Database = {
           context?: Json | null
           created_at?: string | null
           done_steps?: number
+          embedding?: string | null
           goal: string
           id?: string
           status?: string
@@ -5905,6 +5946,7 @@ export type Database = {
           context?: Json | null
           created_at?: string | null
           done_steps?: number
+          embedding?: string | null
           goal?: string
           id?: string
           status?: string
@@ -5921,6 +5963,7 @@ export type Database = {
           created_at: string | null
           description: string | null
           domain: string
+          embedding: string | null
           id: string
           is_active: boolean | null
           is_system: boolean | null
@@ -5937,6 +5980,7 @@ export type Database = {
           created_at?: string | null
           description?: string | null
           domain: string
+          embedding?: string | null
           id?: string
           is_active?: boolean | null
           is_system?: boolean | null
@@ -5953,6 +5997,7 @@ export type Database = {
           created_at?: string | null
           description?: string | null
           domain?: string
+          embedding?: string | null
           id?: string
           is_active?: boolean | null
           is_system?: boolean | null
@@ -6063,6 +6108,7 @@ export type Database = {
           confidence: number
           content: string
           created_at: string
+          embedding: string | null
           expires_at: string | null
           id: string
           prediction_type: string
@@ -6075,6 +6121,7 @@ export type Database = {
           confidence?: number
           content: string
           created_at?: string
+          embedding?: string | null
           expires_at?: string | null
           id?: string
           prediction_type: string
@@ -6087,6 +6134,7 @@ export type Database = {
           confidence?: number
           content?: string
           created_at?: string
+          embedding?: string | null
           expires_at?: string | null
           id?: string
           prediction_type?: string
@@ -6173,6 +6221,7 @@ export type Database = {
           contact_name: string
           created_at: string
           days_since_contact: number
+          embedding: string | null
           health_score: number
           id: string
           interaction_frequency: string | null
@@ -6190,6 +6239,7 @@ export type Database = {
           contact_name: string
           created_at?: string
           days_since_contact?: number
+          embedding?: string | null
           health_score?: number
           id?: string
           interaction_frequency?: string | null
@@ -6207,6 +6257,7 @@ export type Database = {
           contact_name?: string
           created_at?: string
           days_since_contact?: number
+          embedding?: string | null
           health_score?: number
           id?: string
           interaction_frequency?: string | null
@@ -6842,6 +6893,7 @@ export type Database = {
           advisor_outputs: Json | null
           confidence: number | null
           created_at: string | null
+          embedding: string | null
           id: string
           question: string
           recommendation: string
@@ -6853,6 +6905,7 @@ export type Database = {
           advisor_outputs?: Json | null
           confidence?: number | null
           created_at?: string | null
+          embedding?: string | null
           id?: string
           question: string
           recommendation: string
@@ -6864,6 +6917,7 @@ export type Database = {
           advisor_outputs?: Json | null
           confidence?: number | null
           created_at?: string | null
+          embedding?: string | null
           id?: string
           question?: string
           recommendation?: string
@@ -7154,6 +7208,7 @@ export type Database = {
         Row: {
           challenges: Json
           current_state: string
+          embedding: string | null
           id: string
           ideal_state: string
           mission: string
@@ -7167,6 +7222,7 @@ export type Database = {
         Insert: {
           challenges?: Json
           current_state?: string
+          embedding?: string | null
           id?: string
           ideal_state?: string
           mission?: string
@@ -7180,6 +7236,7 @@ export type Database = {
         Update: {
           challenges?: Json
           current_state?: string
+          embedding?: string | null
           id?: string
           ideal_state?: string
           mission?: string
@@ -7229,6 +7286,7 @@ export type Database = {
         Row: {
           conclusion: string | null
           created_at: string
+          embedding: string | null
           full_chain: Json | null
           goal: string
           id: string
@@ -7241,6 +7299,7 @@ export type Database = {
         Insert: {
           conclusion?: string | null
           created_at?: string
+          embedding?: string | null
           full_chain?: Json | null
           goal: string
           id?: string
@@ -7253,6 +7312,7 @@ export type Database = {
         Update: {
           conclusion?: string | null
           created_at?: string
+          embedding?: string | null
           full_chain?: Json | null
           goal?: string
           id?: string
@@ -7538,6 +7598,7 @@ export type Database = {
           core_values: string[] | null
           created_at: string | null
           decision_patterns: Json | null
+          embedding: string | null
           facets: Json | null
           id: string
           last_synthesized_at: string | null
@@ -7557,6 +7618,7 @@ export type Database = {
           core_values?: string[] | null
           created_at?: string | null
           decision_patterns?: Json | null
+          embedding?: string | null
           facets?: Json | null
           id?: string
           last_synthesized_at?: string | null
@@ -7576,6 +7638,7 @@ export type Database = {
           core_values?: string[] | null
           created_at?: string | null
           decision_patterns?: Json | null
+          embedding?: string | null
           facets?: Json | null
           id?: string
           last_synthesized_at?: string | null
@@ -7594,6 +7657,7 @@ export type Database = {
       mavis_user_profile: {
         Row: {
           communication_style: string
+          embedding: string | null
           key_context: string
           preferences: Json
           profile_md: string
@@ -7603,6 +7667,7 @@ export type Database = {
         }
         Insert: {
           communication_style?: string
+          embedding?: string | null
           key_context?: string
           preferences?: Json
           profile_md?: string
@@ -7612,6 +7677,7 @@ export type Database = {
         }
         Update: {
           communication_style?: string
+          embedding?: string | null
           key_context?: string
           preferences?: Json
           profile_md?: string
@@ -8768,6 +8834,7 @@ export type Database = {
           consolidated_at: string | null
           content: string
           created_at: string
+          embedding: string | null
           id: string
           importance: number
           memory_type: string
@@ -8778,6 +8845,7 @@ export type Database = {
           consolidated_at?: string | null
           content: string
           created_at?: string
+          embedding?: string | null
           id?: string
           importance?: number
           memory_type: string
@@ -8788,6 +8856,7 @@ export type Database = {
           consolidated_at?: string | null
           content?: string
           created_at?: string
+          embedding?: string | null
           id?: string
           importance?: number
           memory_type?: string
@@ -10095,6 +10164,7 @@ export type Database = {
           caller_number: string | null
           created_at: string
           duration_seconds: number | null
+          embedding: string | null
           id: string
           metadata: Json | null
           summary: string | null
@@ -10106,6 +10176,7 @@ export type Database = {
           caller_number?: string | null
           created_at?: string
           duration_seconds?: number | null
+          embedding?: string | null
           id?: string
           metadata?: Json | null
           summary?: string | null
@@ -10117,6 +10188,7 @@ export type Database = {
           caller_number?: string | null
           created_at?: string
           duration_seconds?: number | null
+          embedding?: string | null
           id?: string
           metadata?: Json | null
           summary?: string | null
@@ -11609,6 +11681,7 @@ export type Database = {
       }
       video_segments: {
         Row: {
+          embedding: string | null
           end_seconds: number
           id: string
           project_id: string
@@ -11625,6 +11698,7 @@ export type Database = {
           viral_score: number | null
         }
         Insert: {
+          embedding?: string | null
           end_seconds: number
           id?: string
           project_id: string
@@ -11641,6 +11715,7 @@ export type Database = {
           viral_score?: number | null
         }
         Update: {
+          embedding?: string | null
           end_seconds?: number
           id?: string
           project_id?: string
@@ -11671,6 +11746,7 @@ export type Database = {
           brief_date: string
           content: string
           created_at: string
+          embedding: string | null
           id: string
           read: boolean
           summary: string
@@ -11680,6 +11756,7 @@ export type Database = {
           brief_date?: string
           content: string
           created_at?: string
+          embedding?: string | null
           id?: string
           read?: boolean
           summary?: string
@@ -11689,6 +11766,7 @@ export type Database = {
           brief_date?: string
           content?: string
           created_at?: string
+          embedding?: string | null
           id?: string
           read?: boolean
           summary?: string
