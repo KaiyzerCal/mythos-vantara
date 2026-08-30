@@ -603,46 +603,102 @@ export async function searchAppData(
  * search is an addition to keyword search, never a replacement, so nothing
  * here may cost the caller its keyword results.
  */
+// Every scope match_operator_entries actually carries a UNION branch for.
+// Kept in step with that function and the backfill's table map — a scope
+// named here but absent there returns empty, and one embedded but missing
+// here is simply never searched semantically (keyword search still reaches
+// it). The original six plus the curated tier added in the
+// 20260830190000 migration.
+const EMBEDDED_SCOPES = [
+  "journal", "vault", "quests", "meeting_notes", "notebooks", "memory",
+  "mavis_telos", "mavis_narrative", "mavis_user_model", "mavis_user_profile",
+  "mavis_plans", "mavis_playbooks", "mavis_strategy_memos", "mavis_crew_runs",
+  "mavis_council_discourse", "mavis_relationship_health", "mavis_leads",
+  "mavis_outreach_drafts", "mavis_meeting_preps", "mavis_insights",
+  "mavis_predictions", "mavis_causal_chains", "mavis_thought_chains",
+  "mavis_outcome_events", "watchtower_briefs", "mavis_daily_briefs",
+  "mavis_agent_briefs", "mavis_calls", "receptionist_calls",
+  "video_segments", "chat_attachments", "mavis_persona_memory",
+  "mavis_council_memory", "persona_memories",
+];
+const ANY_SCOPE = ["all", "everything", "*", "auto", "default"];
+
+type SemanticHit = { kind: string; id: string; title: string; content: string; category?: string; created_at?: string };
+
 async function semanticHits(
   sb: QueryClient,
   userId: string,
   query: string,
   opts: { scope?: string | null; limit?: number; embed?: (t: string) => Promise<number[] | null> },
-): Promise<Array<{ kind: string; id: string; title: string; content: string; category?: string; created_at?: string }>> {
+): Promise<SemanticHit[]> {
   if (!opts.embed) return [];
   try {
     const vec = await opts.embed(query);
     if (!vec) return [];
-
-    // Which scopes actually carry vectors. Anything else has nothing embedded,
-    // so asking would spend a round trip to be told nothing. Kept in step with
-    // match_operator_entries and the backfill's table map — a scope named here
-    // but absent there returns empty, and one embedded but missing here is
-    // simply never searched.
-    const EMBEDDED_SCOPES = ["journal", "vault", "quests", "meeting_notes", "notebooks", "memory"];
-    const ANY_SCOPE = ["all", "everything", "*", "auto", "default"];
-    const raw = String(opts.scope ?? "").trim().toLowerCase();
-    const rpcScope = EMBEDDED_SCOPES.includes(raw) ? raw : "all";
-    if (raw && !ANY_SCOPE.includes(raw) && !EMBEDDED_SCOPES.includes(raw)) return [];
-
-    // Guarded rather than assumed: rpc is optional on the minimal client shape
-    // this module accepts, and the test stubs do not provide it.
     if (typeof sb.rpc !== "function") return [];
 
-    const { data } = await sb.rpc("match_operator_entries", {
-      p_user_id: userId,
-      p_query: vec,
-      p_count: (opts.limit ?? 8) * 2,
-      p_scope: rpcScope,
-    });
-    return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
-      kind: String(r.kind ?? ""),
-      id: String(r.id ?? ""),
-      title: String(r.title ?? "") || "(untitled)",
-      content: String(r.content ?? ""),
-      category: String(r.category ?? "") || undefined,
-      created_at: String(r.created_at ?? "") || undefined,
-    }));
+    const raw = String(opts.scope ?? "").trim().toLowerCase();
+    const wantsAll = !raw || ANY_SCOPE.includes(raw);
+    const count = (opts.limit ?? 8) * 2;
+
+    const calls: Promise<SemanticHit[]>[] = [];
+
+    // The 34-table UNION. Runs whenever the scope is broad, or names one of
+    // its own branches specifically.
+    if (wantsAll || EMBEDDED_SCOPES.includes(raw)) {
+      const rpcScope = EMBEDDED_SCOPES.includes(raw) ? raw : "all";
+      calls.push(
+        sb.rpc("match_operator_entries", { p_user_id: userId, p_query: vec, p_count: count, p_scope: rpcScope })
+          .then(({ data }: { data?: unknown[] }): SemanticHit[] => ((data ?? []) as Record<string, unknown>[]).map((r): SemanticHit => ({
+            kind: String(r.kind ?? ""),
+            id: String(r.id ?? ""),
+            title: String(r.title ?? "") || "(untitled)",
+            content: String(r.content ?? ""),
+            category: String(r.category ?? "") || undefined,
+            created_at: String(r.created_at ?? "") || undefined,
+          })))
+          .catch((): SemanticHit[] => []),
+      );
+    }
+
+    // Knowledge Graph notes. Its own RPC, its own threshold-based cutoff
+    // (match_mavis_notes filters by similarity > 0.45 itself rather than
+    // taking a flat top-N like match_operator_entries) — kept as a separate
+    // call rather than folded into the UNION so that threshold stays intact.
+    if (wantsAll || raw === "notes") {
+      calls.push(
+        sb.rpc("match_mavis_notes", { query_embedding: vec, match_user_id: userId, match_count: opts.limit ?? 8 })
+          .then(({ data }: { data?: unknown[] }): SemanticHit[] => ((data ?? []) as Record<string, unknown>[]).map((r): SemanticHit => ({
+            kind: "notes",
+            id: String(r.id ?? ""),
+            title: String(r.title ?? "") || "(untitled)",
+            content: String(r.content ?? ""),
+            created_at: undefined,
+          })))
+          .catch((): SemanticHit[] => []),
+      );
+    }
+
+    // Crawled/researched web content — embedded at crawl time by
+    // mavis-web-crawler, not by the backfill (nothing to backfill: every row
+    // already gets its vector when it's written).
+    if (wantsAll || raw === "mavis_documents") {
+      calls.push(
+        sb.rpc("match_documents", { query_embedding: vec, match_user_id: userId, match_count: opts.limit ?? 8 })
+          .then(({ data }: { data?: unknown[] }): SemanticHit[] => ((data ?? []) as Record<string, unknown>[]).map((r): SemanticHit => ({
+            kind: "mavis_documents",
+            id: String(r.id ?? ""),
+            title: String(r.content ?? "").slice(0, 80) || "(untitled)",
+            content: String(r.content ?? ""),
+            created_at: undefined,
+          })))
+          .catch((): SemanticHit[] => []),
+      );
+    }
+
+    if (calls.length === 0) return [];
+    const settled = await Promise.all(calls);
+    return settled.flat();
   } catch {
     return [];
   }

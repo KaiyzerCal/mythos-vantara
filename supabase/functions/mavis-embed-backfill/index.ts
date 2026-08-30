@@ -60,6 +60,40 @@ const TABLES: Record<string, Backfillable> = {
   // call at a second width.
   memory:         { table: "mavis_memory",         bodyCol: "content" },
   agent_memories: { table: "mavis_agent_memories", bodyCol: "content", dims: 768 },
+
+  // Curated tier — see the 20260830190000 migration for why these 28 and not
+  // the rest of the app. mavis_persona_memory and mavis_council_memory
+  // already have active writers (mavis-chat, mavis-council-heartbeat); an
+  // entry here only catches whatever those miss, same resumable semantics
+  // as every other row in this map.
+  mavis_telos: { table: "mavis_telos", titleCol: "mission", bodyCol: "current_state" },
+  mavis_narrative: { table: "mavis_narrative", titleCol: "identity_summary", bodyCol: "narrative" },
+  mavis_user_model: { table: "mavis_user_model", titleCol: "personality_summary", bodyCol: "raw_synthesis" },
+  mavis_user_profile: { table: "mavis_user_profile", titleCol: "profile_md", bodyCol: "key_context" },
+  mavis_plans: { table: "mavis_plans", titleCol: "title", bodyCol: "summary" },
+  mavis_playbooks: { table: "mavis_playbooks", titleCol: "name", bodyCol: "description" },
+  mavis_strategy_memos: { table: "mavis_strategy_memos", titleCol: "question", bodyCol: "synthesis" },
+  mavis_crew_runs: { table: "mavis_crew_runs", titleCol: "goal", bodyCol: "synthesis" },
+  mavis_council_discourse: { table: "mavis_council_discourse", titleCol: "topic", bodyCol: "synthesis" },
+  mavis_relationship_health: { table: "mavis_relationship_health", titleCol: "contact_name", bodyCol: "notes" },
+  mavis_leads: { table: "mavis_leads", titleCol: "company_name", bodyCol: "research_summary" },
+  mavis_outreach_drafts: { table: "mavis_outreach_drafts", titleCol: "contact_name", bodyCol: "drafted_message" },
+  mavis_meeting_preps: { table: "mavis_meeting_preps", titleCol: "event_title", bodyCol: "prep_brief" },
+  mavis_insights: { table: "mavis_insights", titleCol: "title", bodyCol: "content" },
+  mavis_predictions: { table: "mavis_predictions", titleCol: "title", bodyCol: "content" },
+  mavis_causal_chains: { table: "mavis_causal_chains", titleCol: "cause", bodyCol: "description" },
+  mavis_thought_chains: { table: "mavis_thought_chains", titleCol: "goal", bodyCol: "conclusion" },
+  mavis_outcome_events: { table: "mavis_outcome_events", titleCol: "prediction_text", bodyCol: "actual_outcome" },
+  watchtower_briefs: { table: "watchtower_briefs", titleCol: "summary", bodyCol: "content" },
+  mavis_daily_briefs: { table: "mavis_daily_briefs", bodyCol: "brief_text" },
+  mavis_agent_briefs: { table: "mavis_agent_briefs", bodyCol: "summary" },
+  mavis_calls: { table: "mavis_calls", titleCol: "purpose", bodyCol: "transcript" },
+  receptionist_calls: { table: "receptionist_calls", titleCol: "summary", bodyCol: "transcript" },
+  video_segments: { table: "video_segments", bodyCol: "transcript_text" },
+  chat_attachments: { table: "chat_attachments", titleCol: "file_name", bodyCol: "extracted_text" },
+  mavis_persona_memory: { table: "mavis_persona_memory", titleCol: "role", bodyCol: "content" },
+  mavis_council_memory: { table: "mavis_council_memory", bodyCol: "content" },
+  persona_memories: { table: "persona_memories", titleCol: "memory_type", bodyCol: "content" },
 };
 
 /**

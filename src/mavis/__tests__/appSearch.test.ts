@@ -468,7 +468,20 @@ describe("semantic search", () => {
     // returns nothing, and one embedded but missing here is never searched.
     const APP = read("supabase/functions/_shared/appSearch.ts");
     const BACKFILL = read("supabase/functions/mavis-embed-backfill/index.ts");
-    const MIGRATION = read("supabase/migrations/20260829170000_semantic_search_journal_vault.sql");
+    // match_operator_entries is CREATE OR REPLACE, extended across more than
+    // one migration file (2026082917... added the original six, 2026083019...
+    // added the curated tier) — the live function is whichever ran last, but
+    // "whichever ran last" always carries every earlier branch forward too
+    // since each migration copies the prior branches verbatim rather than
+    // dropping them. Concatenating every migration file, in filename
+    // (chronological) order, means this test keeps working the same way the
+    // next tier would extend it: read everything, not one hardcoded name.
+    const MIGRATION_DIR = "supabase/migrations";
+    const MIGRATION = readdirSync(join(ROOT, MIGRATION_DIR))
+      .filter((f) => f.endsWith(".sql"))
+      .sort()
+      .map((f) => read(`${MIGRATION_DIR}/${f}`))
+      .join("\n");
 
     const declared = /const EMBEDDED_SCOPES = \[([^\]]+)\]/.exec(APP)?.[1] ?? "";
     const scopes = [...declared.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
