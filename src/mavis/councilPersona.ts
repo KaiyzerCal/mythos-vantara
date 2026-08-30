@@ -62,9 +62,10 @@ a calendar event — emit a hidden action block and the result comes back to you
 :::ACTION{"type":"search_journal","params":{"query":"dcf meeting"}}:::
 :::ACTION{"type":"search_vault","params":{"query":"insurance policy"}}:::
 scope omitted searches the operator's written records; "all" searches every
-section. Named scopes: journal, vault, meeting_notes, quests, goals, skills,
+section. Named scopes: journal, vault, meeting_notes, quests, tasks, goals, skills,
 contacts, notebooks, council, allies, transformations, rituals, store,
-inventory, calendar, expenses, personas, rankings, energy, tower, notebooks, achievements, bpm, time, finance, memory. Search before saying you cannot find something — you almost certainly
+inventory, calendar, expenses, personas, rankings, energy, tower, notebooks, achievements, bpm, time, finance, memory,
+notes (Knowledge Graph), gallery, website, website_pages, widgets. Search before saying you cannot find something — you almost certainly
 can. Never claim an entry does not exist without having searched for it.
 
 DIRECT ACTIONS — YOU HAVE FULL AUTHORITY:
@@ -315,6 +316,22 @@ HOW YOU RESPOND:
 - Never start with your own name or "As [role]"`;
 }
 
+/**
+ * Every voice in a Council Board turn (MAVIS, each member, each persona,
+ * every deliberation round) gets this prepended to its prompt. It used to
+ * render the full snapshot — every quest, every journal/vault entry's full
+ * content, every table — with no row cap, once per voice per round.
+ *
+ * That was pure duplication: sendCouncilMessage always calls mavis-chat with
+ * mode:"COUNCIL", which unconditionally builds its own authoritativeContext
+ * from the same tables (bounded, freshly fetched) and runs searchAppData
+ * against the actual question. A 3-member, 2-persona session with one
+ * deliberation round fired that unbounded dump 10 times for a single user
+ * message. The server-side context is a superset of what this produced, so
+ * only the identity line — the one thing every voice needs before the
+ * server's blocks land — stays here. buildContextWithRecords still appends
+ * the searchAppData hits for this specific question on top of this.
+ */
 export function buildContextSummary(ctx: AppContextSnapshot): string {
   const p: any = ctx.profile ?? {};
   const lines: string[] = [];
@@ -324,27 +341,7 @@ export function buildContextSummary(ctx: AppContextSnapshot): string {
     lines.push(`  Stats: STR:${p.stat_str} AGI:${p.stat_agi} INT:${p.stat_int} VIT:${p.stat_vit} WIS:${p.stat_wis} CHA:${p.stat_cha} LCK:${p.stat_lck}`);
     lines.push(`  Arc: ${p.arc_story} | XP: ${p.xp}/${p.xp_to_next_level} | GPR: ${p.gpr} | Fatigue: ${p.fatigue}`);
   }
-
-  const block = (label: string, arr: unknown[], fmt: (x: any) => string) => {
-    if (!arr.length) return;
-    lines.push(`\n${label} (${arr.length}):`);
-    for (const x of arr) lines.push(`  • ${fmt(x as any)}`);
-  };
-
-  block("QUESTS", ctx.quests, (q) => `[${q.id}] "${q.title}" [${q.status}/${q.type}] ${q.progress_current ?? 0}/${q.progress_target ?? 1}${q.description ? ` — ${String(q.description).slice(0, 200)}` : ""}`);
-  block("TASKS", ctx.tasks, (t) => `[${t.id}] "${t.title}" [${t.status}/${t.recurrence ?? ""}]${t.description ? ` — ${String(t.description).slice(0, 150)}` : ""}`);
-  block("SKILLS", ctx.skills, (s) => `[${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})${s.description ? ` — ${String(s.description).slice(0, 150)}` : ""}`);
-  block("FORMS / TRANSFORMATIONS", ctx.transformations, (f) => `[${f.id}] ${f.name} (T${f.form_order}, ${f.tier}, ${f.energy})${f.unlocked ? "" : " [locked]"}${f.description ? ` — ${String(f.description).slice(0, 150)}` : ""}`);
-  block("INVENTORY", ctx.inventory, (i) => `[${i.id}] ${i.name} [${i.rarity}/${i.type}] x${i.quantity}${i.is_equipped ? " (equipped)" : ""}${i.effect ? ` — ${i.effect}` : ""}${i.description ? ` — ${String(i.description).slice(0, 120)}` : ""}`);
-  block("JOURNAL", ctx.journalEntries, (j) => `[${j.id}] "${j.title}" [${j.category}/${j.importance}${j.mood ? `/${j.mood}` : ""}] — ${String(j.content || "").slice(0, 400)}`);
-  block("VAULT", ctx.vaultEntries, (v) => `[${v.id}] "${v.title}" [${v.category}/${v.importance}] — ${String(v.content || "").slice(0, 400)}`);
-  block("ENERGY SYSTEMS", ctx.energySystems, (e) => `[${e.id}] ${e.type}: ${e.current_value}/${e.max_value} [${e.status}]${e.description ? ` — ${String(e.description).slice(0, 150)}` : ""}`);
-  block("RANKINGS / SCOUTER", ctx.rankings, (r) => `[${r.id}] ${r.display_name} [${r.rank}] Lv${r.level} GPR:${r.gpr} PVP:${r.pvp} (${r.influence})${r.is_self ? " ★self" : ""}`);
-  block("COUNCIL", ctx.councilMembers, (c) => `[${c.id}] ${c.name} — ${c.role} (${c.class})${c.specialty ? ` · ${c.specialty}` : ""}`);
-  block("ALLIES", ctx.allies, (a) => `[${a.id}] ${a.name} (${a.relationship}, Lv${a.level}, aff:${a.affinity})${a.notes ? ` — ${String(a.notes).slice(0, 120)}` : ""}`);
-  block("STORE", ctx.storeItems, (s) => `[${s.id}] ${s.name} (${s.rarity}/${s.category}) ${s.price} ${s.currency}${s.effect ? ` — ${s.effect}` : ""}`);
-  block("BPM SESSIONS", ctx.bpmSessions, (b) => `${b.bpm} BPM · ${b.form} · ${b.duration}m${b.mood ? ` · ${b.mood}` : ""}`);
-  block("PENDING APPROVALS", ctx.pendingApprovals, (a) => `${a.action_type} — ${a.draft_content ?? ""} [${a.status}]`);
+  lines.push(`\n(Full quest/task/skill/journal/vault/etc. state is supplied server-side, bounded and current — reference it as it arrives. Records matching this specific question follow below.)`);
 
   return lines.join("\n");
 }

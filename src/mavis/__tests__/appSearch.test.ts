@@ -28,7 +28,12 @@ import {
 } from "../../../supabase/functions/_shared/appSearch.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
-const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
+// Normalized to LF: types.ts is checked out CRLF on Windows, and columnsOf's
+// regex below anchors on literal "\n" — against raw CRLF content its closing
+// "\n        }\n" never matches, so every table silently comes back with zero
+// columns and every assertion that depends on it fails, whether or not the
+// registry entry is actually correct.
+const read = (p: string) => readFileSync(join(ROOT, p), "utf8").replace(/\r\n/g, "\n");
 
 const ACTIONS = read("supabase/functions/mavis-actions/index.ts");
 const CHAT = read("supabase/functions/mavis-chat/index.ts");
@@ -566,19 +571,41 @@ describe("every scope is advertised where an agent can see it", () => {
   // for — the same failure as an action nothing is told about. Eight pages sat
   // unreachable for exactly this reason once they were in the registry but not
   // in any catalog.
+  //
+  // That rule holds for every scope EXCEPT the ones marked longTail: true —
+  // the 128 tables added to make literally everything in the app reachable.
+  // Spelling out 128 names in every prompt this registry feeds would tax
+  // every turn for lookups that come up rarely, which is the opposite of
+  // what that addition was for. Those are reached through scope:"all"
+  // instead, so what's actually required for them is weaker: the catalog
+  // must document "all" as the everything-scope (checked below), not name
+  // each one. A longTail entry that IS also named somewhere still passes the
+  // stronger check — nothing stops a model being told about a specific one.
   const catalogs: Array<[string, string]> = [
     ["MAVIS tool def", DISPATCH],
     ["persona catalog", ROUTER],
     ["council prompt", read("src/mavis/councilPersona.ts")],
   ];
+  const namedRequired = SEARCHABLE.filter((t) => !t.longTail).map((t) => t.key);
 
-  it.each(catalogs)("%s names every searchable scope", (_name, src) => {
-    const missing = SEARCHABLE_KEYS.filter((k) => {
+  it.each(catalogs)("%s names every non-long-tail scope", (_name, src) => {
+    const missing = namedRequired.filter((k) => {
       // meeting_notes is written "meeting notes" in the prose catalogs.
       const variants = [k, k.replace(/_/g, " ")];
       return !variants.some((v) => src.includes(v));
     });
     expect(missing, `scopes an agent is never told about: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it.each(catalogs)("%s documents scope:\"all\" as the everything-scope", (_name, src) => {
+    expect(src, `no "all" scope documented — the long tail has no way in`).toMatch(/scope[:'"]+\s*['"]?all/i);
+  });
+
+  it("every longTail entry is actually reachable through resolveScope(\"all\")", () => {
+    const all = resolveScope("all").map((t) => t.key);
+    for (const t of SEARCHABLE.filter((t) => t.longTail)) {
+      expect(all, `${t.key} is longTail but resolveScope("all") does not return it`).toContain(t.key);
+    }
   });
 });
 

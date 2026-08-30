@@ -50,6 +50,20 @@ export interface SearchableTable {
    * of every conversation and each table costs two queries.
    */
   auto?: boolean;
+  /**
+   * True for the long tail added to make literally every table reachable.
+   * Every OTHER scope is named individually in every prompt catalog — the
+   * whole point of doing that was so a model would think to ask for it by
+   * name — but doing that for 128 tables at once would mean spelling out
+   * 128 names in every system prompt this registry feeds, which taxes every
+   * turn to serve lookups that come up rarely. These are reached instead
+   * through scope:"all", which every catalog already documents as searching
+   * everything; a model narrowing to a specific scope name still works if it
+   * guesses right (SEARCHABLE_KEYS are stable, guessable words), it just
+   * isn't taught the exact spelling. See the "every scope is advertised"
+   * describe block in appSearch.test.ts for the enforcement this trades off.
+   */
+  longTail?: boolean;
 }
 
 export const SEARCHABLE: SearchableTable[] = [
@@ -96,6 +110,187 @@ export const SEARCHABLE: SearchableTable[] = [
   { key: "bpm",          table: "bpm_sessions",      titleCol: "form",         bodyCol: "notes",       extraCols: ["mood"],         hasCreatedAt: true },
   { key: "time",         table: "time_logs",         titleCol: "project",      bodyCol: "description",                              hasCreatedAt: true },
   { key: "finance",      table: "plaid_transactions", titleCol: "name",        bodyCol: "merchant_name", extraCols: ["category"],   hasCreatedAt: true },
+
+  // Knowledge Graph, gallery, website builds and widgets — reachable by no
+  // surface except mavis-chat's own dedicated match_mavis_notes call for
+  // notes specifically. mavis-agent, mavis-actions, mavis-persona-router,
+  // mavis-council-session and the client-side council board all search
+  // through this same registry, so until these rows existed here those
+  // surfaces simply had no way to look any of the four up. Not auto: notes
+  // already gets its own semantic pass in mavis-chat (this adds a keyword
+  // path for every *other* surface without doubling that one up), and
+  // gallery/website/widgets are low-prose, low-row-count tables where a
+  // per-message cost isn't worth it — explicit search or scope:"all" reaches
+  // them instead.
+  { key: "notes",          table: "mavis_notes",         titleCol: "title",        bodyCol: "content",     extraCols: ["tags"],         hasCreatedAt: true },
+  { key: "gallery",        table: "mavis_media_library",  titleCol: "title",                                extraCols: ["media_type"],   hasCreatedAt: true },
+  { key: "website",        table: "website_projects",    titleCol: "project_name", bodyCol: "description", extraCols: ["business_name"], hasCreatedAt: true },
+  { key: "website_pages",  table: "website_pages",       titleCol: "title",        bodyCol: "content_brief", extraCols: ["page_type"],   hasCreatedAt: true },
+  { key: "widgets",        table: "widget_instances",    titleCol: "widget_type",  bodyCol: "business_context", extraCols: ["status"],   hasCreatedAt: true },
+
+  // Everything else. The operator asked for the whole app to be reachable —
+  // every table that holds something a person actually wrote or that MAVIS
+  // generated on their behalf — rather than growing this list one gap report
+  // at a time. Every row below was checked against columnsOf() in
+  // appSearch.test.ts before being written, the same way the entries above
+  // it were: a wrong column name here is a silent empty result, not an
+  // error, so nothing here is guessed.
+  //
+  // Deliberately left OUT, and why:
+  //   - Credentials/tokens: mavis_api_keys, org_api_keys, wp_credentials,
+  //     mavis_oauth_tokens, whoop_tokens, plaid_accounts, plaid_items (holds
+  //     access_token), telegram_linked_accounts, mavis_user_integrations
+  //     (holds key_value), mavis_agent_identity (holds a keypair), device
+  //     push tokens. These must never land in a prompt.
+  //   - System plumbing with no operator-authored prose: every *_log, *_cache,
+  //     *_queue, *_cursor, *_config, *_registry, *_session(s) table (job
+  //     state, sync cursors, rate limits, cron config, telemetry) — there is
+  //     nothing in them a question would ever be "about". A few names that
+  //     match that shape but hold real content were kept anyway: council
+  //     sessions, tutoring sessions, code delegation sessions.
+  //   - Tables with no user_id column at all: profiles (id IS the user id —
+  //     already fully covered by authoritativeContext/buildSharedTruth
+  //     elsewhere), the prymal_* agency tables (scoped by client_id),
+  //     mavis_teams/organizations (scoped by team/org membership),
+  //     mavis_note_links/mavis_note_versions/notebook_messages/
+  //     quest_chain_items/skill_chain_items (ownership runs through a parent
+  //     row's user_id, same reasoning as notebook_messages above), and
+  //     widget_leads (scoped by widget_id → widget_instances.user_id). Adding
+  //     any of these through the same .eq("user_id", userId) filter every
+  //     other row here uses would silently return nothing for every user —
+  //     worse than not listing them, since it would look searched.
+  //   - Pure numeric/JSON state with nothing to keyword-match: wearable daily
+  //     syncs (whoop_daily_data, galaxy_ring_daily_data, health_metrics —
+  //     already reachable through the dedicated sync_health tool), quota/
+  //     counter/analytics tables, user_roles (authorization, not content).
+  { key: "approvals", table: "approvals", titleCol: "action_type", hasCreatedAt: true, longTail: true },
+  { key: "artifacts", table: "artifacts", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "chat_conversations", table: "chat_conversations", titleCol: "title", hasCreatedAt: true, longTail: true },
+  { key: "chat_messages", table: "chat_messages", titleCol: "role", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "council_chat_messages", table: "council_chat_messages", titleCol: "role", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "council_sessions", table: "council_sessions", titleCol: "topic", bodyCol: "summary", hasCreatedAt: true, longTail: true },
+  { key: "currencies", table: "currencies", titleCol: "name", hasCreatedAt: true, longTail: true },
+  { key: "customer_agents", table: "customer_agents", titleCol: "business_name", hasCreatedAt: true, longTail: true },
+  { key: "email_outbox", table: "email_outbox", titleCol: "subject", bodyCol: "body", hasCreatedAt: true, longTail: true },
+  { key: "game_master_events", table: "game_master_events", titleCol: "title", hasCreatedAt: true, longTail: true },
+  { key: "generated_websites", table: "generated_websites", titleCol: "name", hasCreatedAt: true, longTail: true },
+  { key: "gmail_messages", table: "gmail_messages", titleCol: "subject", hasCreatedAt: true, longTail: true },
+  { key: "loose_threads", table: "loose_threads", titleCol: "title", bodyCol: "context", hasCreatedAt: true, longTail: true },
+  { key: "mavis_agency_conversations", table: "mavis_agency_conversations", titleCol: "role", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_agent_memories", table: "mavis_agent_memories", titleCol: "memory_type", bodyCol: "content", extraCols: ["importance"], hasCreatedAt: true, longTail: true },
+  { key: "mavis_agent_traces", table: "mavis_agent_traces", titleCol: "action_type", bodyCol: "result", hasCreatedAt: true, longTail: true },
+  { key: "mavis_approvals", table: "mavis_approvals", titleCol: "action_type", hasCreatedAt: true, longTail: true },
+  { key: "mavis_automation_rules", table: "mavis_automation_rules", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_autonomy_settings", table: "mavis_autonomy_settings", titleCol: "action_type", longTail: true },
+  { key: "mavis_bookings", table: "mavis_bookings", titleCol: "title", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_campaigns", table: "mavis_campaigns", titleCol: "title", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_competitors", table: "mavis_competitors", titleCol: "name", bodyCol: "notes", hasCreatedAt: true, longTail: true },
+  { key: "mavis_council_discourse", table: "mavis_council_discourse", titleCol: "topic", bodyCol: "synthesis", hasCreatedAt: true, longTail: true },
+  { key: "mavis_custom_skills", table: "mavis_custom_skills", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_design_projects", table: "mavis_design_projects", titleCol: "project_name", hasCreatedAt: true, longTail: true },
+  { key: "mavis_devices", table: "mavis_devices", titleCol: "name", hasCreatedAt: true, longTail: true },
+  { key: "mavis_domain_effects", table: "mavis_domain_effects", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_entities", table: "mavis_entities", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_inbound_emails", table: "mavis_inbound_emails", titleCol: "subject", longTail: true },
+  { key: "mavis_insights", table: "mavis_insights", titleCol: "title", bodyCol: "content", longTail: true },
+  { key: "mavis_journal", table: "mavis_journal", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_knowledge", table: "mavis_knowledge", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_learned_preferences", table: "mavis_learned_preferences", titleCol: "key", bodyCol: "value", longTail: true },
+  { key: "mavis_market_intel", table: "mavis_market_intel", titleCol: "headline", bodyCol: "summary", hasCreatedAt: true, longTail: true },
+  { key: "mavis_mcp_servers", table: "mavis_mcp_servers", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_meetings", table: "mavis_meetings", titleCol: "title", bodyCol: "summary", hasCreatedAt: true, longTail: true },
+  { key: "mavis_opportunities", table: "mavis_opportunities", titleCol: "title", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_persona_memory", table: "mavis_persona_memory", titleCol: "role", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_plan_steps", table: "mavis_plan_steps", titleCol: "title", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_plans", table: "mavis_plans", titleCol: "title", bodyCol: "summary", hasCreatedAt: true, longTail: true },
+  { key: "mavis_playbooks", table: "mavis_playbooks", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_plugins", table: "mavis_plugins", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_predictions", table: "mavis_predictions", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_products", table: "mavis_products", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_rss_feeds", table: "mavis_rss_feeds", titleCol: "name", hasCreatedAt: true, longTail: true },
+  { key: "mavis_signal_configs", table: "mavis_signal_configs", titleCol: "name", hasCreatedAt: true, longTail: true },
+  { key: "mavis_skill_definitions", table: "mavis_skill_definitions", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_social_personas", table: "mavis_social_personas", titleCol: "display_name", hasCreatedAt: true, longTail: true },
+  { key: "mavis_tacit", table: "mavis_tacit", titleCol: "key", bodyCol: "value", extraCols: ["category"], hasCreatedAt: true, longTail: true },
+  { key: "mavis_td_connections", table: "mavis_td_connections", titleCol: "name", hasCreatedAt: true, longTail: true },
+  { key: "mavis_team_members", table: "mavis_team_members", titleCol: "role", longTail: true },
+  { key: "mavis_time_entries", table: "mavis_time_entries", titleCol: "title", hasCreatedAt: true, longTail: true },
+  { key: "mavis_vault", table: "mavis_vault", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_vault_entries", table: "mavis_vault_entries", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_video_productions", table: "mavis_video_productions", titleCol: "title", bodyCol: "brief", hasCreatedAt: true, longTail: true },
+  { key: "memories", table: "memories", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "notebook_chats", table: "notebook_chats", titleCol: "title", hasCreatedAt: true, longTail: true },
+  { key: "notebook_notes", table: "notebook_notes", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "notebook_sources", table: "notebook_sources", titleCol: "title", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "persona_content", table: "persona_content", titleCol: "title", bodyCol: "body", hasCreatedAt: true, longTail: true },
+  { key: "persona_conversations", table: "persona_conversations", titleCol: "role", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "persona_memories", table: "persona_memories", titleCol: "memory_type", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "quest_chains", table: "quest_chains", titleCol: "title", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "receptionist_businesses", table: "receptionist_businesses", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "reclaim_schedule_blocks", table: "reclaim_schedule_blocks", titleCol: "title", longTail: true },
+  { key: "rss_feeds", table: "rss_feeds", titleCol: "name", hasCreatedAt: true, longTail: true },
+  { key: "skill_chains", table: "skill_chains", titleCol: "title", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "standing_order_templates", table: "standing_order_templates", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "strava_activities", table: "strava_activities", titleCol: "name", hasCreatedAt: true, longTail: true },
+  { key: "tower_subareas", table: "tower_subareas", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "tutoring_sessions", table: "tutoring_sessions", titleCol: "subject", hasCreatedAt: true, longTail: true },
+  { key: "video_clips", table: "video_clips", titleCol: "title", hasCreatedAt: true, longTail: true },
+  { key: "video_projects", table: "video_projects", titleCol: "title", bodyCol: "summary", hasCreatedAt: true, longTail: true },
+  { key: "website_clients", table: "website_clients", titleCol: "business_name", bodyCol: "notes", hasCreatedAt: true, longTail: true },
+  { key: "workflows", table: "workflows", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "workspaces", table: "workspaces", titleCol: "name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_documents", table: "mavis_documents", titleCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_calls", table: "mavis_calls", titleCol: "purpose", bodyCol: "transcript", extraCols: ["outcome"], hasCreatedAt: true, longTail: true },
+  { key: "receptionist_calls", table: "receptionist_calls", titleCol: "summary", bodyCol: "transcript", hasCreatedAt: true, longTail: true },
+  { key: "receptionist_messages", table: "receptionist_messages", titleCol: "message", hasCreatedAt: true, longTail: true },
+  { key: "watchtower_briefs", table: "watchtower_briefs", titleCol: "summary", bodyCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_council_memory", table: "mavis_council_memory", titleCol: "content", extraCols: ["tags"], hasCreatedAt: true, longTail: true },
+  { key: "mavis_council_messages", table: "mavis_council_messages", titleCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "council_group_messages", table: "council_group_messages", titleCol: "content", extraCols: ["speaker_name"], hasCreatedAt: true, longTail: true },
+  { key: "mavis_agent_messages", table: "mavis_agent_messages", titleCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "mavis_world_model", table: "mavis_world_model", titleCol: "summary", hasCreatedAt: true, longTail: true },
+  { key: "mavis_strategy_memos", table: "mavis_strategy_memos", titleCol: "question", bodyCol: "synthesis", hasCreatedAt: true, longTail: true },
+  { key: "mavis_crew_runs", table: "mavis_crew_runs", titleCol: "goal", bodyCol: "synthesis", hasCreatedAt: true, longTail: true },
+  { key: "mavis_daily_briefs", table: "mavis_daily_briefs", titleCol: "brief_text", hasCreatedAt: true, longTail: true },
+  { key: "mavis_agent_briefs", table: "mavis_agent_briefs", titleCol: "summary", hasCreatedAt: true, longTail: true },
+  { key: "mavis_narrative", table: "mavis_narrative", titleCol: "identity_summary", bodyCol: "narrative", hasCreatedAt: true, longTail: true },
+  { key: "mavis_telos", table: "mavis_telos", titleCol: "mission", bodyCol: "current_state", longTail: true },
+  { key: "mavis_user_model", table: "mavis_user_model", titleCol: "personality_summary", bodyCol: "raw_synthesis", hasCreatedAt: true, longTail: true },
+  { key: "mavis_user_profile", table: "mavis_user_profile", titleCol: "profile_md", bodyCol: "key_context", longTail: true },
+  { key: "mavis_relationship_health", table: "mavis_relationship_health", titleCol: "contact_name", bodyCol: "notes", hasCreatedAt: true, longTail: true },
+  { key: "mavis_leads", table: "mavis_leads", titleCol: "company_name", bodyCol: "research_summary", hasCreatedAt: true, longTail: true },
+  { key: "mavis_outreach_drafts", table: "mavis_outreach_drafts", titleCol: "contact_name", bodyCol: "drafted_message", hasCreatedAt: true, longTail: true },
+  { key: "mavis_email_watches", table: "mavis_email_watches", titleCol: "contact_name", bodyCol: "context", hasCreatedAt: true, longTail: true },
+  { key: "mavis_meeting_preps", table: "mavis_meeting_preps", titleCol: "event_title", bodyCol: "prep_brief", hasCreatedAt: true, longTail: true },
+  { key: "mavis_causal_chains", table: "mavis_causal_chains", titleCol: "cause", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_thought_chains", table: "mavis_thought_chains", titleCol: "goal", bodyCol: "conclusion", hasCreatedAt: true, longTail: true },
+  { key: "mavis_outcome_events", table: "mavis_outcome_events", titleCol: "prediction_text", bodyCol: "actual_outcome", hasCreatedAt: true, longTail: true },
+  { key: "mavis_instagram_trends", table: "mavis_instagram_trends", titleCol: "hashtag", bodyCol: "generated_caption", hasCreatedAt: true, longTail: true },
+  { key: "mavis_social_posts", table: "mavis_social_posts", titleCol: "content", hasCreatedAt: true, longTail: true },
+  { key: "contact_interactions", table: "contact_interactions", titleCol: "interaction_type", bodyCol: "notes", hasCreatedAt: true, longTail: true },
+  { key: "finance_entries", table: "finance_entries", titleCol: "category", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_activities", table: "mavis_activities", titleCol: "type", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "computer_use_tasks", table: "computer_use_tasks", titleCol: "task_description", bodyCol: "result", hasCreatedAt: true, longTail: true },
+  { key: "mavis_device_commands", table: "mavis_device_commands", titleCol: "command_type", bodyCol: "result", hasCreatedAt: true, longTail: true },
+  { key: "mavis_tool_executions", table: "mavis_tool_executions", titleCol: "tool_name", bodyCol: "result", hasCreatedAt: true, longTail: true },
+  { key: "mavis_plugin_executions", table: "mavis_plugin_executions", titleCol: "plugin_name", bodyCol: "output", hasCreatedAt: true, longTail: true },
+  { key: "mavis_so_executions", table: "mavis_so_executions", titleCol: "template_slug", bodyCol: "result", longTail: true },
+  { key: "a2a_tasks", table: "a2a_tasks", titleCol: "input_message", bodyCol: "output_message", hasCreatedAt: true, longTail: true },
+  { key: "mavis_response_feedback", table: "mavis_response_feedback", titleCol: "response_preview", hasCreatedAt: true, longTail: true },
+  { key: "mavis_distillation_jobs", table: "mavis_distillation_jobs", titleCol: "output_summary", hasCreatedAt: true, longTail: true },
+  { key: "mavis_video_beats", table: "mavis_video_beats", titleCol: "on_screen_text", bodyCol: "narration", hasCreatedAt: true, longTail: true },
+  { key: "mavis_video_jobs", table: "mavis_video_jobs", titleCol: "prompt", hasCreatedAt: true, longTail: true },
+  { key: "stripe_revenue", table: "stripe_revenue", titleCol: "source", hasCreatedAt: true, longTail: true },
+  { key: "gumroad_sales", table: "gumroad_sales", titleCol: "product_name", hasCreatedAt: true, longTail: true },
+  { key: "mavis_design_components", table: "mavis_design_components", titleCol: "component_name", bodyCol: "performance_notes", hasCreatedAt: true, longTail: true },
+  { key: "mavis_standing_orders", table: "mavis_standing_orders", titleCol: "order_text", hasCreatedAt: true, longTail: true },
+  { key: "chat_attachments", table: "chat_attachments", titleCol: "file_name", bodyCol: "extracted_text", hasCreatedAt: true, longTail: true },
+  { key: "vault_media", table: "vault_media", titleCol: "file_name", bodyCol: "description", hasCreatedAt: true, longTail: true },
+  { key: "video_segments", table: "video_segments", titleCol: "transcript_text", longTail: true },
+  { key: "wearable_overlay_history", table: "wearable_overlay_history", titleCol: "overlay_type", bodyCol: "content", longTail: true },
+  { key: "code_delegation_sessions", table: "code_delegation_sessions", titleCol: "task_description", hasCreatedAt: true, longTail: true },
+  { key: "mavis_active_agency_specialists", table: "mavis_active_agency_specialists", titleCol: "agent_name", bodyCol: "spec_content", longTail: true },
+  { key: "mavis_council_activity", table: "mavis_council_activity", titleCol: "member_name", bodyCol: "summary", hasCreatedAt: true, longTail: true },
 
   // Conversation history — by row count the largest thing the operator has,
   // and until now reachable by nothing. Not automatic: 2600+ chat turns would
@@ -251,16 +446,16 @@ export async function searchAppData(
 
   type Probe = { t: SearchableTable; kind: "title" | "body" | "all"; rows: Record<string, unknown>[] };
 
-  const probes: Promise<Probe>[] = [];
-  for (const t of tables) {
+  function launchProbes(t: SearchableTable): Promise<Probe>[] {
     const cols = selectForCandidates(t);
+    const out: Promise<Probe>[] = [];
     const run = (kind: "title" | "body" | "all", col: string, q: string) => {
       let builder = sb.from(t.table).select(cols).eq("user_id", userId)
         .textSearch(col, q, { type: "websearch" });
       // Deterministic, so a cap that is ever reached cuts the oldest rather
       // than whatever the planner happened to emit.
       if (t.hasCreatedAt) builder = builder.order("created_at", { ascending: false });
-      probes.push(
+      out.push(
         Promise.resolve(builder.limit(candidateCap))
           .then((r: { data?: unknown[] }) => ({
             t, kind, rows: (r.data ?? []) as Record<string, unknown>[],
@@ -274,6 +469,7 @@ export async function searchAppData(
       // Only worth asking when there is more than one term to require.
       if (terms.length > 1) run("all", t.bodyCol, andQuery);
     }
+    return out;
   }
 
   // Started here, beside the keyword probes. It used to run after the
@@ -283,7 +479,23 @@ export async function searchAppData(
   // results at all, the one case the feature exists for.
   const semanticP = semanticHits(sb, userId, query, opts);
 
-  const settled = await Promise.all(probes);
+  // Tables are processed in batches rather than one flat Promise.all over
+  // every table at once. At the ~30 tables this had before the long tail,
+  // firing everything in one wave was at most ~90 simultaneous requests —
+  // fine. scope:"all" now spans 160+ tables, up to 3 queries each: one wave
+  // would be 450+ simultaneous PostgREST calls from a single edge function
+  // invocation, well past what Supabase's connection pooler holds open for
+  // one caller, so calls at the back of that pile would queue or time out —
+  // scope:"all" would get slower and less reliable exactly when someone
+  // deliberately asked to search everything. Batches of 20 tables bound peak
+  // concurrency to roughly the same order of magnitude the un-batched search
+  // always ran at, independent of how large the registry grows later.
+  const BATCH_SIZE = 20;
+  const settled: Probe[] = [];
+  for (let i = 0; i < tables.length; i += BATCH_SIZE) {
+    const batch = tables.slice(i, i + BATCH_SIZE).flatMap(launchProbes);
+    settled.push(...await Promise.all(batch));
+  }
 
   const byKey = new Map<string, Candidate>();
   for (const { t, kind, rows } of settled) {

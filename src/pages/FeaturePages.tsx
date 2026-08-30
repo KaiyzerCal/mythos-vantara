@@ -832,120 +832,19 @@ function buildMemberSystemPrompt(member: any, profile: any, appContext?: any): s
   const persona = personaMap[member.name] ??
     `You are ${member.name}. Not a character — you ARE this person. You have their history, their scars, their humor, their way of seeing the world. Your role is ${member.role} and your specialty is ${member.specialty ?? "strategic counsel"}. Here's what defines you: ${member.notes}. Talk like a real person having a real conversation — react, push back, joke, challenge. Never break character.`;
 
-  // Build FULL app context so the council member can see ALL details from every system
-  let contextBlock = "";
-  if (appContext) {
-    const p = appContext.profile || {};
-    
-    // FULL quest details
-    const allQuests = (appContext.quests || []);
-    const qList = allQuests.map((q: any) => `  • [${q.status}] "${q.title}" — ${q.description || "No description"} | Type:${q.type} Diff:${q.difficulty} XP:${q.xp_reward} Progress:${q.progress_current}/${q.progress_target}${q.category ? ` Cat:${q.category}` : ""}${q.deadline ? ` Deadline:${q.deadline}` : ""}${q.real_world_mapping ? ` IRL:${q.real_world_mapping}` : ""}`).join("\n");
-    
-    // FULL skill details including subskills
-    const allSkills = (appContext.skills || []);
-    const parentSkills = allSkills.filter((s: any) => !s.parent_skill_id);
-    const sList = parentSkills.map((s: any) => {
-      const subs = allSkills.filter((sub: any) => sub.parent_skill_id === s.id);
-      const subText = subs.length > 0 ? `\n${subs.map((sub: any) => `      ↳ ${sub.name} (T${sub.tier}, ${sub.proficiency}%, ${sub.energy_type}, ${sub.unlocked ? "unlocked" : "locked"}) — ${sub.description}`).join("\n")}` : "";
-      return `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type}, ${s.unlocked ? "unlocked" : "locked"}, cost:${s.cost}) — ${s.description}${subText}`;
-    }).join("\n");
-    
-    // FULL energy system details
-    const eList = (appContext.energySystems || []).map((e: any) => `  • ${e.type}: ${e.current_value}/${e.max_value} [${e.status}] color:${e.color} — ${e.description}`).join("\n");
-    
-    // FULL ally details
-    const aList = (appContext.allies || []).map((a: any) => `  • ${a.name} | ${a.relationship} | Lv${a.level} | Affinity:${a.affinity} | Specialty:${a.specialty} | Notes:${a.notes || "none"}`).join("\n");
-    
-    // FULL journal entries with content
-    const jList = (appContext.journalEntries || []).map((j: any) => `  • "${j.title}" [${j.category}, ${j.importance}${j.mood ? `, mood:${j.mood}` : ""}] Tags:[${(j.tags || []).join(",")}] XP:${j.xp_earned}\n    Content: ${j.content || "empty"}`).join("\n");
-    
-    // FULL vault entries with content
-    const vList = (appContext.vaultEntries || []).map((v: any) => `  • "${v.title}" [${v.category}, ${v.importance}] Attachments:${(v.attachments || []).length}\n    Content: ${v.content || "empty"}`).join("\n");
-    
-    // FULL rankings details
-    const rList = (appContext.rankings || []).map((r: any) => `  • ${r.display_name} [${r.role}${r.is_self ? ", SELF" : ""}] Lv${r.level} Rank:${r.rank} GPR:${r.gpr} PvP:${r.pvp} JJK:${r.jjk_grade} OP:${r.op_tier} Influence:${r.influence} | Notes:${r.notes || "none"}`).join("\n");
-    
-    // FULL transformation details
-    const tList = (appContext.transformations || []).map((t: any) => {
-      const buffs = Array.isArray(t.active_buffs) ? t.active_buffs.map((b: any) => `${b.label}:${b.value}${b.unit}`).join(", ") : "";
-      const passives = Array.isArray(t.passive_buffs) ? t.passive_buffs.map((b: any) => `${b.label}:${b.value}${b.unit}`).join(", ") : "";
-      const abs = Array.isArray(t.abilities) ? t.abilities.map((a: any) => `${a.title}(${a.irl})`).join(", ") : "";
-      return `  • ${t.name} [${t.tier}, ${t.unlocked ? "UNLOCKED" : "locked"}] Energy:${t.energy} BPM:${t.bpm_range} JJK:${t.jjk_grade} OP:${t.op_tier}${t.description ? ` — ${t.description}` : ""}${buffs ? `\n    Active: ${buffs}` : ""}${passives ? `\n    Passive: ${passives}` : ""}${abs ? `\n    Abilities: ${abs}` : ""}`;
-    }).join("\n");
-    
-    // FULL inventory details
-    const invList = (appContext.inventory || []).map((i: any) => {
-      const effects = Array.isArray(i.stat_effects) && i.stat_effects.length > 0 ? ` Effects:[${i.stat_effects.map((e: any) => `${e.label}:${e.value}${e.unit}`).join(",")}]` : "";
-      return `  • ${i.name} (${i.type}, ${i.rarity}, qty:${i.quantity}${i.is_equipped ? ", EQUIPPED" : ""}${i.slot ? `, slot:${i.slot}` : ""}${i.tier ? `, tier:${i.tier}` : ""}) — ${i.description}${i.effect ? ` Effect:${i.effect}` : ""}${effects}`;
-    }).join("\n");
-    
-    // FULL store details
-    const storeList = (appContext.storeItems || []).map((s: any) => `  • ${s.name} (${s.category}, ${s.rarity}, ${s.price} ${s.currency}${s.req_level ? `, reqLv:${s.req_level}` : ""}${s.req_rank ? `, reqRank:${s.req_rank}` : ""}) — ${s.description}${s.effect ? ` Effect:${s.effect}` : ""}`).join("\n");
-    
-    // FULL task details
-    const taskList = (appContext.tasks || []).map((t: any) => `  • [${t.status}] "${t.title}" (${t.type}, ${t.recurrence}, XP:${t.xp_reward}, streak:${t.streak}, completed:${t.completed_count}x)${t.description ? ` — ${t.description}` : ""}`).join("\n");
-    
-    // FULL BPM session details
-    const bpmList = (appContext.bpmSessions || []).slice(0, 10).map((b: any) => `  • ${b.bpm}bpm in ${b.form} for ${b.duration}min${b.mood ? ` mood:${b.mood}` : ""}${b.notes ? ` — ${b.notes}` : ""}`).join("\n");
-    
-    // Council members
-    const councilList = (appContext.councils || []).map((c: any) => `  • ${c.name} (${c.role}, ${c.class}${c.specialty ? `, specialty:${c.specialty}` : ""}) — ${c.notes || "no notes"}`).join("\n");
-    
-    contextBlock = `
-
-OPERATOR'S COMPLETE SYSTEM STATE — You can see and reference ALL of this data:
-
-CHARACTER PROFILE:
-  Name: ${p.inscribed_name} | True Name: ${p.true_name || "Unknown"} | Display: ${p.display_name || "none"}
-  Level: ${p.level} | Rank: ${p.rank} | XP: ${p.xp}/${p.xp_to_next_level}
-  Form: ${p.current_form} | Aura: ${p.aura} | Aura Power: ${p.aura_power}
-  Stats: STR:${p.stat_str} AGI:${p.stat_agi} VIT:${p.stat_vit} INT:${p.stat_int} WIS:${p.stat_wis} CHA:${p.stat_cha} LCK:${p.stat_lck}
-  Fatigue:${p.fatigue} | Sync:${p.full_cowl_sync}% | Codex:${p.codex_integrity}% | BPM:${p.current_bpm}
-  Floor:${p.current_floor} | GPR:${p.gpr} | PvP:${p.pvp_rating}
-  Titles: [${(p.titles || []).join(", ")}]
-  Lineage: [${(p.species_lineage || []).join(", ")}]
-  Territory: ${p.territory_class} — ${p.territory_floors}
-  Arc: ${p.arc_story}
-
-ALL QUESTS (${allQuests.length} total):
-${qList || "  None"}
-
-ALL SKILLS & SUBSKILLS (${allSkills.length} total):
-${sList || "  None"}
-
-ALL ENERGY SYSTEMS:
-${eList || "  None"}
-
-ALL ALLIES:
-${aList || "  None"}
-
-ALL JOURNAL ENTRIES (${(appContext.journalEntries || []).length} total):
-${jList || "  None"}
-
-ALL VAULT ENTRIES (${(appContext.vaultEntries || []).length} total):
-${vList || "  None"}
-
-ALL RANKINGS/ROSTER (${(appContext.rankings || []).length} total):
-${rList || "  None"}
-
-ALL FORMS/TRANSFORMATIONS (${(appContext.transformations || []).length} total):
-${tList || "  None"}
-
-ALL INVENTORY (${(appContext.inventory || []).length} total):
-${invList || "  None"}
-
-ALL STORE ITEMS (${(appContext.storeItems || []).length} total):
-${storeList || "  None"}
-
-ALL TASKS (${(appContext.tasks || []).length} total):
-${taskList || "  None"}
-
-RECENT BPM SESSIONS:
-${bpmList || "  None"}
-
-ALL COUNCIL MEMBERS:
-${councilList || "  None"}`;
-  }
+  // The operator's quests/skills/journal/vault/etc. used to be dumped here in
+  // full, unbounded, on every message — appContext.journalEntries and
+  // .vaultEntries carried every entry's complete content with no cap. This
+  // request always sends mode:"COUNCIL", which makes mavis-chat build its own
+  // authoritativeContext (the same tables, bounded and freshly fetched) plus
+  // a searchAppData pass matched to the actual question — so this block was
+  // paying twice for the same data, once unbounded and once bounded, and the
+  // unbounded copy was the one riding along on every single council turn.
+  // appContext is kept as a parameter for callers that still pass it, but
+  // nothing here reads it anymore; the identity/stats line below is the only
+  // operator context this prompt still supplies directly.
+  const contextBlock = "";
+  void appContext;
 
   return `${persona}
 

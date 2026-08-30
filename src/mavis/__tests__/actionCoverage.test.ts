@@ -14,7 +14,12 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
-const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
+// Normalized to LF: types.ts is checked out CRLF on Windows, and columnsOf's
+// regex below anchors on literal "\n" — against raw CRLF content its closing
+// "\n        }\n" never matches, so every table silently comes back with zero
+// columns and every assertion that depends on it fails, whether or not the
+// registry entry is actually correct.
+const read = (p: string) => readFileSync(join(ROOT, p), "utf8").replace(/\r\n/g, "\n");
 
 const ACTIONS = read("supabase/functions/mavis-actions/index.ts");
 const TYPES = read("src/integrations/supabase/types.ts");
