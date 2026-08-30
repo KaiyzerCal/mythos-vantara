@@ -71,13 +71,23 @@ const TABLES: Record<string, Backfillable> = {
  * about 36), and `remaining` could never fall below 89, leaving the cron to
  * spin forever on work it was never able to complete.
  *
- * `neq ''` drops NULLs too: NULL <> '' evaluates to NULL, which PostgREST
- * filters out. A titled table can still qualify on its title alone, which is
- * why those use `or` rather than testing the body by itself.
+ * Matched against a blank pattern rather than compared to '': `content <> ''`
+ * is true for "   ", so a whitespace-only row would still be selected on
+ * every run and would re-break termination the same way. The regex covers
+ * empty, whitespace-only and NULL in one filter — `NULL !~ ...` is NULL,
+ * which PostgREST drops.
+ *
+ * A titled table can still qualify on its title alone, which is why those
+ * use `or` rather than testing the body by itself. Both forms were checked
+ * against the running PostgREST before being relied on here.
  */
+const BLANK = "^[[:space:]]*$";
+
 // deno-lint-ignore no-explicit-any
 function onlyEmbeddable(q: any, titleCol: string | undefined, bodyCol: string): any {
-  return titleCol ? q.or(`${titleCol}.neq.,${bodyCol}.neq.`) : q.neq(bodyCol, "");
+  return titleCol
+    ? q.or(`${titleCol}.not.match.${BLANK},${bodyCol}.not.match.${BLANK}`)
+    : q.not(bodyCol, "match", BLANK);
 }
 
 serve(async (req) => {
@@ -136,10 +146,11 @@ serve(async (req) => {
       for (const row of (rows ?? []) as unknown as Record<string, unknown>[]) {
         const text = embeddableText(titleCol ? row[titleCol] : "", row[bodyCol]);
         if (!text) {
-          // A backstop now that onlyEmbeddable excludes these at the query
-          // level — it still catches whitespace-only text, which SQL's <> ''
-          // does not. Left NULL on purpose: marking it done would need a
-          // sentinel vector, and a row with no text is not findable anyway.
+          // onlyEmbeddable excludes blank rows at the query level, so this is
+          // a backstop for anything that slips past it — a row emptied
+          // between the select and this loop, say. Left NULL on purpose:
+          // marking it done would need a sentinel vector, and a row with no
+          // text is not findable anyway.
           failed++;
           continue;
         }

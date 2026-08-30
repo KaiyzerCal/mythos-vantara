@@ -512,6 +512,14 @@ describe("semantic search", () => {
     expect(guarded.length, "both the row select and the remaining-count must be filtered")
       .toBe(2);
 
+    // Blankness is a pattern match, not a comparison to ''. `content <> ''`
+    // is true for "   ", so a whitespace-only row would be re-selected on
+    // every run and would re-break termination in exactly the same way.
+    expect(BACKFILL, "blank rows must be matched as a pattern, not compared to ''")
+      .toMatch(/\^\[\[:space:\]\]\*\$/);
+    expect(BACKFILL, "neq '' is back — whitespace-only rows would never terminate")
+      .not.toMatch(/\.neq\(bodyCol, ""\)/);
+
     // Nothing may ask for unembedded rows outside that filter.
     for (const m of BACKFILL.matchAll(/\.is\("embedding", null\)/g)) {
       const before = BACKFILL.slice(Math.max(0, (m.index ?? 0) - 400), m.index ?? 0);
