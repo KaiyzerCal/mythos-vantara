@@ -62,6 +62,34 @@ const TABLES: Record<string, Backfillable> = {
   agent_memories: { table: "mavis_agent_memories", bodyCol: "content", dims: 768 },
 };
 
+/**
+ * Narrow a query to rows that can actually produce an embedding.
+ *
+ * Without this the backfill cannot finish. 89 of mavis_memory's rows have
+ * empty content, and an unordered scan returns them first — so a run spent
+ * most of its batch re-reading the same dead rows (a batch of 100 embedded
+ * about 36), and `remaining` could never fall below 89, leaving the cron to
+ * spin forever on work it was never able to complete.
+ *
+ * Matched against a blank pattern rather than compared to '': `content <> ''`
+ * is true for "   ", so a whitespace-only row would still be selected on
+ * every run and would re-break termination the same way. The regex covers
+ * empty, whitespace-only and NULL in one filter — `NULL !~ ...` is NULL,
+ * which PostgREST drops.
+ *
+ * A titled table can still qualify on its title alone, which is why those
+ * use `or` rather than testing the body by itself. Both forms were checked
+ * against the running PostgREST before being relied on here.
+ */
+const BLANK = "^[[:space:]]*$";
+
+// deno-lint-ignore no-explicit-any
+function onlyEmbeddable(q: any, titleCol: string | undefined, bodyCol: string): any {
+  return titleCol
+    ? q.or(`${titleCol}.not.match.${BLANK},${bodyCol}.not.match.${BLANK}`)
+    : q.not(bodyCol, "match", BLANK);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -100,12 +128,11 @@ serve(async (req) => {
       const { table, titleCol, bodyCol, dims } = TABLES[key];
       const cols = titleCol ? `id,${titleCol},${bodyCol}` : `id,${bodyCol}`;
 
-      const { data: rows, error } = await supabase
-        .from(table)
-        .select(cols)
-        .eq("user_id", userId)
-        .is("embedding", null)
-        .limit(batch);
+      const { data: rows, error } = await onlyEmbeddable(
+        supabase.from(table).select(cols).eq("user_id", userId).is("embedding", null),
+        titleCol,
+        bodyCol,
+      ).limit(batch);
       if (error) throw new Error(`${table}: ${error.message}`);
 
       let embedded = 0;
@@ -119,8 +146,11 @@ serve(async (req) => {
       for (const row of (rows ?? []) as unknown as Record<string, unknown>[]) {
         const text = embeddableText(titleCol ? row[titleCol] : "", row[bodyCol]);
         if (!text) {
-          // Nothing to embed. Left NULL on purpose: marking it done would need
-          // a sentinel vector, and a row with no text is not findable anyway.
+          // onlyEmbeddable excludes blank rows at the query level, so this is
+          // a backstop for anything that slips past it — a row emptied
+          // between the select and this loop, say. Left NULL on purpose:
+          // marking it done would need a sentinel vector, and a row with no
+          // text is not findable anyway.
           failed++;
           continue;
         }
@@ -136,11 +166,18 @@ serve(async (req) => {
         embedded++;
       }
 
-      const { count } = await supabase
-        .from(table)
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .is("embedding", null);
+      // Counted through the same filter as the select. If it were not, the
+      // rows this can never embed would hold `remaining` above zero and
+      // `done` would never become true.
+      const { count } = await onlyEmbeddable(
+        supabase
+          .from(table)
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .is("embedding", null),
+        titleCol,
+        bodyCol,
+      );
 
       report[key] = { embedded, failed, remaining: count ?? 0 };
     }
