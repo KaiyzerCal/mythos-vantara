@@ -34,6 +34,23 @@ interface Backfillable {
    * of the wrong length outright, so getting this wrong fails every row.
    */
   dims?: number;
+  /**
+   * Default "id". mavis_user_profile is one row per operator, keyed by
+   * user_id, with no id column at all — selecting/updating on "id"
+   * unconditionally 400s on that table specifically.
+   */
+  idCol?: string;
+  /**
+   * bodyCol is jsonb, not text. Two things change: the blank-row filter
+   * can't use a regex match (`jsonb ~ text` doesn't exist as an operator —
+   * found this by running the backfill against mavis_calls.transcript, which
+   * failed outright rather than just embedding nothing), so it falls back to
+   * an IS NOT NULL check instead; and the value arrives as a parsed object,
+   * not a string, so it needs JSON.stringify rather than embeddableText's
+   * plain concatenation (which would otherwise embed the literal text
+   * "[object Object]").
+   */
+  bodyIsJson?: boolean;
 }
 
 const TABLES: Record<string, Backfillable> = {
@@ -69,7 +86,7 @@ const TABLES: Record<string, Backfillable> = {
   mavis_telos: { table: "mavis_telos", titleCol: "mission", bodyCol: "current_state" },
   mavis_narrative: { table: "mavis_narrative", titleCol: "identity_summary", bodyCol: "narrative" },
   mavis_user_model: { table: "mavis_user_model", titleCol: "personality_summary", bodyCol: "raw_synthesis" },
-  mavis_user_profile: { table: "mavis_user_profile", titleCol: "profile_md", bodyCol: "key_context" },
+  mavis_user_profile: { table: "mavis_user_profile", titleCol: "profile_md", bodyCol: "key_context", idCol: "user_id" },
   mavis_plans: { table: "mavis_plans", titleCol: "title", bodyCol: "summary" },
   mavis_playbooks: { table: "mavis_playbooks", titleCol: "name", bodyCol: "description" },
   mavis_strategy_memos: { table: "mavis_strategy_memos", titleCol: "question", bodyCol: "synthesis" },
@@ -87,7 +104,7 @@ const TABLES: Record<string, Backfillable> = {
   watchtower_briefs: { table: "watchtower_briefs", titleCol: "summary", bodyCol: "content" },
   mavis_daily_briefs: { table: "mavis_daily_briefs", bodyCol: "brief_text" },
   mavis_agent_briefs: { table: "mavis_agent_briefs", bodyCol: "summary" },
-  mavis_calls: { table: "mavis_calls", titleCol: "purpose", bodyCol: "transcript" },
+  mavis_calls: { table: "mavis_calls", titleCol: "purpose", bodyCol: "transcript", bodyIsJson: true },
   receptionist_calls: { table: "receptionist_calls", titleCol: "summary", bodyCol: "transcript" },
   video_segments: { table: "video_segments", bodyCol: "transcript_text" },
   chat_attachments: { table: "chat_attachments", titleCol: "file_name", bodyCol: "extracted_text" },
@@ -118,10 +135,16 @@ const TABLES: Record<string, Backfillable> = {
 const BLANK = "^[[:space:]]*$";
 
 // deno-lint-ignore no-explicit-any
-function onlyEmbeddable(q: any, titleCol: string | undefined, bodyCol: string): any {
-  return titleCol
-    ? q.or(`${titleCol}.not.match.${BLANK},${bodyCol}.not.match.${BLANK}`)
-    : q.not(bodyCol, "match", BLANK);
+function onlyEmbeddable(q: any, titleCol: string | undefined, bodyCol: string, bodyIsJson?: boolean): any {
+  // jsonb has no `~` (regex match) operator, so the blank-pattern filter
+  // that works for every text column 400s outright on one. IS NOT NULL is
+  // the closest equivalent PostgREST offers for jsonb — it won't catch an
+  // empty object/array the way the regex catches whitespace-only text, but
+  // it does exclude true NULLs, which is what makes the count in the second
+  // call agree with what the select actually returned.
+  const bodyClause = bodyIsJson ? `${bodyCol}.not.is.null` : `${bodyCol}.not.match.${BLANK}`;
+  if (titleCol) return q.or(`${titleCol}.not.match.${BLANK},${bodyClause}`);
+  return bodyIsJson ? q.not(bodyCol, "is", null) : q.not(bodyCol, "match", BLANK);
 }
 
 serve(async (req) => {
@@ -159,13 +182,15 @@ serve(async (req) => {
     const report: Record<string, { embedded: number; failed: number; remaining: number }> = {};
 
     for (const key of wanted) {
-      const { table, titleCol, bodyCol, dims } = TABLES[key];
-      const cols = titleCol ? `id,${titleCol},${bodyCol}` : `id,${bodyCol}`;
+      const { table, titleCol, bodyCol, dims, bodyIsJson } = TABLES[key];
+      const idCol = TABLES[key].idCol ?? "id";
+      const cols = titleCol ? `${idCol},${titleCol},${bodyCol}` : `${idCol},${bodyCol}`;
 
       const { data: rows, error } = await onlyEmbeddable(
         supabase.from(table).select(cols).eq("user_id", userId).is("embedding", null),
         titleCol,
         bodyCol,
+        bodyIsJson,
       ).limit(batch);
       if (error) throw new Error(`${table}: ${error.message}`);
 
@@ -178,13 +203,18 @@ serve(async (req) => {
       // cast is not allowed to bridge (TS2352). deno-check caught this; tsc
       // never sees this directory.
       for (const row of (rows ?? []) as unknown as Record<string, unknown>[]) {
-        const text = embeddableText(titleCol ? row[titleCol] : "", row[bodyCol]);
-        if (!text) {
+        // jsonb comes back parsed, not stringified — embeddableText's plain
+        // concatenation would otherwise embed the literal text
+        // "[object Object]" rather than anything the row actually says.
+        const body = bodyIsJson ? JSON.stringify(row[bodyCol] ?? "") : row[bodyCol];
+        const text = embeddableText(titleCol ? row[titleCol] : "", body);
+        if (!text || text === '""' || text === "{}" || text === "[]") {
           // onlyEmbeddable excludes blank rows at the query level, so this is
           // a backstop for anything that slips past it — a row emptied
-          // between the select and this loop, say. Left NULL on purpose:
-          // marking it done would need a sentinel vector, and a row with no
-          // text is not findable anyway.
+          // between the select and this loop, or a jsonb value that
+          // stringifies to an empty shape IS NOT NULL can't see. Left NULL
+          // on purpose: marking it done would need a sentinel vector, and a
+          // row with no text is not findable anyway.
           failed++;
           continue;
         }
@@ -194,7 +224,7 @@ serve(async (req) => {
         const { error: upErr } = await supabase
           .from(table)
           .update({ embedding: vec })
-          .eq("id", String(row.id))
+          .eq(idCol, String(row[idCol]))
           .eq("user_id", userId);
         if (upErr) { failed++; continue; }
         embedded++;
@@ -206,11 +236,12 @@ serve(async (req) => {
       const { count } = await onlyEmbeddable(
         supabase
           .from(table)
-          .select("id", { count: "exact", head: true })
+          .select(idCol, { count: "exact", head: true })
           .eq("user_id", userId)
           .is("embedding", null),
         titleCol,
         bodyCol,
+        bodyIsJson,
       );
 
       report[key] = { embedded, failed, remaining: count ?? 0 };
