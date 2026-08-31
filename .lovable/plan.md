@@ -2,10 +2,10 @@
 
 ## Confirmed findings
 
-- The control plane reports the backend as healthy, but the backend itself is not answering.
-- Auth requests (both the settings endpoint and a deliberately-wrong password sign-in) hang and time out at 25 seconds with no HTTP response — this is exactly the "Failed to fetch" the app shows.
-- Direct database queries fail too: the connection pooler times out (`Connection terminated due to connection timeout`).
-- Auth and database both stalled while the control plane reports healthy means this is a backend-side stall, not wrong credentials and not a bug in the login form or app data hooks.
+- The Lovable Cloud control plane reports the backend as ready, but its database services are not answering normally.
+- A fresh database health check timed out while awaiting headers.
+- Both a trivial `SELECT 1` and a `pg_stat_activity` diagnostic failed because the database connection pool timed out, so SQL cannot currently inspect or clear the blocked sessions.
+- Recent auth logs are empty while the preview shows repeated auth refresh `Failed to fetch` errors. Together, these signals identify a backend-side stall rather than wrong credentials or an app login-form defect.
 
 ## Recovery steps
 
