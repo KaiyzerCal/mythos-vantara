@@ -6,6 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -212,7 +213,8 @@ async function processUser(userId: string): Promise<{
     }));
 
   if (toInsert.length > 0) {
-    await sb().from("mavis_predictions").insert(toInsert);
+    const { data: newPredictions } = await sb().from("mavis_predictions").insert(toInsert).select("id");
+    for (const row of newPredictions ?? []) reembedRow(sb(), "mavis_predictions", String(row.id), userId);
 
     // Fire push notify for high-confidence risk alerts
     const urgent = toInsert.filter(p => p.confidence >= 0.8 && p.prediction_type === "risk_alert");

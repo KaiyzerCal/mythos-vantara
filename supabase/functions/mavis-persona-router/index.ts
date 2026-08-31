@@ -5,6 +5,7 @@ import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { buildTsQuery, truncationLabel } from "../_shared/entrySearch.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 import {
   ProviderUnavailableError,
   isUnfundedStatus,
@@ -917,10 +918,11 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
     // discusses with each persona without the operator having to repeat context.
     (async () => {
       try {
-        await supabase.from("mavis_persona_memory").insert([
+        const { data: newMirrorMemories } = await supabase.from("mavis_persona_memory").insert([
           { user_id, persona_id, persona_name: persona.name, role: "user",      content: message.slice(0, 1000),  importance: 1, source: channel },
           { user_id, persona_id, persona_name: persona.name, role: "assistant", content: response.slice(0, 1000), importance: 1, source: channel },
-        ]);
+        ]).select("id");
+        for (const row of newMirrorMemories ?? []) reembedRow(supabase, "mavis_persona_memory", String(row.id), user_id);
       } catch { /* non-critical */ }
     })();
 

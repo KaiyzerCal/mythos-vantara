@@ -5,6 +5,7 @@ import { supabase as _supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { triggerEmbed } from "@/lib/embedTrigger";
 
 const supabase = _supabase as any;
 
@@ -101,6 +102,7 @@ export function VoiceMemo({ inline = false }: VoiceMemoProps) {
         category: "voice-memo",
         tags: ["voice-memo", "auto-transcribed"],
       });
+      triggerEmbed(user.id, "journal");
       toast({ title: "Journal entry saved", description: result.suggested_title });
       setResult(null);
       setState("idle");

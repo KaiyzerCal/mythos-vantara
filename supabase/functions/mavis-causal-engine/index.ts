@@ -7,6 +7,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -167,8 +168,9 @@ Only include chains where you see actual signal in the data. Be specific and hon
     week_of: weekOf,
   }));
 
-  const { error } = await sb.from("mavis_causal_chains").insert(toInsert);
+  const { data: newChains, error } = await sb.from("mavis_causal_chains").insert(toInsert).select("id");
   if (error) console.error("[causal-engine]", error.message);
+  for (const row of newChains ?? []) reembedRow(sb, "mavis_causal_chains", String(row.id), userId);
 
   return toInsert.length;
 }

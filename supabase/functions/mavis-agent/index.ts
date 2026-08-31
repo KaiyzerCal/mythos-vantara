@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -1694,6 +1695,7 @@ async function handleTool(
             return { error: `Failed to create notebook: ${createErr?.message ?? "unknown"}` };
           }
           notebookId = created.id;
+          reembedRow(supabase, "notebooks", String(notebookId), userId);
         }
 
         // 2. Save source or note

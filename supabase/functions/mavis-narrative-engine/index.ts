@@ -7,6 +7,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -140,7 +141,8 @@ serve(async (req) => {
       for (const uid of uniqueUsers) {
         try {
           const narrative = await buildNarrative(uid);
-          await sb().from("mavis_narrative").insert({ user_id: uid, ...narrative });
+          const { data: newRow } = await sb().from("mavis_narrative").insert({ user_id: uid, ...narrative }).select("id").single();
+          if (newRow?.id) reembedRow(sb(), "mavis_narrative", String(newRow.id), uid);
           processed++;
         } catch (err: any) { console.error(`[narrative-engine] ${uid}:`, err.message); }
       }
@@ -149,7 +151,8 @@ serve(async (req) => {
 
     if (!targetUserId) return json({ error: "Unauthorized" }, 401);
     const narrative = await buildNarrative(targetUserId);
-    await sb().from("mavis_narrative").insert({ user_id: targetUserId, ...narrative });
+    const { data: newRow } = await sb().from("mavis_narrative").insert({ user_id: targetUserId, ...narrative }).select("id").single();
+    if (newRow?.id) reembedRow(sb(), "mavis_narrative", String(newRow.id), targetUserId);
     return json({ success: true, narrative });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

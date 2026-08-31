@@ -16,6 +16,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -441,6 +442,7 @@ async function checkOutcomes(userId: string, sb: ReturnType<typeof createSb>): P
               checked_at: new Date().toISOString(),
             })
             .eq("id", event.id);
+          reembedRow(sb, "mavis_outcome_events", event.id, userId);
 
           await updateAccuracyTacit(userId, event.source_type, result.outcome_status, sb);
           checked++;
@@ -560,6 +562,7 @@ serve(async (req) => {
         .single();
 
       if (error) return json({ error: error.message }, 500);
+      if (data?.id) reembedRow(sb, "mavis_outcome_events", String(data.id), user_id);
       return json({ recorded: true, event: data });
     }
 

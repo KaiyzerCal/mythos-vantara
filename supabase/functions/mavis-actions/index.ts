@@ -3,7 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
 import { buildTsQuery, extractTerms } from "../_shared/entrySearch.ts";
 import { searchAppData, resolveScope, SEARCHABLE_KEYS } from "../_shared/appSearch.ts";
-import { embedText, embeddableText } from "../_shared/embedding.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
+import { embedText } from "../_shared/embedding.ts";
 
 type MavisAction = {
   type: string;
@@ -171,30 +172,10 @@ function normalizeActionType(type: string): string {
 }
 
 // ── Action executor ────────────────────────────────────────
-/**
- * Refresh one row's embedding after it is written.
- *
- * Fire-and-forget on purpose: the operator's create or update has already
- * succeeded, and an embedding endpoint being slow must not hold up the reply
- * or fail the action. A row that misses its embedding here is simply picked
- * up by the next mavis-embed-backfill run, since that selects on
- * embedding IS NULL.
- *
- * Without this, semantic search would work on the day it was backfilled and
- * silently rot afterwards — every entry written since would be invisible to
- * it. That is how the database ended up with 2632 memories and no vectors.
- */
-function reembedRow(sb: any, table: string, id: string, userId: string): void {
-  (async () => {
-    try {
-      const { data } = await sb.from(table).select("title,content").eq("id", id).eq("user_id", userId).maybeSingle();
-      if (!data) return;
-      const vec = await embedText(embeddableText(data.title, data.content));
-      if (!vec) return;
-      await sb.from(table).update({ embedding: vec }).eq("id", id).eq("user_id", userId);
-    } catch { /* non-critical: the backfill will catch it */ }
-  })();
-}
+// reembedRow is imported from _shared/reembedRow.ts — was local to this file
+// (journal_entries/vault_entries only, hardcoded to title+content columns)
+// until every other table needed the same hook and duplicating it per-table
+// stopped being the smaller diff.
 
 async function executeAction(sb: any, userId: string, action: MavisAction) {
   // Support nested { type, params: {...} }, flat { type, title, ... }, and
@@ -218,7 +199,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // accepted alternate name for exactly that path. Same structural
       // issue as update_inventory_item's "type" field, fixed here since
       // the fallback name doesn't collide with anything.
-      const { error } = await sb.from("quests").insert({
+      const { data: newQuest, error } = await sb.from("quests").insert({
         user_id: userId,
         title: String(p.title || "New Quest"),
         description: String(p.description || ""),
@@ -234,9 +215,10 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         loot_rewards: p.loot_rewards || [],
         linked_skill_ids: asStringArray(p.linked_skill_ids),
         parent_quest_id: p.parent_quest_id ? String(p.parent_quest_id) : null,
-      });
+      }).select("id").single();
       if (error) throw error;
       await logActivity(sb, userId, "quest_created", `Quest created: ${String(p.title || "New Quest")}`, 0);
+      if (newQuest?.id) reembedRow(sb, "quests", String(newQuest.id), userId);
       return;
     }
 
@@ -257,6 +239,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!updated || updated.length === 0) throw new Error(`quests: update matched no row for id "${questId}"`);
+      reembedRow(sb, "quests", questId, userId);
       return;
     }
 
@@ -291,7 +274,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     // in case an alias lookup is bypassed (e.g. direct switch fall-through).
     case "create_task": {
       // Redirect: insert as a quest (type "side") instead of the tasks table
-      const { error } = await sb.from("quests").insert({
+      const { data: newTaskQuest, error } = await sb.from("quests").insert({
         user_id: userId,
         title: String(p.title || "New Quest"),
         description: p.description ? String(p.description) : null,
@@ -303,8 +286,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         progress_current: 0,
         progress_target: 1,
         parent_quest_id: p.parent_quest_id ? String(p.parent_quest_id) : null,
-      });
+      }).select("id").single();
       if (error) throw error;
+      if (newTaskQuest?.id) reembedRow(sb, "quests", String(newTaskQuest.id), userId);
       await logActivity(sb, userId, "quest_created", `Quest created (via create_task): ${String(p.title || "New Quest")}`, 0);
       return;
     }
@@ -1917,7 +1901,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "create_meeting_note": {
       const title = String(p.title || "Meeting");
-      const { error } = await sb.from("meeting_notes").insert({
+      const { data: newNote, error } = await sb.from("meeting_notes").insert({
         user_id: userId,
         title,
         summary: p.summary ? String(p.summary) : null,
@@ -1926,9 +1910,10 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         key_points: asStringArray(p.key_points),
         decisions: asStringArray(p.decisions),
         raw_transcript: p.raw_transcript ? String(p.raw_transcript) : null,
-      });
+      }).select("id").single();
       if (error) throw error;
       await logActivity(sb, userId, "meeting_note_created", `Meeting: ${title}`, 0);
+      if (newNote?.id) reembedRow(sb, "meeting_notes", String(newNote.id), userId);
       return;
     }
 
@@ -1944,6 +1929,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const { data, error } = await sb.from("meeting_notes").update(updates).eq("id", id).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!data || data.length === 0) throw new Error(`meeting_notes: update matched no row for id "${id}"`);
+      if (updates.title !== undefined || updates.summary !== undefined) reembedRow(sb, "meeting_notes", id, userId);
       return;
     }
 

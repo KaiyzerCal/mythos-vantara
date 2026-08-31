@@ -18,6 +18,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 // ── Env ───────────────────────────────────────────────────────────────────────
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
@@ -488,15 +489,17 @@ async function runStepLogic(
     case "notify": {
       const message = String(input.message ?? "") || step.description;
       // mavis_insights columns are title, content, category, severity, source.
-      const { error: insightErr } = await sb.from("mavis_insights").insert({
+      const { data: notifyInsight, error: insightErr } = await sb.from("mavis_insights").insert({
         user_id: task.user_id,
         title: step.description.slice(0, 120),
         content: message.slice(0, 2000),
         category: "autonomous",
         severity: "info",
         source: "autonomous-runner",
-      });
+      }).select("id").single();
       if (insightErr) throw new Error(`Insight insert failed: ${insightErr.message}`);
+      const notifyInsightId = notifyInsight?.id;
+      if (notifyInsightId) reembedRow(sb, "mavis_insights", String(notifyInsightId), task.user_id);
       return "notified";
     }
 

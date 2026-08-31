@@ -5,6 +5,7 @@
 // Called from the MAVIS Design Studio page.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 import {
   REASONING_RULES, COLOR_PALETTES, TYPOGRAPHY_PAIRINGS, PRODUCT_TYPES,
   type ReasoningRule, type ColorPalette, type Typography,
@@ -211,7 +212,9 @@ Deno.serve(async (req) => {
         category: "design_system",
         severity: "info",
         source: "design_system_gen",
-      }).then(undefined, () => {});
+      }).select("id").single().then(({ data }: any) => {
+        if (data?.id) reembedRow(sbAdmin, "mavis_insights", String(data.id), userId);
+      }, () => {});
     }
 
     return new Response(

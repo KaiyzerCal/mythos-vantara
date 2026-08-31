@@ -22,6 +22,7 @@
 //   OPENAI_API / OPENAI_API_KEY       — enables voice transcription via Whisper
 
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
@@ -1510,7 +1511,8 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
           type:        params.type ?? "daily",
           status:      "active",
           xp_reward:   Number(params.xp_reward) || 50,
-        }).select("title").single();
+        }).select("id,title").single();
+        if ((data as any)?.id) reembedRow(sb, "quests", String((data as any).id), uid);
         return data ? `Quest created: "${(data as any).title}"` : null;
       }
       case "complete_quest": {
@@ -1527,7 +1529,8 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
           content:  params.content ?? "",
           category: params.category ?? "general",
           mood:     params.mood ?? null,
-        }).select("title").single();
+        }).select("id,title").single();
+        if ((data as any)?.id) reembedRow(sb, "journal_entries", String((data as any).id), uid);
         return data ? `Journal entry created: "${(data as any).title}"` : null;
       }
       case "create_vault": {
@@ -1538,7 +1541,8 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
           title:    params.title ?? "Vault Entry",
           content:  params.content ?? "",
           category: vaultCat,
-        }).select("title").single();
+        }).select("id,title").single();
+        if ((data as any)?.id) reembedRow(sb, "vault_entries", String((data as any).id), uid);
         return data ? `Vault entry saved: "${(data as any).title}"` : null;
       }
       case "create_skill": {
@@ -3211,7 +3215,9 @@ async function handleChat(
             role: "user",      content: text.slice(0, 1000),     session_id: sessionId, importance: 1, source: "council" },
           { user_id: uid, persona_id: activeCouncil.id, persona_name: activeCouncil.name ?? "Council Member",
             role: "assistant", content: rawReply.slice(0, 1000), session_id: sessionId, importance: 1, source: "council" },
-        ])).catch((err: any) => console.warn("[telegram-bot] mavis_persona_memory write failed", err));
+        ]).select("id")).then(({ data }: any) => {
+          for (const row of data ?? []) reembedRow(sb, "mavis_persona_memory", String(row.id), uid);
+        }).catch((err: any) => console.warn("[telegram-bot] mavis_persona_memory write failed", err));
       } else {
         await send(chatId, `⚠️ ${activeCouncil.name} is unavailable right now. Try again.`);
       }

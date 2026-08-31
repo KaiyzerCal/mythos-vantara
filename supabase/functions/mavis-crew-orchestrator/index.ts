@@ -5,6 +5,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -469,14 +470,15 @@ async function synthesise(
 function createRunRecord(runId: string, userId: string, goal: string, agentCount: number): void {
   (async () => {
     try {
-      await supabase.from("mavis_crew_runs").insert({
+      const { data: newRun } = await supabase.from("mavis_crew_runs").insert({
         run_id: runId,
         user_id: userId,
         goal,
         agent_count: agentCount,
         agent_results: [],
         status: "running",
-      });
+      }).select("id").single();
+      if (newRun?.id) reembedRow(supabase, "mavis_crew_runs", String(newRun.id), userId);
     } catch (err) {
       console.error("[crew-orchestrator] Failed to create run record:", err);
     }
@@ -493,11 +495,12 @@ function finalizeRun(
 ): void {
   (async () => {
     try {
-      await supabase.from("mavis_crew_runs").update({
+      const { data: finishedRun } = await supabase.from("mavis_crew_runs").update({
         synthesis,
         duration_ms: durationMs,
         status,
-      }).eq("run_id", runId).eq("user_id", userId);
+      }).eq("run_id", runId).eq("user_id", userId).select("id").single();
+      if (finishedRun?.id) reembedRow(supabase, "mavis_crew_runs", String(finishedRun.id), userId);
     } catch (err) {
       console.error("[crew-orchestrator] Failed to finalize run:", err);
     }

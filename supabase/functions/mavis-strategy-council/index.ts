@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -208,9 +209,11 @@ serve(async (req) => {
       })
       .select("id")
       .single();
+    const memoId = memo?.id;
+    if (memoId) reembedRow(sb(), "mavis_strategy_memos", String(memoId), userId);
 
     return json({
-      memo_id: memo?.id,
+      memo_id: memoId,
       question,
       advisor_outputs: advisorOutputs,
       synthesis,

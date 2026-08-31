@@ -6,6 +6,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -567,12 +568,14 @@ Deno.serve(async (req) => {
         streak_risks: streakRisk.length,
         revenue_gap_7d: revenueGap.length === 0,
       };
-      await supabase.from("mavis_daily_briefs").upsert({
+      const { data: briefRow } = await supabase.from("mavis_daily_briefs").upsert({
         user_id: uid,
         brief_date: todayIso,
         brief_text: briefText,
         sections: sectionsData,
-      }, { onConflict: "user_id,brief_date" });
+      }, { onConflict: "user_id,brief_date" }).select("id").single();
+      const briefRowId = briefRow?.id;
+      if (briefRowId) reembedRow(supabase, "mavis_daily_briefs", String(briefRowId), uid);
     } catch { /* non-critical — Telegram already sent */ }
 
     // ── Push summary to mavis_insights for in-app Notifications page ─────────
@@ -581,14 +584,16 @@ Deno.serve(async (req) => {
     try {
       const alertCount = patternAlerts.length + overdue.length + approvals.length;
       const severity = alertCount > 3 ? "warning" : alertCount > 0 ? "info" : "info";
-      await supabase.from("mavis_insights").insert({
+      const { data: insightRow } = await supabase.from("mavis_insights").insert({
         user_id: uid,
         title: `Morning Brief — ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}`,
         content: briefText.slice(0, 2000),
         category: "morning_brief",
         severity,
         source: "morning_brief",
-      });
+      }).select("id").single();
+      const insightRowId = insightRow?.id;
+      if (insightRowId) reembedRow(supabase, "mavis_insights", String(insightRowId), uid);
     } catch { /* non-critical */ }
 
     // Heartbeat: mark ok

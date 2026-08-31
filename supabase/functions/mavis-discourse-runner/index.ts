@@ -7,6 +7,7 @@
 
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const supabase  = createClient(
@@ -220,10 +221,12 @@ Deno.serve(async (req) => {
       })
       .select("id")
       .single();
+    const rowId = row?.id;
+    if (rowId) reembedRow(supabase, "mavis_council_discourse", String(rowId), user_id);
 
     return new Response(
       JSON.stringify({
-        id:                row?.id,
+        id:                rowId,
         topic,
         participant_count: participants.length,
         round_count:       allRounds.length,

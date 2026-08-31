@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -171,14 +172,16 @@ serve(async (req) => {
             try {
               const analysis = await analyzeChange(oldContent, content);
 
-              await sb.from("mavis_insights").insert({
+              const { data: changeInsight } = await sb.from("mavis_insights").insert({
                 user_id: userId,
                 title: `${competitor.name} — Site Change Detected`,
                 content: analysis.insight,
                 category: "competitive",
                 severity: analysis.significance === "major" ? "warning" : "info",
                 generated_at: now,
-              });
+              }).select("id").single();
+              const changeInsightId = changeInsight?.id;
+              if (changeInsightId) reembedRow(sb, "mavis_insights", String(changeInsightId), userId);
             } catch (aiErr) {
               console.error(`[competitor-monitor] AI analysis failed for ${competitor.name}:`, aiErr);
             }

@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -861,12 +862,15 @@ async function handleAnalyze(
         created_at: new Date().toISOString(),
       }));
 
-      const { error: segErr } = await supabase
+      const { data: newSegments, error: segErr } = await supabase
         .from("video_segments")
-        .insert(segmentRows);
+        .insert(segmentRows)
+        .select("id");
 
       if (segErr) {
         console.error(`[mavis-video-editor] Segments insert error:`, segErr.message);
+      } else {
+        for (const row of newSegments ?? []) reembedRow(supabase, "video_segments", String(row.id), userId);
       }
     }
 

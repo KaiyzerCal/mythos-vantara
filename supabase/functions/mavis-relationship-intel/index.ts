@@ -6,6 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -121,7 +122,7 @@ async function analyzeUser(userId: string): Promise<number> {
         suggestion = await generateSuggestion(contact.name, daysSince, lastInteraction, contact.notes ?? "");
       }
 
-      await sb().from("mavis_relationship_health").upsert({
+      const { data: healthRow } = await sb().from("mavis_relationship_health").upsert({
         user_id: userId,
         contact_id: contact.id,
         contact_name: contact.name,
@@ -134,7 +135,8 @@ async function analyzeUser(userId: string): Promise<number> {
         suggested_action: suggestion.action,
         action_urgency: suggestion.urgency,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,contact_name" });
+      }, { onConflict: "user_id,contact_name" }).select("id").single();
+      if (healthRow?.id) reembedRow(sb(), "mavis_relationship_health", String(healthRow.id), userId);
 
       // Alert for critical dormancy
       if (daysSince > 90 && suggestion.urgency === "high") {

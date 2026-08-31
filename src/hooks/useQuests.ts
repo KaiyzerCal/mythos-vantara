@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { recordAutoMemory } from "@/mavis/autoMemory";
+import { triggerEmbed } from "@/lib/embedTrigger";
 
 export interface QuestBuffEffect {
   label: string;
@@ -101,13 +102,20 @@ export function useQuests() {
     if (error || !data) return null;
     const quest = data as unknown as Quest;
     setQuests((q) => [quest, ...q]);
+    triggerEmbed(user.id, "quests");
     return quest;
   }, [user]);
 
   const updateQuest = useCallback(async (id: string, input: UpdateQuestInput) => {
     setQuests((qs) => qs.map((q) => (q.id === id ? { ...q, ...input } : q)));
     await (supabase as any).from("quests").update({ ...input, updated_at: new Date().toISOString() }).eq("id", id);
-  }, []);
+    // Only a title/description change invalidates the embedding — progress,
+    // status, and reward-amount edits don't touch what got embedded.
+    if (user && (input.title !== undefined || input.description !== undefined)) {
+      (supabase as any).from("quests").update({ embedding: null }).eq("id", id).eq("user_id", user.id)
+        .then(() => triggerEmbed(user.id, "quests"));
+    }
+  }, [user]);
 
   const completeQuest = useCallback(async (id: string) => {
     const quest = quests.find(q => q.id === id);

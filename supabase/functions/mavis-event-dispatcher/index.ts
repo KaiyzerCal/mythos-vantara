@@ -6,6 +6,7 @@
 
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const supabase  = createClient(
@@ -113,7 +114,9 @@ async function onExpenseLogged(record: any, user_id: string) {
       content:  `30-day total: $${total30.toFixed(2)}. Latest: ${record.description} ($${Number(record.amount).toFixed(2)}).`,
       category: "finance",
       severity: "warning",
-    }).then(undefined, () => {});
+    }).select("id").single().then(({ data }: any) => {
+      if (data?.id) reembedRow(supabase, "mavis_insights", String(data.id), user_id);
+    }, () => {});
   }
 }
 

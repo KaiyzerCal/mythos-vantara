@@ -4,6 +4,7 @@ import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { aiComplete } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -573,7 +574,7 @@ Keep each section to 2–4 bullet points. Be concrete and specific.`;
 ## Follow-ups
 2–4 bullets each. Concrete and brief.`;
             const memberSummary = await callGroupLLM(memberPrompt, transcript.slice(0, 3000), 400);
-            await supabase.from("mavis_persona_memory").insert({
+            const { data: memberMemory } = await supabase.from("mavis_persona_memory").insert({
               user_id:      userId,
               persona_id:   null,
               persona_name: speakerName,
@@ -582,7 +583,9 @@ Keep each section to 2–4 bullet points. Be concrete and specific.`;
               importance:   7,
               session_id,
               source:       "council-group",
-            });
+            }).select("id").single();
+            const memberMemoryId = memberMemory?.id;
+            if (memberMemoryId) reembedRow(supabase, "mavis_persona_memory", String(memberMemoryId), userId);
           }
         } catch (e: any) {
           console.warn("[council-session] end_session review fork failed:", e.message);

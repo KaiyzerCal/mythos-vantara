@@ -6,6 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -168,14 +169,15 @@ async function checkHealthAnomalies(
 
   const details = unique.join("; ");
 
-  await sb.from("mavis_insights").insert({
+  const { data: healthInsight } = await sb.from("mavis_insights").insert({
     user_id: userId,
     title: "Health Alert",
     content: `Anomaly detected: ${details}`,
     category: "health",
     severity: "warning",
     generated_at: nowIso(),
-  });
+  }).select("id").single();
+  if (healthInsight?.id) reembedRow(sb, "mavis_insights", String(healthInsight.id), userId);
 
   await sb.from("mavis_tasks").insert({
     user_id: userId,
@@ -227,14 +229,15 @@ async function checkPriorityEmails(
 
   const subjects = priority.map((e: any) => `• ${e.subject} (from: ${e.from_email})`).join("\n");
 
-  await sb.from("mavis_insights").insert({
+  const { data: emailInsight } = await sb.from("mavis_insights").insert({
     user_id: userId,
     title: "Priority Emails Detected",
     content: `${priority.length} unread priority email(s) in the last 24 h:\n${subjects}`,
     category: "communication",
     severity: "warning",
     generated_at: nowIso(),
-  });
+  }).select("id").single();
+  if (emailInsight?.id) reembedRow(sb, "mavis_insights", String(emailInsight.id), userId);
 
   result.issues = priority.length;
   result.actions = 1;
@@ -440,6 +443,7 @@ Draft a short, warm reconnect message.`;
           .single();
 
         const draftId = draftRow?.id ?? contact.id;
+        if (draftId) reembedRow(sb, "mavis_outreach_drafts", String(draftId), userId);
 
         // Queue as a requires_confirmation task so /approve [id] works from Telegram
         const contactEmail: string = (contact as any).email ?? (contact as any).contact_email ?? "";

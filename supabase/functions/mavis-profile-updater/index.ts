@@ -7,6 +7,7 @@
 
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const supabase  = createClient(
@@ -138,6 +139,7 @@ Output ONLY valid JSON — no markdown, no explanation. Schema:
       }, { onConflict: "user_id" });
 
     if (upsertErr) throw new Error(upsertErr.message);
+    reembedRow(supabase, "mavis_user_profile", user_id, user_id);
 
     return new Response(
       JSON.stringify({ ok: true, profile_md_length: String(synthesized.profile_md ?? "").length }),

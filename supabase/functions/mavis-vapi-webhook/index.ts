@@ -6,6 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const SB_URL  = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -84,7 +85,7 @@ serve(async (req) => {
           timestamp: t.time ?? new Date().toISOString(),
         }));
 
-        await sb.from("mavis_calls").update({
+        const { data: endedCall } = await sb.from("mavis_calls").update({
           status: "ended",
           duration_seconds: durationSec,
           cost_cents: costCents,
@@ -94,7 +95,10 @@ serve(async (req) => {
           transcript: transcript.length ? transcript : undefined,
           ended_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        }).eq("vapi_call_id", vapiCallId);
+        }).eq("vapi_call_id", vapiCallId).select("id, user_id").single();
+        const endedCallId = endedCall?.id;
+        const endedCallUserId = endedCall?.user_id;
+        if (endedCallId && endedCallUserId) reembedRow(sb, "mavis_calls", String(endedCallId), String(endedCallUserId));
 
         // Store outcome in MAVIS memory if meaningful
         if (summary && vapiCallId) {

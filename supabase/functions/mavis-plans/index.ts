@@ -17,6 +17,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const SB_URL     = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -80,6 +81,7 @@ serve(async (req) => {
 
         if (error) throw new Error(error.message);
         result = planRow;
+        if (planRow?.id) reembedRow(sb, "mavis_plans", String(planRow.id), userId as string);
         break;
       }
 
@@ -96,6 +98,7 @@ serve(async (req) => {
         }).select("*").single();
         if (error) throw new Error(error.message);
         result = planRow;
+        if (planRow?.id) reembedRow(sb, "mavis_plans", String(planRow.id), userId as string);
         break;
       }
 
@@ -133,6 +136,7 @@ serve(async (req) => {
         if (p.status !== undefined) updates.status = String(p.status);
         if (p.context !== undefined) updates.context = String(p.context);
         await sb.from("mavis_plans").update(updates).eq("id", planId).eq("user_id", userId);
+        if (updates.title !== undefined) reembedRow(sb, "mavis_plans", planId, userId as string);
         result = { plan_id: planId, updated: true };
         break;
       }

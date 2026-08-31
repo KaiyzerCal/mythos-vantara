@@ -19,6 +19,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -325,7 +326,7 @@ async function processEvent(
     );
 
     // Store in DB
-    const { error: upsertErr } = await sb.from("mavis_meeting_preps").upsert(
+    const { data: prepRow, error: upsertErr } = await sb.from("mavis_meeting_preps").upsert(
       {
         user_id: userId,
         event_id: eventId,
@@ -338,9 +339,10 @@ async function processEvent(
         prep_sent: false,
       },
       { onConflict: "user_id,event_id" },
-    );
+    ).select("id").single();
 
     if (upsertErr) throw new Error(upsertErr.message);
+    if (prepRow?.id) reembedRow(sb, "mavis_meeting_preps", String(prepRow.id), userId);
 
     // Send Telegram notification
     const telegramMsg = buildTelegramMessage(eventTitle, eventStart, prep_brief, talking_points);

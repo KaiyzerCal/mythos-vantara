@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -286,6 +287,7 @@ ${journalLines || "None"}
         confidence_score:     Math.min(1.0, 0.1 + (interactionCount / 200)),
         updated_at:           new Date().toISOString(),
       }, { onConflict: "user_id" });
+      reembedRow(sb, "mavis_user_model", uid, uid);
 
       refreshed++;
     } catch (e) {

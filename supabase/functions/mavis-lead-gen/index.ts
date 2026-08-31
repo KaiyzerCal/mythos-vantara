@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -226,6 +227,8 @@ Return JSON only:
       .single();
 
     if (insertErr) throw insertErr;
+    const leadId = lead?.id;
+    if (leadId) reembedRow(sb, "mavis_leads", String(leadId), user.id);
     return json({ lead, profile });
   } catch (e: any) {
     return json({ error: e.message }, 500);

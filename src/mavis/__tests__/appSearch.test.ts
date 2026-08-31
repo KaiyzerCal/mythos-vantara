@@ -467,7 +467,11 @@ describe("semantic search", () => {
     // in both directions — a scope named here but missing from the migration
     // returns nothing, and one embedded but missing here is never searched.
     const APP = read("supabase/functions/_shared/appSearch.ts");
-    const BACKFILL = read("supabase/functions/mavis-embed-backfill/index.ts");
+    // The table->column map itself lives in _shared/embeddableTables.ts, not
+    // in the backfill function — reembedRow.ts reads the same file for
+    // write-time hooks, so this is the one place that mapping is declared.
+    // mavis-embed-backfill/index.ts just imports it now.
+    const BACKFILL = read("supabase/functions/_shared/embeddableTables.ts");
     // match_operator_entries is CREATE OR REPLACE, extended across more than
     // one migration file (2026082917... added the original six, 2026083019...
     // added the curated tier) — the live function is whichever ran last, but

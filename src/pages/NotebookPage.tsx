@@ -8,6 +8,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { triggerEmbed } from "@/lib/embedTrigger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -318,6 +319,7 @@ export default function NotebookPage() {
       setSelectedId(data.id);
       setCreatingNb(false);
       setNewNbTitle("");
+      triggerEmbed(user.id, "notebooks");
     }
   }
 

@@ -9,6 +9,7 @@ import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock, type AppSearchHit } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -2088,10 +2089,11 @@ ${telosData
                       ? (clientSystemPrompt.match(/^(?:You are|I am|My name is)\s+([A-Z][a-z]+)/m)?.[1] ?? "Persona")
                       : "Persona";
                     const sid2 = (conversationId as string | undefined) ?? "council";
-                    await sb.from("mavis_persona_memory").insert([
+                    const { data: newPersonaMemories } = await sb.from("mavis_persona_memory").insert([
                       { user_id: user.id, persona_id: personaId, persona_name: personaName, role: "user",      content: lastUserText.slice(0, 1000), session_id: sid2, importance: scoreImportance(lastUserText), source: "council" },
                       { user_id: user.id, persona_id: personaId, persona_name: personaName, role: "assistant", content: accumulated.slice(0, 1000),   session_id: sid2, importance: scoreImportance(accumulated),   source: "council" },
-                    ]);
+                    ]).select("id");
+                    for (const row of newPersonaMemories ?? []) reembedRow(sb, "mavis_persona_memory", String(row.id), user.id);
                   } catch { /* non-critical */ }
                 })();
               }
@@ -2524,10 +2526,11 @@ Respond with ONLY a JSON array (may be empty []):
             ? (clientSystemPrompt.match(/^(?:You are|I am|My name is)\s+([A-Z][a-z]+)/m)?.[1] ?? "Persona")
             : "Persona";
           const sid3 = (conversationId as string | undefined) ?? "council";
-          await sb.from("mavis_persona_memory").insert([
+          const { data: newPersonaMemories2 } = await sb.from("mavis_persona_memory").insert([
             { user_id: user.id, persona_id: personaId, persona_name: personaName2, role: "user",      content: lastUserContent.slice(0, 1000), session_id: sid3, importance: scoreImportance(lastUserContent), source: "council" },
             { user_id: user.id, persona_id: personaId, persona_name: personaName2, role: "assistant", content: content.slice(0, 1000),           session_id: sid3, importance: scoreImportance(content),           source: "council" },
-          ]);
+          ]).select("id");
+          for (const row of newPersonaMemories2 ?? []) reembedRow(sb, "mavis_persona_memory", String(row.id), user.id);
         } catch { /* non-critical */ }
       })();
     }

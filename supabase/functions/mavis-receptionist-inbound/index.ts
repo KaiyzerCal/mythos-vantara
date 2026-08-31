@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -447,9 +448,11 @@ serve(async (req) => {
         })
         .select("id")
         .single();
+      const callRowId = callRow?.id;
+      if (callRowId) reembedRow(sb(), "receptionist_calls", String(callRowId), phoneRow.user_id);
 
       // Check if a message was taken — send follow-up SMS
-      if (callRow?.id && TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM) {
+      if (callRowId && TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM) {
         const { data: msgs } = await sb()
           .from("receptionist_messages")
           .select("id")

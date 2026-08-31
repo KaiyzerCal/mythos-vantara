@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { callWithFallback } from "../_shared/providers.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -363,7 +364,9 @@ serve(async (req: Request) => {
       category: "nudge",
       severity: urgencies.length > 2 ? "warning" : "info",
       source: "proactive_nudge",
-    }).then(undefined, () => {});
+    }).select("id").single().then(({ data }: any) => {
+      if (data?.id) reembedRow(supabase, "mavis_insights", String(data.id), uid);
+    }, () => {});
 
     return new Response(
       JSON.stringify({ nudged: true, urgencies }),

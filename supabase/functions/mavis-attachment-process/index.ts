@@ -7,6 +7,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+import { reembedRow } from "../_shared/reembedRow.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -431,6 +432,7 @@ Deno.serve(async (req) => {
         processing_status: "done",
       })
       .eq("id", attachmentId);
+    reembedRow(sb, "chat_attachments", attachmentId, userId);
 
     // Auto-create Knowledge Graph note(s) for non-trivial extracted content.
     // Large documents are chunked so semantic search can recall specific sections.

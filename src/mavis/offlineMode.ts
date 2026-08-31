@@ -18,6 +18,7 @@
 
 import type { AppContextSnapshot } from "./appContextLoader";
 import { supabase } from "@/integrations/supabase/client";
+import { triggerEmbed } from "@/lib/embedTrigger";
 
 const SNAPSHOT_KEY  = "mavis-offline-snapshot";
 const SNAPSHOT_TS_KEY = "mavis-offline-snapshot-ts";
@@ -113,15 +114,27 @@ export async function replayMutationQueue(): Promise<number> {
       const payload = mutation.payload as any;
       switch (mutation.type) {
         case "quest:create":
-          return sb.from("quests").insert(payload);
+          return sb.from("quests").insert(payload).then((r: any) => {
+            if (payload.user_id) triggerEmbed(payload.user_id as string, "quests");
+            return r;
+          });
         case "quest:update":
-          return sb.from("quests").update(payload).eq("id", payload.id as string);
+          return sb.from("quests").update(payload).eq("id", payload.id as string).then((r: any) => {
+            if (payload.user_id && (payload.title !== undefined || payload.description !== undefined)) {
+              sb.from("quests").update({ embedding: null }).eq("id", payload.id as string).eq("user_id", payload.user_id as string)
+                .then(() => triggerEmbed(payload.user_id as string, "quests"));
+            }
+            return r;
+          });
         case "task:create":
           return sb.from("tasks").insert(payload);
         case "task:update":
           return sb.from("tasks").update(payload).eq("id", payload.id as string);
         case "journal:create":
-          return sb.from("journal_entries").insert(payload);
+          return sb.from("journal_entries").insert(payload).then((r: any) => {
+            if (payload.user_id) triggerEmbed(payload.user_id as string, "journal");
+            return r;
+          });
         default:
           console.warn(`[MAVIS Offline] Unknown mutation type: ${mutation.type} — skipping`);
           return Promise.reject(new Error(`Unknown type: ${mutation.type}`));
