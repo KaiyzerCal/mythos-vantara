@@ -989,36 +989,69 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
   }, [mavisCtxQuery]);
 
   // ── Load persisted council chat from DB ──────────────────
+  //
+  // Bounded on purpose. sendMessage refuses to run until dbLoaded flips, so
+  // anything that can leave this effect unresolved silently disables the whole
+  // chat: the Send button stays clickable and does nothing. Neither
+  // getSession() nor the PostgREST call carries a timeout of its own, so a
+  // backend that accepts the connection and then stalls — which is exactly
+  // what a wedged database looks like — used to hang here forever, and only a
+  // page reload recovered it.
+  //
+  // Whatever happens, dbLoaded is set: on success, on error, and on timeout.
   useEffect(() => {
     if (dbLoaded) return;
+    let cancelled = false;
+    const RESTORE_TIMEOUT_MS = 8000;
+
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) { setDbLoaded(true); return; }
+        const restore = (async () => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user) return null;
 
-        const { data: msgs } = await supabase
-          .from("council_chat_messages")
-          .select("*")
-          .eq("council_member_id", member.id)
-          .eq("user_id", session.user.id)
-          .order("created_at", { ascending: true })
-          .limit(200);
+          const { data: msgs } = await supabase
+            .from("council_chat_messages")
+            .select("*")
+            .eq("council_member_id", member.id)
+            .eq("user_id", session.user.id)
+            .order("created_at", { ascending: true })
+            .limit(200);
+          return msgs ?? null;
+        })();
 
-        if (msgs?.length) {
-          const restored: CouncilChatMessage[] = msgs.map((m: any) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: new Date(m.created_at),
-          }));
-          setMessages(restored);
-        }
+        const msgs = await Promise.race([
+          restore,
+          new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error("restore timed out")), RESTORE_TIMEOUT_MS),
+          ),
+        ]);
+
+        if (cancelled || !msgs?.length) return;
+
+        const restored: CouncilChatMessage[] = msgs.map((m: any) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          timestamp: new Date(m.created_at),
+        }));
+
+        // Merged rather than assigned. A plain setMessages(restored) discards
+        // anything already on screen, which is the reason sending had to be
+        // blocked until this finished in the first place.
+        setMessages((prev) => {
+          if (prev.length === 0) return restored;
+          const seen = new Set(prev.map((m) => m.id));
+          return [...restored.filter((m) => !seen.has(m.id)), ...prev];
+        });
       } catch (err) {
         console.error("Failed to restore council chat:", err);
       } finally {
-        setDbLoaded(true);
+        if (!cancelled) setDbLoaded(true);
       }
     })();
+
+    return () => { cancelled = true; };
   }, [member.id]);
 
   // ── Realtime: pick up council messages from Telegram (or any external source) ──
@@ -1479,7 +1512,7 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              placeholder={`Speak to ${member.name}...`}
+              placeholder={dbLoaded ? `Speak to ${member.name}...` : "Loading history..."}
               className="flex-1 bg-muted/30 border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-primary/40 placeholder:text-muted-foreground placeholder:text-xs placeholder:font-mono"
             />
             {isLoading ? (
@@ -1491,10 +1524,14 @@ function CouncilChat({ member, profile, appCtx, onClose }: { member: any; profil
                 <Square size={14} />
               </button>
             ) : (
+              /* disabled mirrors sendMessage's own guard: it refuses while
+                 history is loading, and without this the button looked live
+                 and silently did nothing when clicked. */
               <button
                 onClick={() => sendMessage()}
-                disabled={!input.trim()}
-                className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 transition-all"
+                disabled={!input.trim() || !dbLoaded}
+                title={dbLoaded ? "Send" : "Loading conversation history..."}
+                className="px-3 py-2 bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
               >
                 <Send size={14} />
               </button>
