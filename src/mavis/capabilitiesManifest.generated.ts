@@ -1263,8 +1263,10 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "name": "mavis-embed-backfill",
     "category": "Uncategorized",
     "purpose": null,
-    "status": "ORPHANED",
-    "calledFromFrontend": [],
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/lib/embedTrigger.ts"
+    ],
     "calledFromBackend": [],
     "isCronTarget": false,
     "requiresJwt": true,
