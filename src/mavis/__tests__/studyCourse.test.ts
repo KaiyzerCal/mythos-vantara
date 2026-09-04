@@ -134,6 +134,45 @@ describe("scoring stays on the server", () => {
   });
 });
 
+describe("the spoken mentor is the same mentor", () => {
+  // VoiceChatOverlay has two modes. Given a `persona` it calls the model
+  // itself from a system prompt; given `sendMessage` it hands transcribed
+  // speech to the parent and speaks back whatever the parent returns.
+  //
+  // Only the second keeps ask_mentor in the loop, and ask_mentor is what
+  // searches the operator's own material on every turn. Switching to persona
+  // mode would leave a mentor that sounds identical and quietly knows nothing
+  // about their vault — the kind of regression nothing else would catch.
+  it("drives the overlay in sendMessage mode, not persona mode", () => {
+    const mount = /<VoiceChatOverlay([\s\S]*?)\/>/.exec(UI)?.[1] ?? "";
+    expect(mount, "overlay is not mounted at all").not.toBe("");
+    expect(mount).toMatch(/sendMessage=\{askByVoice\}/);
+    expect(mount).not.toMatch(/\bpersona=/);
+  });
+
+  it("routes spoken questions through the same edge function", () => {
+    const fn = /const askByVoice = useCallback[\s\S]*?\}, \[active\]\);/.exec(UI)?.[0] ?? "";
+    expect(fn, "askByVoice is gone").not.toBe("");
+    expect(fn).toMatch(/invoke\("mavis-study-course"/);
+    expect(fn).toMatch(/action: "ask_mentor"/);
+  });
+
+  it("carries the typed conversation into the spoken one", () => {
+    // Calling the mentor should continue the conversation, not start a blank
+    // one that has forgotten what was just discussed in text.
+    const fn = /const askByVoice = useCallback[\s\S]*?\}, \[active\]\);/.exec(UI)?.[0] ?? "";
+    expect(fn).toMatch(/messages: next/);
+    expect(fn).toMatch(/\.\.\.prev/);
+  });
+
+  it("lets the operator hear a lesson, and stop it", () => {
+    expect(UI).toMatch(/useElevenLabsTts/);
+    expect(UI).toMatch(/isSpeaking\s*\?\s*stopSpeaking\(\)/);
+    // Narration must not outlive the screen that started it.
+    expect(UI).toMatch(/useEffect\(\(\) => \(\) => stopSpeaking\(\)/);
+  });
+});
+
 describe("the migration follows the four DDL rules", () => {
   it("sets a transaction-local lock_timeout before touching anything", () => {
     expect(MIGRATION).toMatch(/set_config\('lock_timeout', ?'3s', ?true\)/);

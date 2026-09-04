@@ -13,8 +13,10 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, Loader2, ChevronRight, CheckCircle2, XCircle, Trash2,
-  MessageSquare, Send, BookOpen, Layers,
+  MessageSquare, Send, BookOpen, Layers, Phone, Volume2, Square,
 } from "lucide-react";
+import { VoiceChatOverlay } from "@/components/VoiceChatOverlay";
+import { useElevenLabsTts } from "@/hooks/useElevenLabsTts";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
@@ -68,6 +70,17 @@ export function LearnMode() {
   const [picked, setPicked] = useState<number | null>(null);
   const [correct, setCorrect] = useState(0);
   const [reward, setReward] = useState<{ gained: number; leveled: boolean } | null>(null);
+
+  // Voice, both directions.
+  //
+  // The overlay is driven in sendMessage mode rather than persona mode. In
+  // persona mode it calls the model itself from a system prompt, which would
+  // bypass ask_mentor — and with it the search over the operator's own
+  // material that runs on every mentor turn. Routing through sendMessage keeps
+  // the spoken mentor and the typed mentor the same mentor.
+  const { speak, stop: stopSpeaking, isSpeaking, isLoading: voiceLoading } = useElevenLabsTts();
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [lastReply, setLastReply] = useState("");
 
   const [mentorOpen, setMentorOpen] = useState(false);
   const [chat, setChat] = useState<ChatTurn[]>([]);
@@ -178,7 +191,9 @@ export function LearnMode() {
         body: { action: "ask_mentor", id: active.id, messages: next },
       });
       if (error) throw new Error(error.message);
-      setChat([...next, { role: "assistant", content: String(data?.reply ?? "") }]);
+      const reply = String(data?.reply ?? "");
+      setChat([...next, { role: "assistant", content: reply }]);
+      setLastReply(reply);
     } catch (err) {
       toast.error((err as Error)?.message ?? "The mentor did not answer");
       setChat(chat);
@@ -186,6 +201,40 @@ export function LearnMode() {
       setAsking(false);
     }
   }
+
+  /**
+   * The overlay hands us transcribed speech and reads back whatever lands in
+   * lastReply. Same edge function, same grounding, same conversation history
+   * as the typed panel — only the input and output devices differ.
+   */
+  const askByVoice = useCallback(async (text: string) => {
+    const q = text.trim();
+    if (!q || !active) return;
+    setChat((prev) => {
+      const next: ChatTurn[] = [...prev, { role: "user", content: q }];
+      (async () => {
+        setAsking(true);
+        try {
+          const { data, error } = await supabase.functions.invoke("mavis-study-course", {
+            body: { action: "ask_mentor", id: active.id, messages: next },
+          });
+          if (error) throw new Error(error.message);
+          const reply = String(data?.reply ?? "");
+          setChat([...next, { role: "assistant", content: reply }]);
+          setLastReply(reply);
+        } catch (err) {
+          toast.error((err as Error)?.message ?? "The mentor did not answer");
+        } finally {
+          setAsking(false);
+        }
+      })();
+      return next;
+    });
+  }, [active]);
+
+  // Stop any narration when the course changes or the component goes away —
+  // a lesson still being read aloud after you navigate is its own small bug.
+  useEffect(() => () => stopSpeaking(), [stopSpeaking]);
 
   async function removeCourse(id: string) {
     const { error } = await supabase.from("study_courses").delete().eq("id", id);
@@ -280,12 +329,21 @@ export function LearnMode() {
         >
           ← all courses
         </button>
-        <button
-          onClick={() => setMentorOpen((v) => !v)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-cyan-900/40 text-cyan-400 rounded hover:border-cyan-400/40 transition-colors"
-        >
-          <MessageSquare size={11} /> Mentor
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { stopSpeaking(); setVoiceOpen(true); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-cyan-900/40 text-cyan-400 rounded hover:border-cyan-400/40 transition-colors"
+            title={`Call the mentor on ${active.title || active.subject}`}
+          >
+            <Phone size={11} /> Call
+          </button>
+          <button
+            onClick={() => setMentorOpen((v) => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-cyan-900/40 text-cyan-400 rounded hover:border-cyan-400/40 transition-colors"
+          >
+            <MessageSquare size={11} /> Mentor
+          </button>
+        </div>
       </div>
 
       <HudCard glowColor="gold">
@@ -360,7 +418,26 @@ export function LearnMode() {
         ) : (
           <motion.div key="lesson" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
             <HudCard glowColor="gold">
-              <h3 className="font-display text-base font-bold text-foreground mb-1">{lesson.title}</h3>
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <h3 className="font-display text-base font-bold text-foreground">{lesson.title}</h3>
+                {/* A ninety-second lesson is the part you would rather listen to
+                    than read — hands busy, screen away. */}
+                <button
+                  onClick={() =>
+                    isSpeaking
+                      ? stopSpeaking()
+                      : speak(`${lesson.title}. ${lesson.keyIdea} ${lesson.body}`)
+                  }
+                  disabled={voiceLoading}
+                  className="shrink-0 flex items-center gap-1.5 px-2 py-1 text-xs font-mono border border-cyan-900/40 text-cyan-400 rounded hover:border-cyan-400/40 transition-colors disabled:opacity-40"
+                  title={isSpeaking ? "Stop" : "Listen to this lesson"}
+                >
+                  {voiceLoading
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : isSpeaking ? <Square size={11} /> : <Volume2 size={11} />}
+                  {isSpeaking ? "Stop" : "Listen"}
+                </button>
+              </div>
               {lesson.keyIdea && (
                 <p className="text-xs font-mono text-primary mb-3">{lesson.keyIdea}</p>
               )}
@@ -419,6 +496,19 @@ export function LearnMode() {
               )}
             </HudCard>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Voice call with the mentor */}
+      <AnimatePresence>
+        {voiceOpen && active && (
+          <VoiceChatOverlay
+            onClose={() => setVoiceOpen(false)}
+            sendMessage={askByVoice}
+            lastBotMessage={lastReply}
+            isLoading={asking}
+            externalAudio={false}
+          />
         )}
       </AnimatePresence>
 
