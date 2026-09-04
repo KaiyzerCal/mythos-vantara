@@ -4,11 +4,12 @@
 // ============================================================
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, CheckCircle2, Loader2, ChevronRight, RefreshCw, Brain } from "lucide-react";
+import { BookOpen, CheckCircle2, Loader2, ChevronRight, RefreshCw, Brain, Sparkles, XCircle } from "lucide-react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
+import { LearnMode } from "@/components/study/LearnMode";
 import { toast } from "sonner";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -29,6 +30,50 @@ interface SessionStats {
   reviewed: number;
   easy: number;
   hard: number;
+}
+
+interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+}
+
+interface QuizState {
+  loading: boolean;
+  level: number;
+  tier: string;
+  questions: QuizQuestion[];
+  index: number;
+  picked: number | null;
+  correct: number;
+  /** Set when the note was too thin to ask a fair question about. */
+  note: string | null;
+}
+
+const EMPTY_QUIZ: QuizState = {
+  loading: false, level: 0, tier: "", questions: [],
+  index: 0, picked: null, correct: 0, note: null,
+};
+
+/**
+ * Turn quiz performance into a suggested recall rating.
+ *
+ * Suggested, never applied. A retrieval attempt is a far better signal than
+ * self-assessment, but the operator still knows things the quiz cannot see —
+ * that they guessed, or that the question missed the part they actually forgot.
+ */
+export function suggestRating(correct: number, total: number): number {
+  if (total === 0) return 3;
+  const pct = correct / total;
+  // Compared as fractions, not as rounded decimals. A literal 0.67 threshold
+  // is just below 2/3, so answering 2 of 3 fell through to "Good" instead of
+  // "Easy" — the single most common outcome landing on the wrong rating.
+  if (pct >= 1) return 5;
+  if (pct >= 2 / 3) return 4;
+  if (pct >= 1 / 3) return 3;
+  if (pct > 0) return 2;
+  return 1;
 }
 
 // ─── Rating config ──────────────────────────────────────────
@@ -79,6 +124,11 @@ export function StudyPage() {
   const [ratingLoading, setRatingLoading] = useState(false);
   const [nextDueCount, setNextDueCount] = useState(0);
   const [expandContent, setExpandContent] = useState(false);
+  const [quiz, setQuiz] = useState<QuizState>(EMPTY_QUIZ);
+  // Two halves of studying: drilling what you already wrote, and learning
+  // something you have not. They share a scheduler mindset but nothing else,
+  // so they are separate surfaces rather than one crowded screen.
+  const [mode, setMode] = useState<"review" | "learn">("review");
 
   // ─── Fetch due notes ────────────────────────────────────────
   const fetchDueNotes = useCallback(async () => {
@@ -133,6 +183,7 @@ export function StudyPage() {
     setSessionComplete(false);
     setCurrentIndex(0);
     setShowAnswer(false);
+    setQuiz(EMPTY_QUIZ);
     setSessionStats({ reviewed: 0, easy: 0, hard: 0 });
 
     const { data } = await supabase
@@ -148,6 +199,56 @@ export function StudyPage() {
     });
     setDueNotes(filtered);
     setLoading(false);
+  }
+
+  // ─── Retrieval practice ────────────────────────────────────
+  // Questions come from the note's own text (mavis-study-quiz is strictly
+  // source-grounded), so this tests what the operator actually wrote rather
+  // than what a model knows about the topic.
+  const startQuiz = useCallback(async () => {
+    const target = dueNotes[currentIndex];
+    if (!target) return;
+    setQuiz({ ...EMPTY_QUIZ, loading: true });
+    try {
+      const { data, error } = await supabase.functions.invoke("mavis-study-quiz", {
+        body: { note_id: target.id },
+      });
+      if (error) throw new Error(error.message);
+      const questions: QuizQuestion[] = Array.isArray(data?.quiz) ? data.quiz : [];
+      setQuiz({
+        ...EMPTY_QUIZ,
+        level: Number(data?.level ?? 0),
+        tier: String(data?.tier ?? ""),
+        questions,
+        note: questions.length === 0 ? String(data?.note ?? "No questions for this note.") : null,
+      });
+      // Nothing to retrieve against — fall through to the card so the review
+      // still counts rather than stranding the operator on an empty quiz.
+      if (questions.length === 0) setShowAnswer(true);
+    } catch (err) {
+      toast.error((err as Error)?.message ?? "Could not build a quiz");
+      setQuiz(EMPTY_QUIZ);
+      setShowAnswer(true);
+    }
+  }, [dueNotes, currentIndex]);
+
+  function pickOption(i: number) {
+    if (quiz.picked !== null) return;
+    const q = quiz.questions[quiz.index];
+    if (!q) return;
+    setQuiz((prev) => ({
+      ...prev,
+      picked: i,
+      correct: prev.correct + (i === q.correctIndex ? 1 : 0),
+    }));
+  }
+
+  function nextQuestion() {
+    setQuiz((prev) => {
+      const next = prev.index + 1;
+      if (next >= prev.questions.length) return { ...prev, index: next, picked: null };
+      return { ...prev, index: next, picked: null };
+    });
   }
 
   // ─── Rate card ─────────────────────────────────────────────
@@ -191,6 +292,7 @@ export function StudyPage() {
       setCurrentIndex(nextIndex);
       setShowAnswer(false);
       setExpandContent(false);
+      setQuiz(EMPTY_QUIZ);
     }
     setRatingLoading(false);
   }
@@ -205,6 +307,12 @@ export function StudyPage() {
   const easyPct = sessionStats.reviewed > 0 ? Math.round((sessionStats.easy / sessionStats.reviewed) * 100) : 0;
   const hardPct = sessionStats.reviewed > 0 ? Math.round((sessionStats.hard / sessionStats.reviewed) * 100) : 0;
 
+  // The quiz owns the card face while questions remain; once they run out the
+  // note itself is revealed and the rating step takes over.
+  const quizActive = quiz.questions.length > 0 && quiz.index < quiz.questions.length;
+  const activeQuestion = quiz.questions[quiz.index];
+  const suggested = quiz.questions.length > 0 ? suggestRating(quiz.correct, quiz.questions.length) : null;
+
   const visibleProps = note?.properties
     ? Object.entries(note.properties).filter(([k]) => !HIDDEN_PROPS.has(k))
     : [];
@@ -215,14 +323,53 @@ export function StudyPage() {
       : note.content.slice(0, 300) + (note.content.length > 300 ? "..." : "")
     : "";
 
+  // One control, rendered into whichever header is on screen. Three headers
+  // exist because review has three states; the toggle must survive all of them.
+  const modeToggle = (
+    <div className="flex items-center gap-1 rounded border border-border p-0.5">
+      {(["review", "learn"] as const).map((m) => (
+        <button
+          key={m}
+          onClick={() => setMode(m)}
+          className={`px-2.5 py-1 text-xs font-mono rounded transition-colors ${
+            mode === m
+              ? "bg-primary/15 text-primary"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {m === "review" ? "Review" : "Learn"}
+        </button>
+      ))}
+    </div>
+  );
+
+  // ─── Learn mode ─────────────────────────────────────────────
+  // Placed ahead of review's loading and completion branches: learning a new
+  // subject has nothing to do with whether cards are due, and gating it behind
+  // "no cards due" would hide the feature exactly when it is most wanted.
+  if (mode === "learn") {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Study"
+          subtitle="Name anything — learn it to mastery"
+          icon={<Brain size={18} />}
+          actions={modeToggle}
+        />
+        <LearnMode />
+      </div>
+    );
+  }
+
   // ─── Session Complete Screen ────────────────────────────────
   if (!loading && (sessionComplete || dueNotes.length === 0)) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Study Mode"
+          title="Study"
           subtitle={`${dueNotes.length} cards due`}
           icon={<Brain size={18} />}
+          actions={modeToggle}
         />
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -277,9 +424,10 @@ export function StudyPage() {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Study Mode"
+          title="Study"
           subtitle="Loading cards..."
           icon={<Brain size={18} />}
+          actions={modeToggle}
         />
         <div className="flex justify-center py-20">
           <Loader2 className="animate-spin text-primary" size={28} />
@@ -292,16 +440,19 @@ export function StudyPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Study Mode"
+        title="Study"
         subtitle={`${dueNotes.length} card${dueNotes.length !== 1 ? "s" : ""} due`}
         icon={<Brain size={18} />}
         actions={
+          <div className="flex items-center gap-2">
+          {modeToggle}
           <button
             onClick={handleEndSession}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-border text-muted-foreground rounded hover:text-foreground hover:border-border/80 transition-colors"
           >
             End Session
           </button>
+          </div>
         }
       />
 
@@ -345,17 +496,86 @@ export function StudyPage() {
               {note?.title}
             </h2>
 
+            {/* Retrieval practice — questions drawn from this note's own text */}
+            {!showAnswer && quizActive && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                {quiz.tier && (
+                  <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-3">
+                    {quiz.tier} · level {quiz.level} of 8 · question {quiz.index + 1} of {quiz.questions.length}
+                  </p>
+                )}
+                <p className="text-sm text-foreground/90 leading-relaxed mb-3">{activeQuestion?.question}</p>
+                <div className="space-y-1.5">
+                  {activeQuestion?.options.map((opt, i) => {
+                    const answered = quiz.picked !== null;
+                    const isCorrect = i === activeQuestion.correctIndex;
+                    const isPicked = quiz.picked === i;
+                    // Green marks the right answer once answered, coral marks a
+                    // wrong pick. Never red — a miss is information, not an alarm.
+                    const tone = !answered
+                      ? "border-border bg-muted/20 text-foreground/90 hover:border-primary/40"
+                      : isCorrect
+                        ? "border-green-700/50 bg-green-900/20 text-green-300"
+                        : isPicked
+                          ? "border-orange-700/50 bg-orange-900/20 text-orange-300"
+                          : "border-border/40 bg-muted/10 text-muted-foreground";
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => pickOption(i)}
+                        disabled={answered}
+                        className={`w-full text-left px-3 py-2 text-sm rounded border transition-colors disabled:cursor-default ${tone}`}
+                      >
+                        <span className="font-mono text-xs mr-2 opacity-60">{"ABCD"[i]}</span>
+                        {opt}
+                        {answered && isCorrect && <CheckCircle2 size={12} className="inline ml-2 -mt-0.5" />}
+                        {answered && isPicked && !isCorrect && <XCircle size={12} className="inline ml-2 -mt-0.5" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {quiz.picked !== null && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-3">
+                    <div className="p-3 rounded bg-muted/20 border border-border/40">
+                      <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-1">Why</p>
+                      <p className="text-sm text-foreground/90 leading-relaxed">{activeQuestion?.explanation}</p>
+                    </div>
+                    <button
+                      onClick={() => (quiz.index + 1 >= quiz.questions.length ? setShowAnswer(true) : nextQuestion())}
+                      className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-mono bg-primary/10 border border-primary/40 text-primary rounded-lg hover:bg-primary/20 transition-colors"
+                    >
+                      {quiz.index + 1 >= quiz.questions.length ? "See the note" : "Next question"}
+                      <ChevronRight size={12} />
+                    </button>
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+
             {/* Show Answer */}
-            {!showAnswer ? (
-              <div className="flex justify-center mt-6">
+            {!showAnswer && !quizActive ? (
+              <div className="flex flex-col items-center gap-2 mt-6">
+                <button
+                  onClick={startQuiz}
+                  disabled={quiz.loading}
+                  className="flex items-center gap-2 px-6 py-2.5 text-sm font-mono bg-primary/10 border border-primary/40 text-primary rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50"
+                >
+                  {quiz.loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {quiz.loading ? "Building questions..." : "Test me on this"}
+                </button>
                 <button
                   onClick={() => setShowAnswer(true)}
-                  className="flex items-center gap-2 px-6 py-2.5 text-sm font-mono bg-primary/10 border border-primary/40 text-primary rounded-lg hover:bg-primary/20 transition-colors"
+                  className="flex items-center gap-2 px-4 py-1.5 text-xs font-mono border border-border text-muted-foreground rounded hover:text-foreground transition-colors"
                 >
-                  <BookOpen size={14} /> Show Answer
+                  <BookOpen size={12} /> Just show the answer
                 </button>
               </div>
-            ) : (
+            ) : !showAnswer ? null : (
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -394,13 +614,22 @@ export function StudyPage() {
                 {/* Rating Buttons */}
                 <div>
                   <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">Rate your recall</p>
+                  {suggested !== null && (
+                    <p className="text-xs font-mono text-muted-foreground mb-2">
+                      You answered <span className="text-primary">{quiz.correct} of {quiz.questions.length}</span> — suggests{" "}
+                      <span className="text-primary">{RATINGS[suggested - 1].label}</span>. Yours to override.
+                    </p>
+                  )}
+                  {quiz.note && (
+                    <p className="text-xs font-mono text-muted-foreground mb-2">{quiz.note}</p>
+                  )}
                   <div className="flex gap-1.5 flex-wrap">
                     {RATINGS.map((r) => (
                       <button
                         key={r.value}
                         onClick={() => handleRating(r.value)}
                         disabled={ratingLoading}
-                        className={`flex-1 min-w-0 px-2 py-2 text-xs font-mono rounded border transition-colors disabled:opacity-50 ${r.bg} ${r.color}`}
+                        className={`flex-1 min-w-0 px-2 py-2 text-xs font-mono rounded border transition-colors disabled:opacity-50 ${r.bg} ${r.color} ${suggested === r.value ? "ring-1 ring-primary/50" : ""}`}
                       >
                         {ratingLoading ? (
                           <Loader2 size={11} className="animate-spin mx-auto" />
