@@ -20,7 +20,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
-import { searchAppData } from "../_shared/appSearch.ts";
+import { searchAppData, type AppSearchHit } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
 
 const corsHeaders = {
@@ -184,7 +184,7 @@ serve(async (req) => {
       }
     }
 
-    function sourceBlock(hits: Array<Record<string, unknown>>) {
+    function sourceBlock(hits: AppSearchHit[]) {
       if (hits.length === 0) return "";
       return hits.map((h, i) =>
         `[${i + 1}] (${String(h.kind ?? "note")}) ${String(h.title ?? "")}\n${String(h.excerpt ?? "").slice(0, 900)}`,
@@ -217,7 +217,7 @@ Return JSON exactly:
 {"title":string,"attribution":string (author/creator/origin, or the domain if none),"kind":one of "Skill"|"Book"|"Essay"|"Speech"|"Film"|"Documentary"|"Textbook","premise":string (2 sentences on what mastery of this means),"tiers":[{"tier":string (short, evocative),"focus":string (one sentence on what this tier drills)}]}
 Exactly 8 tiers.`;
 
-      const text = await callWithFallback("gemini", [{ role: "user", content: prompt }], system, KEYS, false, "STUDY");
+      const { content: text } = await callWithFallback("gemini", [{ role: "user", content: prompt }], system, KEYS, false, "STUDY");
       const parsed = (extractJson(text) ?? {}) as Record<string, unknown>;
 
       const course = {
@@ -287,7 +287,7 @@ Return JSON exactly:
 {"title":string,"keyIdea":string (one line),"body":string,"quiz":[{"question":string,"options":[string,string,string,string],"correctIndex":number,"explanation":string}]}
 Exactly 3 questions.`;
 
-      const text = await callWithFallback("gemini", [{ role: "user", content: prompt }], system, KEYS, false, "STUDY");
+      const { content: text } = await callWithFallback("gemini", [{ role: "user", content: prompt }], system, KEYS, false, "STUDY");
       const parsed = (extractJson(text) ?? {}) as Record<string, unknown>;
 
       const lesson = {
@@ -360,7 +360,7 @@ Exactly 3 questions.`;
 
       const system = `You are a mentor immersed in "${row.subject}". The learner is at competency level ${row.level} of ${MAX_LEVEL}${lessonTitle ? `, currently studying "${lessonTitle}"` : ""}. Discuss this in real depth at their level. Be direct and concrete, use examples from the material, and end with a question or a next thing to try when it helps. Keep replies under 180 words unless asked for more. Plain prose, no headings.${sources ? `\n\nThe learner's own writing that bears on this — prefer it, and say when you are drawing on it:\n${sources}` : ""}`;
 
-      const reply = await callWithFallback("gemini", messages, system, KEYS, false, "STUDY", true);
+      const { content: reply } = await callWithFallback("gemini", messages, system, KEYS, false, "STUDY", true);
       return json({ ok: true, reply, used_own_material: hits.length > 0 });
     }
 

@@ -31,7 +31,9 @@ describe("the operator's own material comes first", () => {
   it("searches everything they have written before generating anything", () => {
     // searchAppData spans the whole app. Losing this call turns a course about
     // their own vault entry into a course about the model's idea of the topic.
-    expect(FN).toMatch(/import \{ searchAppData \}/);
+    // Matched loosely: the import list also carries the hit type, and pinning
+    // the exact line makes the test fail on an unrelated edit.
+    expect(FN).toMatch(/import \{[^}]*\bsearchAppData\b[^}]*\} from "\.\.\/_shared\/appSearch\.ts"/);
     expect(FN).toMatch(/async function ownMaterial/);
     expect(FN).toMatch(/const hits = await ownMaterial\(subject\)/);
   });
@@ -59,6 +61,28 @@ describe("the operator's own material comes first", () => {
     const scoped = [...FN.matchAll(/\.eq\("user_id", userId\)/g)];
     expect(scoped.length).toBeGreaterThanOrEqual(4);
     expect(FN).toMatch(/user_id: userId/);
+  });
+});
+
+describe("the provider cascade is consumed correctly", () => {
+  // callWithFallback resolves to { content, provider }, not a string. Taking
+  // the object directly typechecks nowhere and blows up at runtime the moment
+  // anything calls .trim() on it — which is exactly what extractJson does.
+  // CI caught this in one function; the same line was wrong in the other.
+  const files = [
+    "supabase/functions/mavis-study-course/index.ts",
+    "supabase/functions/mavis-study-quiz/index.ts",
+  ];
+
+  it.each(files)("%s destructures .content from every call", (path) => {
+    const src = read(path);
+    const calls = [...src.matchAll(/(\w[\w\s{}:,]*?)\s*=\s*await callWithFallback\(/g)];
+    expect(calls.length, "no callWithFallback calls found — did the file move?")
+      .toBeGreaterThan(0);
+    for (const c of calls) {
+      expect(c[1], `takes the whole result object instead of .content`)
+        .toMatch(/\{\s*content:/);
+    }
   });
 });
 

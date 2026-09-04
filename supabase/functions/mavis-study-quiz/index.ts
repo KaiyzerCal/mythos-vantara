@@ -213,7 +213,9 @@ Each explanation must say why the correct answer is correct AND why the tempting
 Return JSON exactly:
 {"quiz":[{"question":string,"options":[string,string,string,string],"correctIndex":number,"explanation":string}]}`;
 
-    const text = await callWithFallback(
+    // callWithFallback returns { content, provider }, not a string. Taking the
+    // object here put a non-string into extractJson, which calls .trim() on it.
+    const { content: text } = await callWithFallback(
       "gemini",
       [{ role: "user", content: prompt }],
       system,
