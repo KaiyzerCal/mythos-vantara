@@ -3631,6 +3631,19 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-study-course",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [
+      "src/components/study/LearnMode.tsx"
+    ],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-study-quiz",
     "category": "Uncategorized",
     "purpose": null,

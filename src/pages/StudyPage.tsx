@@ -9,6 +9,7 @@ import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard, ProgressBar } from "@/components/SharedUI";
+import { LearnMode } from "@/components/study/LearnMode";
 import { toast } from "sonner";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -124,6 +125,10 @@ export function StudyPage() {
   const [nextDueCount, setNextDueCount] = useState(0);
   const [expandContent, setExpandContent] = useState(false);
   const [quiz, setQuiz] = useState<QuizState>(EMPTY_QUIZ);
+  // Two halves of studying: drilling what you already wrote, and learning
+  // something you have not. They share a scheduler mindset but nothing else,
+  // so they are separate surfaces rather than one crowded screen.
+  const [mode, setMode] = useState<"review" | "learn">("review");
 
   // ─── Fetch due notes ────────────────────────────────────────
   const fetchDueNotes = useCallback(async () => {
@@ -318,14 +323,53 @@ export function StudyPage() {
       : note.content.slice(0, 300) + (note.content.length > 300 ? "..." : "")
     : "";
 
+  // One control, rendered into whichever header is on screen. Three headers
+  // exist because review has three states; the toggle must survive all of them.
+  const modeToggle = (
+    <div className="flex items-center gap-1 rounded border border-border p-0.5">
+      {(["review", "learn"] as const).map((m) => (
+        <button
+          key={m}
+          onClick={() => setMode(m)}
+          className={`px-2.5 py-1 text-xs font-mono rounded transition-colors ${
+            mode === m
+              ? "bg-primary/15 text-primary"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {m === "review" ? "Review" : "Learn"}
+        </button>
+      ))}
+    </div>
+  );
+
+  // ─── Learn mode ─────────────────────────────────────────────
+  // Placed ahead of review's loading and completion branches: learning a new
+  // subject has nothing to do with whether cards are due, and gating it behind
+  // "no cards due" would hide the feature exactly when it is most wanted.
+  if (mode === "learn") {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Study"
+          subtitle="Name anything — learn it to mastery"
+          icon={<Brain size={18} />}
+          actions={modeToggle}
+        />
+        <LearnMode />
+      </div>
+    );
+  }
+
   // ─── Session Complete Screen ────────────────────────────────
   if (!loading && (sessionComplete || dueNotes.length === 0)) {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Study Mode"
+          title="Study"
           subtitle={`${dueNotes.length} cards due`}
           icon={<Brain size={18} />}
+          actions={modeToggle}
         />
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -380,9 +424,10 @@ export function StudyPage() {
     return (
       <div className="space-y-6">
         <PageHeader
-          title="Study Mode"
+          title="Study"
           subtitle="Loading cards..."
           icon={<Brain size={18} />}
+          actions={modeToggle}
         />
         <div className="flex justify-center py-20">
           <Loader2 className="animate-spin text-primary" size={28} />
@@ -395,16 +440,19 @@ export function StudyPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Study Mode"
+        title="Study"
         subtitle={`${dueNotes.length} card${dueNotes.length !== 1 ? "s" : ""} due`}
         icon={<Brain size={18} />}
         actions={
+          <div className="flex items-center gap-2">
+          {modeToggle}
           <button
             onClick={handleEndSession}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono border border-border text-muted-foreground rounded hover:text-foreground hover:border-border/80 transition-colors"
           >
             End Session
           </button>
+          </div>
         }
       />
 
