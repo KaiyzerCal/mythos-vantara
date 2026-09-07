@@ -149,7 +149,7 @@ describe("sectionsForActions", () => {
   });
 
   it("scopes a known write to its own section", () => {
-    expect(sectionsForActions(["create_quest"]).sort()).toEqual(["profile", "quests"]);
+    expect((sectionsForActions(["create_quest"]) as string[]).sort()).toEqual(["profile", "quests"]);
   });
 
   it("includes profile on every write", () => {
@@ -167,8 +167,8 @@ describe("sectionsForActions", () => {
 
   it("resolves aliases before looking up", () => {
     // "remove_quest" is never a key in the map; it has to normalize first.
-    expect(sectionsForActions(["remove_quest"]).sort()).toEqual(["profile", "quests"]);
-    expect(sectionsForActions(["add_journal"]).sort()).toEqual(["journal", "profile"]);
+    expect((sectionsForActions(["remove_quest"]) as string[]).sort()).toEqual(["profile", "quests"]);
+    expect((sectionsForActions(["add_journal"]) as string[]).sort()).toEqual(["journal", "profile"]);
   });
 
   it("falls back to everything for an unmapped action", () => {
