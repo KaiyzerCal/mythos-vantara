@@ -205,7 +205,7 @@ async function checkPriorityEmails(
   try {
     const { data, error } = await sb
       .from("gmail_messages")
-      .select("id, subject, from_email, received_at")
+      .select("id, subject, from_address, received_at")
       .eq("user_id", userId)
       .eq("is_read", false)
       .gte("received_at", hoursAgo(24))
@@ -227,7 +227,7 @@ async function checkPriorityEmails(
 
   if (priority.length === 0) return result;
 
-  const subjects = priority.map((e: any) => `• ${e.subject} (from: ${e.from_email})`).join("\n");
+  const subjects = priority.map((e: any) => `• ${e.subject} (from: ${e.from_address})`).join("\n");
 
   const { data: emailInsight } = await sb.from("mavis_insights").insert({
     user_id: userId,
@@ -300,11 +300,11 @@ async function checkUpcomingEvents(
   try {
     const { data, error } = await sb
       .from("calendar_events")
-      .select("id, title, start_time, location")
+      .select("id, title, start_at, location")
       .eq("user_id", userId)
-      .gte("start_time", nowIso())
-      .lte("start_time", windowEnd)
-      .order("start_time", { ascending: true });
+      .gte("start_at", nowIso())
+      .lte("start_at", windowEnd)
+      .order("start_at", { ascending: true });
 
     if (!error && data) events = data;
   } catch {
@@ -316,7 +316,7 @@ async function checkUpcomingEvents(
 
   const eventList = events
     .map((e: any) => {
-      const t = new Date(e.start_time).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+      const t = new Date(e.start_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
       return `${t} — ${e.title}${e.location ? ` (${e.location})` : ""}`;
     })
     .join(", ");
@@ -326,7 +326,7 @@ async function checkUpcomingEvents(
     type: "calendar",
     description: `Upcoming in the next 2 hours: ${eventList}. Prepare and review any relevant materials.`,
     payload: {
-      events: events.map((e: any) => ({ id: e.id, title: e.title, start_time: e.start_time })),
+      events: events.map((e: any) => ({ id: e.id, title: e.title, start_time: e.start_at })),
     },
     status: "pending",
   });
