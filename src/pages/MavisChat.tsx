@@ -1470,7 +1470,6 @@ export default function MavisChat() {
         const actionTypes = confirmed.map((r) => r.action.type).join(", ");
         if (failed.length > 0) {
           setActionStatus(`⚠ ${failed.length} action${failed.length > 1 ? "s" : ""} failed`);
-          setActionRoute(null);
         } else {
           setActionStatus(`✓ ${actionTypes}`);
           // Only if the ReAct loop above did not already claim a destination —

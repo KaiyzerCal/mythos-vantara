@@ -140,10 +140,10 @@ async function checkHealthAnomalies(
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };
 
-  // Query the metric-type/value style table (20260518040000 schema)
+  // Wide-row health metrics schema (date, hrv_avg, resting_hr, readiness_score, ...)
   const { data: metrics, error } = await sb
     .from("health_metrics")
-    .select("metric_type, value, metric_date, created_at")
+    .select("date, hrv_avg, resting_hr, readiness_score, sleep_efficiency, created_at")
     .eq("user_id", userId)
     .gte("created_at", daysAgo(2))
     .order("created_at", { ascending: false })
@@ -154,14 +154,14 @@ async function checkHealthAnomalies(
   const anomalies: string[] = [];
 
   for (const m of metrics as any[]) {
-    const v = Number(m.value);
-    const t = String(m.metric_type ?? "").toLowerCase();
-    if (t === "hrv" && v < 30) anomalies.push(`HRV ${v} (< 30)`);
-    if ((t === "resting_hr" || t === "resting_heart_rate") && v > 90)
-      anomalies.push(`Resting HR ${v} (> 90)`);
-    if ((t === "sleep_score" || t === "readiness") && v < 60)
-      anomalies.push(`${m.metric_type} ${v} (< 60)`);
+    const hrv = m.hrv_avg == null ? null : Number(m.hrv_avg);
+    const rhr = m.resting_hr == null ? null : Number(m.resting_hr);
+    const readiness = m.readiness_score == null ? null : Number(m.readiness_score);
+    if (hrv != null && hrv < 30) anomalies.push(`HRV ${hrv} (< 30)`);
+    if (rhr != null && rhr > 90) anomalies.push(`Resting HR ${rhr} (> 90)`);
+    if (readiness != null && readiness < 60) anomalies.push(`Readiness ${readiness} (< 60)`);
   }
+
 
   // Deduplicate
   const unique = [...new Set(anomalies)];
@@ -205,7 +205,7 @@ async function checkPriorityEmails(
   try {
     const { data, error } = await sb
       .from("gmail_messages")
-      .select("id, subject, from_email, received_at")
+      .select("id, subject, from_address, received_at")
       .eq("user_id", userId)
       .eq("is_read", false)
       .gte("received_at", hoursAgo(24))
@@ -227,7 +227,7 @@ async function checkPriorityEmails(
 
   if (priority.length === 0) return result;
 
-  const subjects = priority.map((e: any) => `• ${e.subject} (from: ${e.from_email})`).join("\n");
+  const subjects = priority.map((e: any) => `• ${e.subject} (from: ${e.from_address})`).join("\n");
 
   const { data: emailInsight } = await sb.from("mavis_insights").insert({
     user_id: userId,
@@ -300,11 +300,11 @@ async function checkUpcomingEvents(
   try {
     const { data, error } = await sb
       .from("calendar_events")
-      .select("id, title, start_time, location")
+      .select("id, title, start_at, location")
       .eq("user_id", userId)
-      .gte("start_time", nowIso())
-      .lte("start_time", windowEnd)
-      .order("start_time", { ascending: true });
+      .gte("start_at", nowIso())
+      .lte("start_at", windowEnd)
+      .order("start_at", { ascending: true });
 
     if (!error && data) events = data;
   } catch {
@@ -316,7 +316,7 @@ async function checkUpcomingEvents(
 
   const eventList = events
     .map((e: any) => {
-      const t = new Date(e.start_time).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+      const t = new Date(e.start_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
       return `${t} — ${e.title}${e.location ? ` (${e.location})` : ""}`;
     })
     .join(", ");
@@ -326,7 +326,7 @@ async function checkUpcomingEvents(
     type: "calendar",
     description: `Upcoming in the next 2 hours: ${eventList}. Prepare and review any relevant materials.`,
     payload: {
-      events: events.map((e: any) => ({ id: e.id, title: e.title, start_time: e.start_time })),
+      events: events.map((e: any) => ({ id: e.id, title: e.title, start_time: e.start_at })),
     },
     status: "pending",
   });
