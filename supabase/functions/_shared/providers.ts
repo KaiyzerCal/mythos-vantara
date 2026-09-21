@@ -411,17 +411,6 @@ export async function callWithFallback(
     }
   }
 
-  // Tier 0c — Lovable AI Gateway. First tier that costs money (workspace
-  // credits), so it must stay below both free tiers above.
-  if (keys.lovable && !isProviderUnhealthy("lovable")) {
-    try {
-      return { content: await callLovable(messages, system, keys.lovable, { thinking: mU === "DEEP" }), provider: "lovable-gateway" };
-    } catch (err: any) {
-      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", err.status === 429 ? 60_000 : 300_000);
-      console.warn(`[fallback] Lovable gateway failed (${err.message}) → cascading`);
-    }
-  }
-
   // Tier 2 — Mode-designated premium provider, but only when the caller has
   // asked for it. See premiumFirst in AiFallbackOpts.
   //
@@ -489,14 +478,32 @@ export async function callWithFallback(
     }
   }
 
-  // Tier 6 — Grok (last resort)
+  // Tier 6 — Grok
   if (keys.grok && !isProviderUnhealthy("grok")) {
     try {
       return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) throw err;
       markProviderUnhealthy("grok");
-      console.warn(`[fallback] Grok unfunded (${err.status})`);
+      console.warn(`[fallback] Grok unfunded (${err.status}) → trying Lovable gateway`);
+    }
+  }
+
+  // Tier 7 — Lovable AI Gateway. True last resort: every free tier and every
+  // one of the caller's own OpenAI/Anthropic/Grok keys gets a chance before
+  // this spends workspace credits. It used to sit at tier 0c, ahead of every
+  // paid tier below — so whenever the two free tiers (Gemini, Groq) missed,
+  // every request landed here first and the caller's own funded keys sat
+  // unused beneath it. Moved down 2026-09-21 after that was traced as the
+  // reason non-agent mavis-chat was burning Lovable credits on every message
+  // while mavis-agent (which bypasses this cascade and calls Claude directly)
+  // never touched Lovable at all.
+  if (keys.lovable && !isProviderUnhealthy("lovable")) {
+    try {
+      return { content: await callLovable(messages, system, keys.lovable, { thinking: mU === "DEEP" }), provider: "lovable-gateway" };
+    } catch (err: any) {
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", err.status === 429 ? 60_000 : 300_000);
+      console.warn(`[fallback] Lovable gateway failed (${err.message})`);
     }
   }
 
@@ -855,14 +862,6 @@ export async function callWithFallbackStream(
       console.warn(`[stream-fallback] Groq: ${e.message} → cascading`);
     }
   }
-  // Tier 0c — Lovable AI Gateway (workspace credits)
-  if (keys.lovable && !isProviderUnhealthy("lovable")) {
-    try { return { stream: await callLovableStream(messages, system, keys.lovable, { thinking: mU === "DEEP" }), provider: "lovable-gateway" }; }
-    catch (e: any) {
-      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", e.status === 429 ? 60_000 : 300_000);
-      console.warn(`[stream-fallback] Lovable gateway: ${e.message} → cascading`);
-    }
-  }
   // Tier 1 — Mode-designated provider
   if (primary === "claude" && keys.claude && !isProviderUnhealthy("claude")) {
     try {
@@ -899,6 +898,15 @@ export async function callWithFallbackStream(
     catch (e: any) {
       if (!(e instanceof ProviderUnavailableError)) throw e;
       markProviderUnhealthy("grok");
+    }
+  }
+  // Lovable AI Gateway — true last resort, mirrors callWithFallback. See the
+  // comment on that function's Tier 7 for why this moved down from tier 0c.
+  if (keys.lovable && !isProviderUnhealthy("lovable")) {
+    try { return { stream: await callLovableStream(messages, system, keys.lovable, { thinking: mU === "DEEP" }), provider: "lovable-gateway" }; }
+    catch (e: any) {
+      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("lovable", e.status === 429 ? 60_000 : 300_000);
+      console.warn(`[stream-fallback] Lovable gateway: ${e.message}`);
     }
   }
   throw new Error("All AI providers unavailable for streaming (no funded keys).");
