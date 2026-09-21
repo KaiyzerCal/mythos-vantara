@@ -18,6 +18,23 @@ export function markProviderUnhealthy(name: string, ttlMs = 120_000): void {
   _providerUnhealthyUntil.set(name, Date.now() + ttlMs);
 }
 
+// A 429 from a per-minute/per-second rate limit clears on its own within the
+// usual short cooldown. A 429 from a *daily* token cap (Groq's free tier:
+// 200k tokens per day, shared across every function on this project's key)
+// does not — it won't clear until the provider's own daily reset, so cooling
+// down for the same ~60s as an ordinary rate limit just means every request
+// until then wastes a round trip re-failing against a quota that hasn't
+// moved. Confirmed live 2026-09-21: Groq logged 429 "tokens per day (TPD):
+// Limit 200000, Used 199888" and kept getting re-attempted every request.
+// Six hours is a deliberately conservative guess at "well short of a full
+// day" rather than an exact reset time Groq's (truncated) error body doesn't
+// give us — worst case it retries a little early and fails once more, which
+// is exactly as cheap as never applying this at all.
+const DAILY_CAP_COOLDOWN_MS = 6 * 60 * 60_000;
+function rateLimitCooldownMs(reason: string, defaultMs = 60_000): number {
+  return /tokens per day|\bTPD\b/i.test(reason) ? DAILY_CAP_COOLDOWN_MS : defaultMs;
+}
+
 // ============================================================
 // CAPABILITY ROUTER
 // Claude   → ARCH, CODEX, SOVEREIGN (deep reasoning)
@@ -406,7 +423,7 @@ export async function callWithFallback(
     try {
       return { content: await callGroq(messages, system, keys.groq), provider: GROQ_MODEL };
     } catch (err: any) {
-      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", rateLimitCooldownMs(err.reason));
       console.warn(`[fallback] Groq failed (${err.message}) → cascading`);
     }
   }
@@ -858,7 +875,7 @@ export async function callWithFallbackStream(
   if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-llama")) {
     try { return { stream: await callGroqStream(messages, system, keys.groq), provider: GROQ_MODEL }; }
     catch (e: any) {
-      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", 60_000);
+      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", rateLimitCooldownMs(e.reason));
       console.warn(`[stream-fallback] Groq: ${e.message} → cascading`);
     }
   }
