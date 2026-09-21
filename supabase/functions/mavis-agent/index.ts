@@ -1975,13 +1975,23 @@ interface AgentLoopResult {
 type ProviderId = "groq" | "gateway" | "anthropic" | "openai" | "grok";
 
 // "groq" is the free Llama 3.3 70B tool-calling lane — kept as a fallback on
-// every lane so a gateway 402/429 never takes the agent loop down.
+// every lane so an outage of the paid providers never takes the agent loop
+// down.
+//
+// "gateway" (Lovable AI Gateway) is last on every lane, not first. It used to
+// lead "default" — the lane ordinary conversation falls into when it doesn't
+// match the generation/code/realtime/reasoning intent regexes below — so most
+// agent-mode messages spent Lovable credits before ever trying the operator's
+// own funded Anthropic/OpenAI/Grok keys. Same bug, same fix, as the tier-0c
+// Lovable placement in _shared/providers.ts's callWithFallback: this is a
+// separate cascade (mavis-agent never calls that shared one), so it needed
+// its own fix. Moved 2026-09-21.
 const PROVIDER_LANES: Record<string, ProviderId[]> = {
-  generation: ["anthropic", "openai", "gateway", "groq", "grok"],
-  code:       ["anthropic", "openai", "gateway", "groq", "grok"],
-  realtime:   ["grok", "gateway", "groq", "anthropic", "openai"],
-  reasoning:  ["openai", "anthropic", "gateway", "groq", "grok"],
-  default:    ["gateway", "groq", "anthropic", "openai", "grok"],
+  generation: ["anthropic", "openai", "groq", "grok", "gateway"],
+  code:       ["anthropic", "openai", "groq", "grok", "gateway"],
+  realtime:   ["grok", "groq", "anthropic", "openai", "gateway"],
+  reasoning:  ["openai", "anthropic", "groq", "grok", "gateway"],
+  default:    ["groq", "anthropic", "openai", "grok", "gateway"],
 };
 
 const GENERATION_INTENT = /\b(generate|draw|render|imagine|make|create)\b[\s\S]{0,60}\b(image|picture|photo|pic|art|artwork|video|animation|avatar|portrait|wallpaper)\b|\b(image|picture|photo|video)\s+of\b|\b(nsfw|hentai|furry|lewd|nude|naked|sexy|erotic|porn)\b/i;
@@ -2203,7 +2213,7 @@ async function runAgentLoop(
   supabase: ReturnType<typeof createClient>,
   env: Env,
   onEvent?: (event: Record<string, unknown>) => void,
-  providerChain: ProviderId[] = ["gateway", "groq", "anthropic"],
+  providerChain: ProviderId[] = ["groq", "anthropic", "gateway"],
 ): Promise<AgentLoopResult> {
   const anthropicModel = "claude-sonnet-4-6";
   // OpenAI-compatible providers share one request/response shape.
