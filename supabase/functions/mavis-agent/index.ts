@@ -1972,7 +1972,7 @@ interface AgentLoopResult {
 //               permission) and code/agentic work
 //   grok      — xAI — live knowledge: news, X/Twitter, markets, trending
 //   openai    — GPT — deep reasoning, analysis, strategy
-type ProviderId = "groq" | "gateway" | "anthropic" | "openai" | "grok";
+type ProviderId = "gemini" | "groq" | "gateway" | "anthropic" | "openai" | "grok";
 
 // "groq" is the free Llama 3.3 70B tool-calling lane — kept as a fallback on
 // every lane so an outage of the paid providers never takes the agent loop
@@ -1991,7 +1991,9 @@ const PROVIDER_LANES: Record<string, ProviderId[]> = {
   code:       ["anthropic", "openai", "groq", "grok", "gateway"],
   realtime:   ["grok", "groq", "anthropic", "openai", "gateway"],
   reasoning:  ["openai", "anthropic", "groq", "grok", "gateway"],
-  default:    ["groq", "anthropic", "openai", "grok", "gateway"],
+  // "gemini" leads default: free direct Gemini (GEMINI_API_KEY, OpenAI-compatible
+  // endpoint) — zero credits, same tier mavis-chat's callWithFallback tries first.
+  default:    ["gemini", "groq", "anthropic", "openai", "grok", "gateway"],
 };
 
 const GENERATION_INTENT = /\b(generate|draw|render|imagine|make|create)\b[\s\S]{0,60}\b(image|picture|photo|pic|art|artwork|video|animation|avatar|portrait|wallpaper)\b|\b(image|picture|photo|video)\s+of\b|\b(nsfw|hentai|furry|lewd|nude|naked|sexy|erotic|porn)\b/i;
@@ -2219,6 +2221,13 @@ async function runAgentLoop(
   // OpenAI-compatible providers share one request/response shape.
   // OpenAI's GPT-5 family rejects max_tokens — it requires max_completion_tokens.
   const compatProviders: Record<string, { url: string; key: string; model: string; tokenParam: string }> = {
+    // Free direct Gemini via its OpenAI-compatible endpoint — no Lovable credits.
+    gemini: {
+      url:        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      key:        Deno.env.get("GEMINI_API_KEY") ?? "",
+      model:      Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash",
+      tokenParam: "max_tokens",
+    },
     gateway: {
       url:        "https://ai.gateway.lovable.dev/v1/chat/completions",
       key:        env.lovableKey,
@@ -3162,7 +3171,8 @@ Deno.serve(async (req) => {
     const overrideRaw = String(body.provider ?? "").toLowerCase();
     const override: ProviderId | "" =
       overrideRaw === "groq" ? "groq"
-      : overrideRaw === "gateway" || overrideRaw === "gemini" ? "gateway"
+      : overrideRaw === "gemini" ? "gemini"
+      : overrideRaw === "gateway" ? "gateway"
       : overrideRaw === "anthropic" || overrideRaw === "claude" ? "anthropic"
       : overrideRaw === "openai" || overrideRaw === "gpt" ? "openai"
       : overrideRaw === "grok" || overrideRaw === "xai" ? "grok"
@@ -3172,6 +3182,7 @@ Deno.serve(async (req) => {
       ? [override, ...PROVIDER_LANES.default.filter((p) => p !== override)]
       : PROVIDER_LANES[lane] ?? PROVIDER_LANES.default;
     const keyFor: Record<ProviderId, string> = {
+      gemini:    Deno.env.get("GEMINI_API_KEY") ?? "",
       groq:      Deno.env.get("GROQ_API_KEY") ?? "",
       gateway:   lovableKey,
       anthropic: claudeKey,
