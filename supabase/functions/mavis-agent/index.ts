@@ -2221,6 +2221,13 @@ async function runAgentLoop(
   // OpenAI-compatible providers share one request/response shape.
   // OpenAI's GPT-5 family rejects max_tokens — it requires max_completion_tokens.
   const compatProviders: Record<string, { url: string; key: string; model: string; tokenParam: string }> = {
+    // Free direct Gemini via its OpenAI-compatible endpoint — no Lovable credits.
+    gemini: {
+      url:        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      key:        Deno.env.get("GEMINI_API_KEY") ?? "",
+      model:      Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash",
+      tokenParam: "max_tokens",
+    },
     gateway: {
       url:        "https://ai.gateway.lovable.dev/v1/chat/completions",
       key:        env.lovableKey,
@@ -3164,7 +3171,8 @@ Deno.serve(async (req) => {
     const overrideRaw = String(body.provider ?? "").toLowerCase();
     const override: ProviderId | "" =
       overrideRaw === "groq" ? "groq"
-      : overrideRaw === "gateway" || overrideRaw === "gemini" ? "gateway"
+      : overrideRaw === "gemini" ? "gemini"
+      : overrideRaw === "gateway" ? "gateway"
       : overrideRaw === "anthropic" || overrideRaw === "claude" ? "anthropic"
       : overrideRaw === "openai" || overrideRaw === "gpt" ? "openai"
       : overrideRaw === "grok" || overrideRaw === "xai" ? "grok"
@@ -3174,6 +3182,7 @@ Deno.serve(async (req) => {
       ? [override, ...PROVIDER_LANES.default.filter((p) => p !== override)]
       : PROVIDER_LANES[lane] ?? PROVIDER_LANES.default;
     const keyFor: Record<ProviderId, string> = {
+      gemini:    Deno.env.get("GEMINI_API_KEY") ?? "",
       groq:      Deno.env.get("GROQ_API_KEY") ?? "",
       gateway:   lovableKey,
       anthropic: claudeKey,
