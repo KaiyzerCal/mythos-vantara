@@ -95,7 +95,7 @@ async function getBiomarkers(token: string): Promise<any> {
 
 async function exchangeOAuthCode(
   code: string,
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
 ): Promise<any> {
   const clientId     = Deno.env.get("WHOOP_CLIENT_ID") ?? "";
