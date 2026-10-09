@@ -1,21 +1,23 @@
-# Unfreeze login and backend
+# Show agent provider routing on every response
 
-## Confirmed findings
+## Confirmed current state
 
-- The Lovable Cloud control plane reports the backend as ready, but its database services are not answering normally.
-- A fresh database health check timed out while awaiting headers.
-- Both a trivial `SELECT 1` and a `pg_stat_activity` diagnostic failed because the database connection pool timed out, so SQL cannot currently inspect or clear the blocked sessions.
-- Recent auth logs are empty while the preview shows repeated auth refresh `Failed to fetch` errors. Together, these signals identify a backend-side stall rather than wrong credentials or an app login-form defect.
+- Agent mode already records every provider attempt in backend logs, but the response only returns the final provider and lane.
+- The chat client receives that final provider in both streamed and non-streamed responses.
+- One agent-mode send path currently drops the provider before rendering, while the other can display only the final provider beside the mode.
+- Skipped and failed tiers are not returned to the chat, so the interface cannot show the actual cascade.
 
-## Recovery steps
+## Implementation
 
-1. Restart the Lovable Cloud backend (needs your approval).
-2. Poll status until it reports ready again.
-3. Verify auth is actually serving: a wrong password must return a prompt `400 invalid credentials` instead of hanging.
-4. Verify the database answers a trivial query quickly.
-5. Sign in from the preview and confirm the session sticks and page data loads.
-6. If the hang persists after the restart, stop and treat it as a platform incident rather than changing app code.
+1. Collect a small routing trace during each agent loop: provider, outcome (`served`, `failed`, or `skipped`), and HTTP status when available.
+2. Return that trace with streamed and non-streamed agent responses, without exposing API keys or full provider error bodies.
+3. Carry the trace into the finalized assistant message in both agent-mode send paths.
+4. Add a compact label beneath each agent response showing the serving provider and the preceding skipped/failed tiers in cascade order, for example: `GEMINI served · GROQ skipped · ANTHROPIC skipped`.
+5. Preserve the label for the current in-memory thread; keep database schema and stored message content unchanged.
+6. Add focused tests for cascade ordering and safe response metadata, then deploy `mavis-agent` and verify a real agent response displays the provider path.
 
-## Scope
+## Technical scope
 
-No schema, edge-function, or frontend code changes are planned. The existing login already retries transient network failures with bounded backoff, so no code change would help while the backend is unreachable. If post-restart testing reveals a separate reproducible defect, I will report it before touching anything.
+- Change only `mavis-agent`, agent response parsing/types, the MAVIS chat response display, and focused tests.
+- Keep provider order, fallback behavior, models, keys, and credit usage unchanged.
+- Do not include raw error bodies in the visible label; status codes are sufficient for failed tiers.
