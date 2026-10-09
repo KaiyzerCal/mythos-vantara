@@ -243,7 +243,7 @@ async function extractThumbnailTimestamp(videoUrl: string, clipStart: number, cl
 
 // ── Action handlers ────────────────────────────────────────
 
-async function handleRender(action: RenderAction, supabase: ReturnType<typeof createClient>) {
+async function handleRender(action: RenderAction, supabase: any) {
   const {
     user_id: userId,
     clip_id: clipId,
@@ -260,7 +260,7 @@ async function handleRender(action: RenderAction, supabase: ReturnType<typeof cr
   try {
     const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
     const { data: quota } = await supabase.from("video_quota").select("renders_used,renders_limit").eq("user_id", userId).eq("period_start", currentMonth).maybeSingle();
-    const rendersUsed = quota?.renders_used ?? 0;
+    const rendersUsed = Number(quota?.renders_used ?? 0);
     const rendersLimit = quota?.renders_limit ?? 20;
     if (rendersUsed >= rendersLimit) throw new Error(`Monthly render quota reached (${rendersUsed}/${rendersLimit}). Upgrade to render more clips.`);
     supabase.from("video_quota").upsert({ user_id: userId, period_start: currentMonth, renders_used: rendersUsed + 1, updated_at: new Date().toISOString() }, { onConflict: "user_id,period_start" }).then(() => null).then(undefined, () => null);
@@ -302,7 +302,7 @@ async function handleRender(action: RenderAction, supabase: ReturnType<typeof cr
       .single();
 
     if (jobErr) throw jobErr;
-    jobId = jobRow.id;
+    jobId = jobRow.id as string;
 
     // Update clip render status
     await supabase
@@ -342,7 +342,7 @@ async function handleRender(action: RenderAction, supabase: ReturnType<typeof cr
   };
 }
 
-async function handlePoll(action: PollAction, supabase: ReturnType<typeof createClient>) {
+async function handlePoll(action: PollAction, supabase: any) {
   const { job_id: jobId, user_id: userId } = action;
 
   // Load render job from DB
@@ -383,7 +383,7 @@ async function handlePoll(action: PollAction, supabase: ReturnType<typeof create
       await supabase
         .from("video_clips")
         .update({ render_url: outputUrl, render_status: "ready" })
-        .eq("id", job.clip_id);
+        .eq("id", job.clip_id as string);
 
       // Update job
       await supabase
@@ -403,7 +403,7 @@ async function handlePoll(action: PollAction, supabase: ReturnType<typeof create
       await supabase
         .from("video_clips")
         .update({ render_status: "failed" })
-        .eq("id", job.clip_id);
+        .eq("id", job.clip_id as string);
 
       return { status: "failed", clip_id: job.clip_id, job_id: jobId };
     }
@@ -416,7 +416,7 @@ async function handlePoll(action: PollAction, supabase: ReturnType<typeof create
   return { status: job.status, render_url: job.render_url ?? undefined, clip_id: job.clip_id, job_id: jobId };
 }
 
-async function handleExtractThumbnail(action: ExtractThumbnailAction, supabase: ReturnType<typeof createClient>) {
+async function handleExtractThumbnail(action: ExtractThumbnailAction, supabase: any) {
   const {
     source_url: sourceUrl,
     timestamp_seconds: timestampSeconds,
@@ -489,7 +489,7 @@ async function handleExtractThumbnail(action: ExtractThumbnailAction, supabase: 
   };
 }
 
-async function handleCompile(action: CompileAction, supabase: ReturnType<typeof createClient>) {
+async function handleCompile(action: CompileAction, supabase: any) {
   const {
     user_id: userId,
     project_id: projectId,
@@ -537,7 +537,7 @@ async function handleCompile(action: CompileAction, supabase: ReturnType<typeof 
     console.error("[mavis-video-render] job insert error:", jobInsertErr.message);
   }
 
-  const jobId: string | null = jobRow?.id ?? null;
+  const jobId: string | null = (jobRow?.id as string | null) ?? null;
 
   // Determine effective aspect ratio from width/height if provided
   const effectiveAspectRatio: string = aspectRatio ??

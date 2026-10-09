@@ -41,7 +41,7 @@ interface EvolutionSummary {
   insights: string;
 }
 
-async function evolveFor(userId: string, sb: ReturnType<typeof createClient>): Promise<EvolutionSummary> {
+async function evolveFor(userId: string, sb: any): Promise<EvolutionSummary> {
   // ── Step 1: Gather evidence in parallel ──────────────────────────────────
   const [tacitRes, outcomesRes, chainsRes, insightsRes, journalRes, questsRes] = await Promise.all([
     sb.from("mavis_tacit")
