@@ -358,7 +358,7 @@ async function executeGoalStep(step: GoalStep, task: Task): Promise<unknown> {
 const MAX_ITERATIONS = 12; // safety cap — goal auto-completes after this many steps
 
 const handleGoal: TaskHandler = async (task) => {
-  const payload = task.payload as GoalPayload;
+  const payload = task.payload as unknown as GoalPayload;
 
   // ── Phase 1: First run — generate plan ───────────────────
   if (!payload.plan) {
@@ -986,7 +986,6 @@ const handleStandingOrder: TaskHandler = async (task) => {
     }
     if (templateId) {
       const updates: Record<string, unknown> = { last_used_at: new Date().toISOString() };
-      if (status === "completed") updates.success_count = supabase.rpc ? undefined : undefined; // incremented below
       // Use raw SQL increment via RPC-less update — fetch current then +1
       const { data: tpl } = await supabase
         .from("standing_order_templates")
@@ -1749,7 +1748,7 @@ const handleDailyComic: TaskHandler = async (task) => {
   const data = await res.json().catch(() => ({})) as any;
   if (!res.ok) return { success: false, error: data.error ?? `comic-agent returned ${res.status}` };
 
-  if (BOT_TOKEN && OPERATOR_CHAT && !data.telegram_posted) {
+  if (BOT_TOKEN && OPERATOR_CHAT_ID && !data.telegram_posted) {
     // Telegram wasn't configured in the agent or failed — send a fallback notification
     const msg = [
       `🗞️ *Daily Comic posted* — ${data.strip === "calvinandhobbes" ? "Calvin & Hobbes" : data.strip}`,
@@ -1760,7 +1759,7 @@ const handleDailyComic: TaskHandler = async (task) => {
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ chat_id: OPERATOR_CHAT, text: msg, parse_mode: "Markdown" }),
+      body:    JSON.stringify({ chat_id: OPERATOR_CHAT_ID, text: msg, parse_mode: "Markdown" }),
     }).catch(() => {});
   }
 

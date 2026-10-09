@@ -76,6 +76,7 @@ serve(async (req) => {
       }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
+    if (!downloadUrl) throw new Error("No downloadable video URL resolved");
     // Stream-download and upload to Supabase storage
     const videoRes = await fetch(downloadUrl, { signal: AbortSignal.timeout(120000) });
     if (!videoRes.ok) throw new Error(`Failed to fetch video: ${videoRes.status}`);

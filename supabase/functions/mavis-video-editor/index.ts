@@ -686,7 +686,7 @@ function mergeSegmentsIntoMoments(
 // ─────────────────────────────────────────────────────────────
 
 async function handleAnalyze(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   body: {
     source_url: string;
@@ -728,7 +728,7 @@ async function handleAnalyze(
     .eq("period_start", currentMonth)
     .maybeSingle();
 
-  const analysesUsed = quota?.analyses_used ?? 0;
+  const analysesUsed = Number(quota?.analyses_used ?? 0);
   const analysesLimit = quota?.analyses_limit ?? 5;
 
   if (analysesUsed >= analysesLimit) {
@@ -769,7 +769,7 @@ async function handleAnalyze(
     throw new Error(`Failed to create project: ${projectErr.message}`);
   }
 
-  const projectId: string = project.id;
+  const projectId: string = project.id as string;
 
   try {
     // Step 2: Transcribe with Whisper
@@ -943,7 +943,7 @@ async function handleAnalyze(
 }
 
 async function handleGenerateClips(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   body: {
     project_id: string;
@@ -1055,7 +1055,7 @@ async function handleGenerateClips(
 }
 
 async function handlePollRender(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   body: { render_job_id: string }
 ) {
@@ -1116,7 +1116,7 @@ async function handlePollRender(
 }
 
 async function handleGetProject(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   body: { project_id: string }
 ) {
@@ -1147,9 +1147,10 @@ async function handleGetProject(
 
   // Group clips by format
   const clipsByFormat: Record<string, any[]> = {};
-  for (const clip of clips ?? []) {
-    if (!clipsByFormat[clip.format]) clipsByFormat[clip.format] = [];
-    clipsByFormat[clip.format].push(clip);
+  for (const clip of (clips ?? []) as any[]) {
+    const fmt = String(clip.format);
+    if (!clipsByFormat[fmt]) clipsByFormat[fmt] = [];
+    clipsByFormat[fmt].push(clip);
   }
 
   return { project, segments: segments ?? [], clips: clipsByFormat };
@@ -1161,7 +1162,7 @@ async function handleGetProject(
 
 async function resolveUser(
   req: Request,
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   body: any
 ): Promise<{ id: string }> {
   const authHeader = req.headers.get("Authorization") ?? "";

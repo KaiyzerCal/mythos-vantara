@@ -260,7 +260,7 @@ function aggregateTraces(rows: TraceRow[]): TraceStats {
  * Returns the number of lessons written.
  */
 async function analyzeTracesForUser(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
   lookback_hours: number,
   cutoff: string,

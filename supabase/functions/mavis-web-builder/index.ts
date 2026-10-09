@@ -826,11 +826,11 @@ type SectionData =
   | { type: "pricing"; headline: string; subheadline?: string; chip?: string; plans: Array<{ name: string; price: string; period?: string; description?: string; features: string[]; highlighted?: boolean; cta?: string }> }
   | { type: "faq"; headline: string; chip?: string; items: Array<{ question: string; answer: string }> }
   | { type: "contact"; headline: string; subheadline?: string; email?: string; phone?: string; address?: string; hours?: string }
-  | { type: "team"; headline: string; subheadline?: string; members: Array<{ name: string; role: string; bio: string; emoji?: string }> }
+  | { type: "team"; headline: string; subheadline?: string; chip?: string; members: Array<{ name: string; role: string; bio: string; emoji?: string }> }
   | { type: "portfolio"; headline: string; subheadline?: string; items: Array<{ title: string; category: string; description: string }> }
   | { type: "about_hero"; headline: string; subheadline: string; body: string }
   | { type: "services"; headline: string; subheadline?: string; chip?: string; items: Array<{ title: string; description: string; price?: string; icon?: string }> }
-  | { type: "values"; headline: string; subheadline?: string; items: Array<{ emoji: string; title: string; description: string }> }
+  | { type: "values"; headline: string; subheadline?: string; chip?: string; items: Array<{ emoji: string; title: string; description: string }> }
   | { type: "content_block"; headline?: string; body: string; chip?: string; bg?: boolean }
   | { type: "image_text"; headline: string; body: string; image_side?: "left" | "right"; cta?: string; chip?: string };
 
