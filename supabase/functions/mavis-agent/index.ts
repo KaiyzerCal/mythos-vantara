@@ -2336,10 +2336,22 @@ async function runAgentLoop(
     let streamedThisCall = false;
     const useStreaming = AGENT_STREAMING_ENABLED && !!onEvent;
 
+    // This loop previously logged nothing at all — no attempt, skip, error,
+    // or timing line for any tier. mavis-chat's callWithFallback has had
+    // "[fallback] X failed (...)" warnings all along; this cascade never did,
+    // which meant a real slowness complaint ("agent mode takes way too
+    // long") had zero log evidence to diagnose from — confirmed live
+    // 2026-10-09: two probes against a real request showed it burning
+    // through groq, anthropic, openai, and grok before landing on gateway,
+    // and the logs for that exact window had no trace of any of it beyond
+    // boot/shutdown lines. Every skip, failure, and the eventual success now
+    // logs candidate + elapsed ms, so the next report of this comes with
+    // actual evidence instead of starting from zero again.
     for (const candidate of order) {
+      const attemptStart = Date.now();
       try {
         if (candidate === "anthropic") {
-          if (!claudeKey) continue;
+          if (!claudeKey) { console.log(`[agent-cascade] anthropic skipped — no key configured`); continue; }
           const res = await fetchWithFailover("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -2357,7 +2369,9 @@ async function runAgentLoop(
             }),
           });
           if (!res.ok) {
-            providerErrors.push(`anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
+            const errBody = (await res.text()).slice(0, 200);
+            console.warn(`[agent-cascade] anthropic failed (${res.status}) after ${Date.now() - attemptStart}ms: ${errBody}`);
+            providerErrors.push(`anthropic ${res.status}: ${errBody}`);
             continue;
           }
           if (useStreaming) {
@@ -2372,7 +2386,7 @@ async function runAgentLoop(
           }
         } else {
           const cfg = compatProviders[candidate];
-          if (!cfg?.key) continue;
+          if (!cfg?.key) { console.log(`[agent-cascade] ${candidate} skipped — no key configured`); continue; }
           // The Lovable AI Gateway authenticates via a dedicated header, not Bearer auth
           // (confirmed by mavis-autonomy-orchestrator, the newest Lovable-gateway caller
           // in the codebase) — every other OpenAI-compatible provider still uses Bearer.
@@ -2392,7 +2406,9 @@ async function runAgentLoop(
             }),
           });
           if (!res.ok) {
-            providerErrors.push(`${candidate} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+            const errBody = (await res.text()).slice(0, 200);
+            console.warn(`[agent-cascade] ${candidate} failed (${res.status}) after ${Date.now() - attemptStart}ms: ${errBody}`);
+            providerErrors.push(`${candidate} ${res.status}: ${errBody}`);
             continue;
           }
           if (useStreaming) {
@@ -2420,11 +2436,14 @@ async function runAgentLoop(
             }
           }
         }
+        console.log(`[agent-cascade] ${candidate} served in ${Date.now() - attemptStart}ms`);
         pinnedProvider = candidate;
         served = true;
         break;
       } catch (err) {
-        providerErrors.push(`${candidate}: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
+        const detail = err instanceof Error ? err.message.slice(0, 200) : String(err);
+        console.warn(`[agent-cascade] ${candidate} threw after ${Date.now() - attemptStart}ms: ${detail}`);
+        providerErrors.push(`${candidate}: ${detail}`);
       }
     }
 
