@@ -159,7 +159,7 @@ async function exchangeOAuthCode(
 async function resolveToken(
   requestToken: string | undefined,
   userId: string,
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
 ): Promise<string | null> {
   if (requestToken?.trim()) return requestToken.trim();
 
@@ -170,7 +170,7 @@ async function resolveToken(
     .maybeSingle();
 
   if (error || !data?.access_token) return null;
-  return data.access_token;
+  return data.access_token as string;
 }
 
 function buildConnectUrl(): string {
