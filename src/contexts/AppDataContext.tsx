@@ -34,6 +34,7 @@ interface AppDataContextType {
   createQuest: (input: any) => Promise<Quest | null>;
   updateQuest: (id: string, input: any) => Promise<void>;
   completeQuest: (id: string) => Promise<void>;
+  failQuest: (id: string) => Promise<void>;
   deleteQuest: (id: string) => Promise<void>;
   refetchQuests: () => Promise<void>;
 
@@ -182,7 +183,7 @@ const INITIAL_MAVIS_MSG: ChatMessage = {
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const { profile, loading: profileLoading, updateProfile, awardXP, refetchProfile } = useProfile();
-  const { quests, loading: questsLoading, stats: questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetch: refetchQuests } = useQuests();
+  const { quests, loading: questsLoading, stats: questStats, createQuest, updateQuest, completeQuest, failQuest, deleteQuest, refetch: refetchQuests } = useQuests();
 
   const { data: rituals, loading: ritualsLoading, refetch: refetchRituals } = useRituals();
   const { data: tasks, loading: tasksLoading, create: createTask, update: _updateTask, remove: deleteTask, refetch: refetchTasks } = useTasks();
@@ -321,7 +322,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       profile, profileLoading, updateProfile, awardXP, refetchProfile,
-      quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, refetchQuests,
+      quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, failQuest, deleteQuest, refetchQuests,
       rituals, ritualsLoading,
       tasks, tasksLoading, createTask, updateTask, deleteTask,
       journalEntries, journalLoading, createJournalEntry, updateJournalEntry, deleteJournalEntry,

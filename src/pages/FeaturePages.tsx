@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight, Copy, Brain } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, XCircle, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight, Copy, Brain } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -27,19 +27,24 @@ import { truncateAtWord } from "@/lib/truncateAtWord";
 const QUEST_TYPES = ["all", "main", "epic", "side", "daily"] as const;
 const QUEST_STATUSES = ["all", "active", "completed", "failed", "locked"] as const;
 
-function SubQuestRow({ sq, onComplete, onDelete }: { sq: any; onComplete: (id: string) => void; onDelete: (id: string) => void }) {
+function SubQuestRow({ sq, onComplete, onFail, onDelete }: { sq: any; onComplete: (id: string) => void; onFail: (id: string) => void; onDelete: (id: string) => void }) {
   return (
-    <div className={`flex items-center gap-2 pl-4 py-1.5 border-l-2 ${sq.status === 'completed' ? 'border-green-500/30 opacity-50' : 'border-purple-500/30'}`}>
+    <div className={`flex items-center gap-2 pl-4 py-1.5 border-l-2 ${sq.status === 'completed' ? 'border-green-500/30 opacity-50' : sq.status === 'failed' ? 'border-red-500/30 opacity-50' : 'border-purple-500/30'}`}>
       <button
         onClick={() => onComplete(sq.id)}
         className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${sq.status === 'completed' ? 'bg-green-500 border-green-500' : 'border-gray-500 hover:border-purple-400'}`}
       >
         {sq.status === 'completed' && <Check className="w-2.5 h-2.5 text-foreground" />}
       </button>
-      <span className={`text-sm flex-1 ${sq.status === 'completed' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+      <span className={`text-sm flex-1 ${sq.status === 'completed' ? 'line-through text-muted-foreground' : sq.status === 'failed' ? 'line-through text-red-400/70' : 'text-foreground'}`}>
         {sq.title}
       </span>
       <span className="text-xs text-purple-400 font-mono">{sq.xp_reward}xp</span>
+      {sq.status === 'active' && (
+        <button onClick={() => onFail(sq.id)} className="text-muted-foreground hover:text-red-400 transition-colors ml-1" title="Mark Failed">
+          <XCircle className="w-3 h-3" />
+        </button>
+      )}
       <button onClick={() => onDelete(sq.id)} className="text-muted-foreground hover:text-red-400 transition-colors ml-1">
         <X className="w-3 h-3" />
       </button>
@@ -87,7 +92,7 @@ function AddSubQuestRow({ parentId, onCreate }: { parentId: string; onCreate: (d
 }
 
 export function QuestsPage() {
-  const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, logActivity, skills, energySystems, updateEnergyFull, updateProfile, profile, createInventoryItem } = useAppData();
+  const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, failQuest, deleteQuest, logActivity, skills, energySystems, updateEnergyFull, updateProfile, profile, createInventoryItem } = useAppData();
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [showCreate, setShowCreate] = useState(false);
@@ -98,6 +103,7 @@ export function QuestsPage() {
     title: "", description: "", type: "daily", difficulty: "Normal", xp_reward: 100,
     real_world_mapping: "", linked_skill_ids: [] as string[], linked_stat: "", linked_energy_id: "",
     codex_points_reward: 0,
+    consequence_quest_id: "" as string, is_consequence: false,
     buff_effects: [] as { label: string; value: number; unit: string; duration?: string }[],
     debuff_effects: [] as { label: string; value: number; unit: string; duration?: string }[],
     loot_rewards: [] as { itemName: string; quantity: number; rarity?: string }[],
@@ -192,7 +198,8 @@ export function QuestsPage() {
     setForm({
       title: "", description: "", type: "daily", difficulty: "Normal", xp_reward: 100,
       real_world_mapping: "", linked_skill_ids: [], linked_stat: "", linked_energy_id: "",
-      codex_points_reward: 0, buff_effects: [], debuff_effects: [], loot_rewards: [],
+      codex_points_reward: 0, consequence_quest_id: "", is_consequence: false,
+      buff_effects: [], debuff_effects: [], loot_rewards: [],
       current_state: "", ideal_state: "", effort_tier: "", phase: "", completion_criteria: [],
     });
     setEditingId(null);
@@ -207,6 +214,8 @@ export function QuestsPage() {
       linked_stat: q.real_world_mapping?.startsWith("stat:") ? q.real_world_mapping.replace("stat:", "") : "",
       linked_energy_id: q.real_world_mapping?.startsWith("energy:") ? q.real_world_mapping.replace("energy:", "") : "",
       codex_points_reward: q.codex_points_reward || 0,
+      consequence_quest_id: q.consequence_quest_id || "",
+      is_consequence: !!q.is_consequence,
       buff_effects: q.buff_effects || [],
       debuff_effects: q.debuff_effects || [],
       loot_rewards: q.loot_rewards || [],
@@ -235,6 +244,8 @@ export function QuestsPage() {
       xp_reward: Number(form.xp_reward), linked_skill_ids: form.linked_skill_ids,
       real_world_mapping: mapping || null,
       codex_points_reward: Number(form.codex_points_reward),
+      consequence_quest_id: form.consequence_quest_id || null,
+      is_consequence: form.is_consequence,
       buff_effects: form.buff_effects,
       debuff_effects: form.debuff_effects,
       loot_rewards: form.loot_rewards,
@@ -470,7 +481,7 @@ export function QuestsPage() {
               </div>
               {/* Linking: Skills */}
               <div>
-                <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Skills (proficiency +5 on completion)</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Skills (proficiency +10 on completion)</p>
                 <div className="flex gap-1.5 flex-wrap">
                   {skills.map((s) => (
                     <button
@@ -517,6 +528,30 @@ export function QuestsPage() {
               <div>
                 <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Codex Points Reward</p>
                 <input type="number" value={form.codex_points_reward} onChange={(e) => setForm((f) => ({ ...f, codex_points_reward: Number(e.target.value) }))} placeholder="0" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" min={0} />
+              </div>
+
+              {/* Consequence linking (GAME_MASTER) */}
+              <div>
+                <p className="text-xs font-mono text-red-400 uppercase mb-1">If Failed, Trigger Quest</p>
+                <select
+                  value={form.consequence_quest_id}
+                  onChange={(e) => setForm((f) => ({ ...f, consequence_quest_id: e.target.value }))}
+                  className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none"
+                >
+                  <option value="">None</option>
+                  {quests.filter((q: any) => q.id !== editingId).map((q: any) => (
+                    <option key={q.id} value={q.id}>{q.title}</option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-1.5 mt-1.5 text-xs font-mono text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.is_consequence}
+                    onChange={(e) => setForm((f) => ({ ...f, is_consequence: e.target.checked }))}
+                    className="accent-red-400"
+                  />
+                  This quest is itself a consequence
+                </label>
               </div>
 
               {/* Buff Effects */}
@@ -717,6 +752,15 @@ export function QuestsPage() {
                       {(q.loot_rewards as any[])?.length > 0 && (q.loot_rewards as any[]).map((l: any, li: number) => (
                         <span key={`l${li}`} className="text-xs font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5">🎁 {l.itemName} ×{l.quantity}</span>
                       ))}
+                      {q.is_consequence && (
+                        <span className="text-xs font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5">⚠ Consequence Quest</span>
+                      )}
+                      {q.consequence_quest_id && (() => {
+                        const cq = quests.find((x: any) => x.id === q.consequence_quest_id);
+                        return cq ? (
+                          <span className="text-xs font-mono text-red-400/70 border border-red-700/20 rounded px-1.5 py-0.5">↳ If failed: {cq.title}</span>
+                        ) : null;
+                      })()}
                     </div>
                     {q.progress_target > 1 && (
                       <div className="mt-2">
@@ -732,7 +776,12 @@ export function QuestsPage() {
                           <CheckCircle2 size={14} />
                         </button>
                       )}
-                      {q.status === "completed" && (
+                      {q.status === "active" && (
+                        <button onClick={() => failQuest(q.id)} className="p-1 text-red-400 hover:bg-red-400/10 rounded transition-all" title="Mark Failed">
+                          <XCircle size={14} />
+                        </button>
+                      )}
+                      {(q.status === "completed" || q.status === "failed") && (
                         <button onClick={() => updateQuest(q.id, { status: "active" })} className="p-1 text-amber-400 hover:bg-amber-400/10 rounded transition-all" title="Reactivate">
                           <Target size={14} />
                         </button>
@@ -761,6 +810,7 @@ export function QuestsPage() {
                     key={sq.id}
                     sq={sq}
                     onComplete={(id) => completeQuest(id)}
+                    onFail={(id) => failQuest(id)}
                     onDelete={(id) => deleteQuest(id)}
                   />
                 ))}

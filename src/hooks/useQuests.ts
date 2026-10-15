@@ -30,6 +30,11 @@ export interface Quest {
   linked_skill_ids: string[];
   buff_effects: QuestBuffEffect[];
   debuff_effects: QuestBuffEffect[];
+  // Sub-quests and GAME_MASTER consequence chains — real columns, previously
+  // untyped (FeaturePages.tsx accessed parent_quest_id via `any` casts only).
+  parent_quest_id: string | null;
+  consequence_quest_id: string | null;
+  is_consequence: boolean | null;
   // ISA schema (LifeOS)
   current_state: string | null;
   ideal_state: string | null;
@@ -145,6 +150,33 @@ export function useQuests() {
     }
   }, [quests]);
 
+  // GAME_MASTER's consequence-quest mechanic (see the "Consequence quest
+  // linking" migration comment): a quest can name another quest to surface
+  // when IT is failed. Failing never awards or deducts anything itself —
+  // "consequences must be redemptive, not punitive" — it just marks the
+  // quest failed and, if its named consequence was sitting dormant
+  // ("locked"), makes it playable.
+  const failQuest = useCallback(async (id: string) => {
+    const quest = quests.find(q => q.id === id);
+    setQuests((qs) => qs.map((q) => (q.id === id ? { ...q, status: "failed" } : q)));
+    await supabase.from("quests").update({ status: "failed", updated_at: new Date().toISOString() }).eq("id", id);
+
+    const consequenceId = quest?.consequence_quest_id;
+    if (consequenceId && user) {
+      const { data: consequence } = await supabase
+        .from("quests").select("id, title, status").eq("id", consequenceId).eq("user_id", user.id).maybeSingle();
+      if (consequence && consequence.status === "locked") {
+        setQuests((qs) => qs.map((q) => (q.id === consequenceId ? { ...q, status: "active" } : q)));
+        await supabase.from("quests").update({ status: "active", updated_at: new Date().toISOString() }).eq("id", consequenceId);
+        await supabase.from("activity_log").insert({
+          user_id: user.id, event_type: "quest_created",
+          description: `⚠ Consequence triggered: "${consequence.title}" (from failing "${quest?.title}")`,
+          xp_amount: 0,
+        });
+      }
+    }
+  }, [quests, user]);
+
   const deleteQuest = useCallback(async (id: string) => {
     setQuests((qs) => qs.filter((q) => q.id !== id));
     await supabase.from("quests").delete().eq("id", id);
@@ -158,5 +190,5 @@ export function useQuests() {
     xpEarned: quests.filter((q) => q.status === "completed").reduce((s, q) => s + q.xp_reward, 0),
   };
 
-  return { quests, loading, stats, createQuest, updateQuest, completeQuest, deleteQuest, refetch: fetch };
+  return { quests, loading, stats, createQuest, updateQuest, completeQuest, failQuest, deleteQuest, refetch: fetch };
 }
