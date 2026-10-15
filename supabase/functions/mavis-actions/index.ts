@@ -70,14 +70,18 @@ async function bumpLinkedSkillProficiency(sb: any, userId: string, skillIds: str
     const after = Math.min(100, before + SKILL_PROFICIENCY_GAIN);
     if (after === before) continue;
     await sb.from("skills").update({ proficiency: after, updated_at: new Date().toISOString() }).eq("id", skill.id).eq("user_id", userId);
-    await logActivity(sb, userId, "skill_proficiency_gained", `${skill.name} proficiency: ${before}% -> ${after}%`, 0);
+    // "skill_up" matches the existing ActivityLogPage.tsx event vocabulary
+    // (Zap icon, "Skill Up" label) rather than introducing a new unmapped type.
+    await logActivity(sb, userId, "skill_up", `${skill.name} proficiency: ${before}% -> ${after}%`, 0);
 
     if (after >= 100) {
       const { data: unlockable } = await sb.from("skills").select("id, name")
         .eq("user_id", userId).eq("unlocked", false).contains("prerequisites", [skill.id]);
       for (const u of unlockable || []) {
         await sb.from("skills").update({ unlocked: true, updated_at: new Date().toISOString() }).eq("id", u.id).eq("user_id", userId);
-        await logActivity(sb, userId, "skill_unlocked", `${u.name} unlocked (mastered ${skill.name})`, 0);
+        // "skill_created" is the existing event type for a skill becoming
+        // available — ActivityLogPage.tsx already labels it "Skill Unlocked".
+        await logActivity(sb, userId, "skill_created", `${u.name} unlocked (mastered ${skill.name})`, 0);
       }
     }
   }

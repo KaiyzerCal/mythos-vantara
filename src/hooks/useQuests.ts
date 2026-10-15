@@ -119,7 +119,22 @@ export function useQuests() {
 
   const completeQuest = useCallback(async (id: string) => {
     const quest = quests.find(q => q.id === id);
-    await updateQuest(id, { status: "completed" });
+    // Routes through mavis-actions' complete_quest action instead of a plain
+    // status update — that's where XP award and linked-skill proficiency
+    // (with tier-unlock cascade) actually happen. One call site for every
+    // "complete quest" entry point (main quest row, sub-quest row, chat)
+    // keeps them from drifting the way awardXP/skill bumps previously did
+    // between this hook and FeaturePages.tsx's own handleComplete.
+    setQuests((qs) => qs.map((q) => (q.id === id ? { ...q, status: "completed" } : q)));
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("Not authenticated — please sign in again");
+    const { data, error } = await supabase.functions.invoke("mavis-actions", {
+      body: { actions: [{ type: "complete_quest", params: { quest_id: id } }] },
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (error) throw error;
+    const failed = Array.isArray(data?.results) ? data.results.filter((r: any) => r?.success === false) : [];
+    if (failed.length > 0) throw new Error(failed[0]?.error || "Failed to complete quest");
     if (quest) {
       recordAutoMemory("quest_complete", {
         title: `Quest Completed: ${quest.title}`,
@@ -128,7 +143,7 @@ export function useQuests() {
         metadata: { quest_id: id, xp_reward: quest.xp_reward },
       }).catch(() => {});
     }
-  }, [updateQuest, quests]);
+  }, [quests]);
 
   const deleteQuest = useCallback(async (id: string) => {
     setQuests((qs) => qs.filter((q) => q.id !== id));

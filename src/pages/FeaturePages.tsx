@@ -87,7 +87,7 @@ function AddSubQuestRow({ parentId, onCreate }: { parentId: string; onCreate: (d
 }
 
 export function QuestsPage() {
-  const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, awardXP, logActivity, skills, updateSkill, energySystems, updateEnergyFull, updateProfile, profile, createInventoryItem } = useAppData();
+  const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, deleteQuest, logActivity, skills, energySystems, updateEnergyFull, updateProfile, profile, createInventoryItem } = useAppData();
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [showCreate, setShowCreate] = useState(false);
@@ -258,27 +258,18 @@ export function QuestsPage() {
   };
 
   const handleComplete = async (q: any) => {
+    // completeQuest now routes through mavis-actions' complete_quest action,
+    // which already awards XP, logs "quest_completed", and bumps every
+    // linked skill's proficiency (with tier-unlock cascade) server-side —
+    // so this no longer duplicates that client-side. What's left here is
+    // genuinely separate: real_world_mapping-driven stat/energy rewards,
+    // codex points, and buff/debuff logging have no server-side equivalent.
     await completeQuest(q.id);
-    await awardXP(q.xp_reward);
-    await logActivity("quest_complete", `Completed: ${q.title}`, q.xp_reward);
 
     // Calculate XP-scaled reward: harder quests = bigger boosts
     const difficultyMultiplier: Record<string, number> = { Easy: 1, Normal: 2, Hard: 3, Extreme: 5, Impossible: 8 };
     const mult = difficultyMultiplier[q.difficulty] ?? 2;
     const xpScale = Math.max(1, Math.floor(q.xp_reward / 50));
-
-    // Level up linked skills — proficiency gains scale with quest XP
-    if (q.linked_skill_ids?.length) {
-      const profGain = Math.min(15, Math.max(2, xpScale * mult));
-      for (const skillId of q.linked_skill_ids) {
-        const skill = skills.find((s) => s.id === skillId);
-        if (skill) {
-          const newProf = Math.min(100, skill.proficiency + profGain);
-          await updateSkill(skillId, { proficiency: newProf });
-          await logActivity("skill_xp", `${skill.name} +${profGain} proficiency from quest`, profGain);
-        }
-      }
-    }
 
     // Boost linked stat — scales with difficulty (+1 Easy, +2 Normal, +3 Hard, etc.)
     if (q.real_world_mapping?.startsWith("stat:")) {
