@@ -56,6 +56,33 @@ async function awardXP(sb: any, userId: string, amount: number) {
   }).eq("id", userId);
 }
 
+const SKILL_PROFICIENCY_GAIN = 10;
+
+// Completing a quest advances every skill it's linked to. A skill that
+// reaches 100 is "mastered" — any skill gated on it (prerequisites
+// contains its id) unlocks, which is how tier-gated trees (e.g. the
+// Beyonder pathway/sequence skills) advance from repeated quest completion.
+async function bumpLinkedSkillProficiency(sb: any, userId: string, skillIds: string[]) {
+  if (skillIds.length === 0) return;
+  const { data: skills } = await sb.from("skills").select("id, name, proficiency").in("id", skillIds).eq("user_id", userId);
+  for (const skill of skills || []) {
+    const before = Number(skill.proficiency || 0);
+    const after = Math.min(100, before + SKILL_PROFICIENCY_GAIN);
+    if (after === before) continue;
+    await sb.from("skills").update({ proficiency: after, updated_at: new Date().toISOString() }).eq("id", skill.id).eq("user_id", userId);
+    await logActivity(sb, userId, "skill_proficiency_gained", `${skill.name} proficiency: ${before}% -> ${after}%`, 0);
+
+    if (after >= 100) {
+      const { data: unlockable } = await sb.from("skills").select("id, name")
+        .eq("user_id", userId).eq("unlocked", false).contains("prerequisites", [skill.id]);
+      for (const u of unlockable || []) {
+        await sb.from("skills").update({ unlocked: true, updated_at: new Date().toISOString() }).eq("id", u.id).eq("user_id", userId);
+        await logActivity(sb, userId, "skill_unlocked", `${u.name} unlocked (mastered ${skill.name})`, 0);
+      }
+    }
+  }
+}
+
 // ── Name-based ID resolver ────────────────────────────────
 // Resolves an entry_id from either a direct id or a fuzzy name/title match.
 // THROWS when nothing can be resolved, instead of returning "" — every one of
@@ -245,7 +272,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "complete_quest": {
       const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
-      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title").eq("id", questId).eq("user_id", userId).maybeSingle();
+      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title, linked_skill_ids").eq("id", questId).eq("user_id", userId).maybeSingle();
       if (findErr) throw findErr;
       if (!quest) throw new Error(`quests: no quest found for id "${questId}"`);
       const { data: updated, error: updErr } = await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", questId).eq("user_id", userId).select("id");
@@ -253,6 +280,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (!updated || updated.length === 0) throw new Error(`quests: complete matched no row for id "${questId}"`);
       await awardXP(sb, userId, Number(quest.xp_reward || 0));
       await logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}`, Number(quest.xp_reward || 0));
+      await bumpLinkedSkillProficiency(sb, userId, asStringArray(quest.linked_skill_ids));
       return;
     }
 
