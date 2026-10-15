@@ -2,7 +2,7 @@
 // VANTARA.EXE — Journal, VaultCodex, SkillsPage, InventoryPage
 // All with full edit/modify support + auto-seed for skills
 // ============================================================
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff, Swords, AlertTriangle, CheckCircle2, Waves } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -1163,6 +1163,20 @@ export function SkillsPage() {
   const categories = ["all", ...Array.from(new Set(skills.map((s) => s.category)))];
   const filtered = parentSkills.filter((s) => catFilter === "all" || s.category === catFilter);
 
+  // skill_chains is a separate, AI-curated grouping from the parent_skill_id
+  // tree above — the two can disagree about what's related. Surfacing chain
+  // membership here keeps that from being invisible when browsing the tree.
+  const chainsBySkillId = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const chain of skillChains) {
+      for (const item of chain.items ?? []) {
+        if (!map[item.skill_id]) map[item.skill_id] = [];
+        map[item.skill_id].push(chain.title);
+      }
+    }
+    return map;
+  }, [skillChains]);
+
   const resetForm = () => { setForm({ name: "", description: "", category: "General", energy_type: "Emerald Flames", tier: 1, proficiency: 0, parent_skill_id: "" }); setEditingId(null); setShowCreate(false); };
 
   const handleEdit = (s: any) => {
@@ -1406,6 +1420,9 @@ export function SkillsPage() {
                         <p><span className="text-muted-foreground">Tier:</span> {s.tier}</p>
                         <p><span className="text-muted-foreground">Proficiency:</span> {s.proficiency}%</p>
                         <p><span className="text-muted-foreground">Status:</span> {s.unlocked ? "Unlocked" : "Locked"}</p>
+                        {chainsBySkillId[s.id]?.length > 0 && (
+                          <p><span className="text-muted-foreground">Chains:</span> {chainsBySkillId[s.id].join(", ")}</p>
+                        )}
                       </div>
                     )}
                     {s.proficiency > 0 && (

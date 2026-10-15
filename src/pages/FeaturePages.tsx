@@ -199,6 +199,20 @@ export function QuestsPage() {
     return map;
   }, [quests, questIds]);
 
+  // quest_chains is a separate, AI-curated grouping from parent_quest_id
+  // sub-quests above — the two can disagree about what's related. Surfacing
+  // chain membership here keeps that from being invisible on the quest list.
+  const chainsByQuestId = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const chain of questChains) {
+      for (const item of chain.items ?? []) {
+        if (!map[item.quest_id]) map[item.quest_id] = [];
+        map[item.quest_id].push(chain.title);
+      }
+    }
+    return map;
+  }, [questChains]);
+
   const filtered = parentQuests.filter((q: any) =>
     (typeFilter === "all" || q.type === typeFilter) &&
     (statusFilter === "all" || q.status === statusFilter)
@@ -502,7 +516,7 @@ export function QuestsPage() {
               </div>
               {/* Linking: Skills */}
               <div>
-                <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Skills (proficiency +10 on completion)</p>
+                <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Skills (proficiency +2 to +15 on completion, scaled by difficulty)</p>
                 <div className="flex gap-1.5 flex-wrap">
                   {skills.map((s) => (
                     <button
@@ -782,6 +796,9 @@ export function QuestsPage() {
                           <span className="text-xs font-mono text-red-400/70 border border-red-700/20 rounded px-1.5 py-0.5">↳ If failed: {cq.title}</span>
                         ) : null;
                       })()}
+                      {chainsByQuestId[q.id]?.length > 0 && (
+                        <span className="text-xs font-mono text-purple-400/70 border border-purple-700/20 rounded px-1.5 py-0.5">⛓ {chainsByQuestId[q.id].join(", ")}</span>
+                      )}
                     </div>
                     {q.progress_target > 1 && (
                       <div className="mt-2">
