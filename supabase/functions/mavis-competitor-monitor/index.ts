@@ -27,7 +27,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-async function getUserId(req: Request, sb: ReturnType<typeof createClient>): Promise<string | null> {
+async function getUserId(req: Request, sb: any): Promise<string | null> {
   try {
     const auth = req.headers.get("Authorization") ?? "";
     const token = auth.replace(/^Bearer\s+/i, "").trim();

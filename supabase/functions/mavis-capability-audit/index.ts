@@ -64,7 +64,7 @@ const GOOGLE_API_PROBES: Array<{ key: string; label: string; url: string }> = [
   { key: "blogger",          label: "Blogger",          url: "https://www.googleapis.com/blogger/v3/users/self/blogs" },
 ];
 
-async function probeGoogleAPIs(sb: ReturnType<typeof createClient>, uid: string): Promise<Array<{ key: string; label: string; accessible: boolean; note: string }>> {
+async function probeGoogleAPIs(sb: any, uid: string): Promise<Array<{ key: string; label: string; accessible: boolean; note: string }>> {
   let token: string | null = null;
   const PROVIDERS_TO_TRY = ["gdrive", "gmail", "google_calendar", "google_tasks", "gcontacts"];
   for (const p of PROVIDERS_TO_TRY) {
@@ -296,7 +296,7 @@ Deno.serve(async (req) => {
         .map((m: string) => m.replace(/^- /, "").replace(/:.*$/, "").trim());
       const nowAccessible  = accessibleApis.map(r => r.label);
       const newlyOpen = nowAccessible.filter(l => !prevAccessible.includes(l));
-      const newlyClosed = prevAccessible.filter(l => !nowAccessible.includes(l));
+      const newlyClosed = prevAccessible.filter((l: string) => !nowAccessible.includes(l));
       if (newlyOpen.length > 0)   diffMsg += `Newly accessible APIs: ${newlyOpen.join(", ")}\n`;
       if (newlyClosed.length > 0) diffMsg += `Lost API access: ${newlyClosed.join(", ")}\n`;
     }

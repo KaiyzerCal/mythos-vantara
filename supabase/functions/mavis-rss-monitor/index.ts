@@ -76,7 +76,7 @@ function parseFeed(xml: string): FeedItem[] {
 // ─── Fetch one feed and ingest new articles ───────────────────
 async function fetchFeedForUser(
   feedRow: any,
-  sb: ReturnType<typeof createClient>,
+  sb: any,
 ): Promise<{ new_items: number; error?: string }> {
   try {
     const res = await fetch(feedRow.feed_url, {

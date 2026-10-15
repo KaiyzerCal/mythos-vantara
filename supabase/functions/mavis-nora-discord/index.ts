@@ -81,13 +81,13 @@ async function verifyDiscordSignature(
 
     const cryptoKey = await crypto.subtle.importKey(
       "raw",
-      publicKeyBytes,
+      publicKeyBytes as BufferSource,
       { name: "Ed25519" },
       false,
       ["verify"],
     );
 
-    return await crypto.subtle.verify("Ed25519", cryptoKey, signatureBytes, message);
+    return await crypto.subtle.verify("Ed25519", cryptoKey, signatureBytes as BufferSource, message);
   } catch (err) {
     console.error("[mavis-nora-discord] Ed25519 verify error:", err);
     return false;

@@ -293,7 +293,7 @@ async function getUserId(req: Request): Promise<string | null> {
 
 /** Load existing session or create a new one. */
 async function loadOrCreateSession(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
   goal: string,
   sessionId: string | undefined,
@@ -307,7 +307,7 @@ async function loadOrCreateSession(
       .single();
 
     if (error || !data) throw new Error(`Session not found: ${sessionId}`);
-    return data as BrowserSession;
+    return data as unknown as BrowserSession;
   }
 
   // Create new session
@@ -331,12 +331,12 @@ async function loadOrCreateSession(
     .single();
 
   if (error || !data) throw new Error(`Failed to create session: ${error?.message}`);
-  return data as BrowserSession;
+  return data as unknown as BrowserSession;
 }
 
 /** Persist session checkpoint to DB. */
 async function saveCheckpoint(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   sessionId: string,
   patch: Partial<BrowserSession>,
 ): Promise<void> {

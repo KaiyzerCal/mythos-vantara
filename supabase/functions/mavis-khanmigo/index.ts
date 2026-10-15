@@ -96,7 +96,7 @@ interface TutoringSession {
 }
 
 async function getOrCreateSession(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   subject: string,
   topicId?: string,
@@ -110,7 +110,7 @@ async function getOrCreateSession(
       .eq("id", sessionId)
       .eq("user_id", userId)
       .single();
-    if (data) return data as TutoringSession;
+    if (data) return data as unknown as TutoringSession;
   }
 
   // Find active unsolved session for this subject
@@ -124,7 +124,7 @@ async function getOrCreateSession(
     .limit(1)
     .single();
 
-  if (existing) return existing as TutoringSession;
+  if (existing) return existing as unknown as TutoringSession;
 
   // Create new session
   const { data: newSession, error } = await supabase
@@ -143,11 +143,11 @@ async function getOrCreateSession(
     .single();
 
   if (error || !newSession) throw new Error("Failed to create tutoring session");
-  return newSession as TutoringSession;
+  return newSession as unknown as TutoringSession;
 }
 
 async function updateSession(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   sessionId: string,
   updates: Partial<TutoringSession>,
 ): Promise<void> {
@@ -162,7 +162,7 @@ async function updateSession(
 // ─────────────────────────────────────────────────────────────
 
 async function tutor(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   subject: string,
   question: string,
@@ -211,7 +211,7 @@ async function tutor(
 }
 
 async function generateHint(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   subject: string,
   question: string,
@@ -243,7 +243,7 @@ Generate a single, targeted hint that nudges them in the right direction WITHOUT
 }
 
 async function explainSolution(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   subject: string,
   question: string,

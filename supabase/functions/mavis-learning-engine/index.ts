@@ -27,7 +27,7 @@ async function tgSend(text: string): Promise<void> {
   }).catch(() => {});
 }
 
-async function heartbeat(sb: ReturnType<typeof createClient>, status: "running" | "ok" | "error", error?: string) {
+async function heartbeat(sb: any, status: "running" | "ok" | "error", error?: string) {
   await sb.from("mavis_function_health").upsert({
     function_name:       "mavis-learning-engine",
     last_started_at:     status === "running" ? new Date().toISOString() : undefined,

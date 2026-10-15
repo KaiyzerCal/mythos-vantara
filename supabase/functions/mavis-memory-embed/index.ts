@@ -23,7 +23,7 @@ function jsonRes(data: unknown, status = 200): Response {
 }
 
 async function embedRows(
-  adminSb: ReturnType<typeof createClient>,
+  adminSb: any,
   // @ts-ignore — Supabase.ai available in edge runtime
   session: Supabase.ai.Session,
   table: string,

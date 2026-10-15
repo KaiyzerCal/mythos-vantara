@@ -283,7 +283,7 @@ async function replanRemainingSteps(
 // ── Phase 1: PLAN ─────────────────────────────────────────────────────────────
 
 async function planTask(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   task: AutonomousTask,
 ): Promise<{ advanced: boolean }> {
   console.log(`[autonomous-runner] Planning task ${task.id}: ${task.goal.slice(0, 80)}`);
@@ -428,7 +428,7 @@ async function runStepLogic(
   stepIndex: number,
   task: AutonomousTask,
   updatedContext: TaskContext,
-  sb: ReturnType<typeof createClient>,
+  sb: any,
 ): Promise<string> {
   const input = (step.input ?? {}) as Record<string, unknown>;
 
@@ -534,7 +534,7 @@ async function runStepLogic(
 
 /** Execute exactly one step of a running task (with retry + approval escalation). */
 async function executeStep(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   task: AutonomousTask,
 ): Promise<{ advanced: boolean }> {
   const stepIndex = task.current_step;

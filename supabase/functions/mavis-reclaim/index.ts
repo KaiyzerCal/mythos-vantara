@@ -110,7 +110,7 @@ interface HealthData {
 async function syncHealth(
   userId: string,
   healthData: HealthData,
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
 ): Promise<unknown> {
   const recovery = healthData.recovery_score ?? 100;
   const hrv = healthData.hrv ?? healthData.hrv_rmssd ?? HRV_LOW_THRESHOLD + 1;
@@ -188,7 +188,7 @@ async function syncHealth(
 // ─────────────────────────────────────────────────────────────
 
 async function cacheScheduleBlock(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   block: {
     title: string;

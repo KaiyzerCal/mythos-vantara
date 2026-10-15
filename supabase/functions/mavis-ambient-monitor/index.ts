@@ -97,7 +97,7 @@ interface CheckResult {
 
 /** Check 1: overdue active quests */
 async function checkOverdueQuests(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };
@@ -135,7 +135,7 @@ async function checkOverdueQuests(
 
 /** Check 2: health anomaly detection */
 async function checkHealthAnomalies(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };
@@ -195,7 +195,7 @@ async function checkHealthAnomalies(
 
 /** Check 3: unread priority emails in the last 24 h */
 async function checkPriorityEmails(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };
@@ -247,7 +247,7 @@ async function checkPriorityEmails(
 
 /** Check 4: revenue discussion gap — nudge if no talk in 7 days */
 async function checkRevenueMentions(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };
@@ -265,7 +265,7 @@ async function checkRevenueMentions(
 
   const rows = data ?? [];
   if (rows.length > 0) {
-    const latest = new Date(rows[0].created_at).getTime();
+    const latest = new Date(String(rows[0].created_at)).getTime();
     const sevenDaysMs = 7 * 86400 * 1000;
     if (Date.now() - latest < sevenDaysMs) return result; // discussed recently
   }
@@ -288,7 +288,7 @@ async function checkRevenueMentions(
 
 /** Check 5: upcoming calendar events in the next 2 hours */
 async function checkUpcomingEvents(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };
@@ -346,7 +346,7 @@ async function checkUpcomingEvents(
  * Gracefully skips if the table does not exist yet.
  */
 async function checkDormantContacts(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };
@@ -442,7 +442,7 @@ Draft a short, warm reconnect message.`;
           .select("id")
           .single();
 
-        const draftId = draftRow?.id ?? contact.id;
+        const draftId = (draftRow as any)?.id ?? contact.id;
         if (draftId) reembedRow(sb, "mavis_outreach_drafts", String(draftId), userId);
 
         // Queue as a requires_confirmation task so /approve [id] works from Telegram
@@ -495,7 +495,7 @@ Reply \`/approve ${shortId}\` to send or \`/reject ${shortId}\` to skip\\.`;
  * via Claude Haiku, and sends a Telegram alert. Inserts recovery actions as new tasks.
  */
 async function checkStalledQuests(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };
@@ -600,7 +600,7 @@ ${actionLines}`;
  * Gracefully handles missing tables.
  */
 async function checkOpportunityLinks(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
 ): Promise<CheckResult> {
   const result: CheckResult = { issues: 0, actions: 0, details: {} };

@@ -267,7 +267,7 @@ function mockGetSession(session_id: string): NormalizedSession {
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
 async function persistSession(
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
   session: NormalizedSession,
   taskDescription?: string,

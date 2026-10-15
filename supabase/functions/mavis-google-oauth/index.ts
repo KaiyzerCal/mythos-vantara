@@ -114,7 +114,7 @@ async function verifyState(state: string | undefined): Promise<{ user_id?: strin
   const valid = await crypto.subtle.verify(
     "HMAC",
     await hmacKey(STATE_SECRET),
-    b64urlToBytes(sigB64),
+    b64urlToBytes(sigB64) as BufferSource,
     new TextEncoder().encode(payloadB64),
   );
   if (!valid) return null;
@@ -127,7 +127,7 @@ async function verifyState(state: string | undefined): Promise<{ user_id?: strin
   }
 }
 
-async function getCredentials(userId: string, adminSb: ReturnType<typeof createClient>) {
+async function getCredentials(userId: string, adminSb: any) {
   // User stores their Google Cloud OAuth client_id + client_secret in the
   // google_workspace integration row (key_name: "Client ID" / "Client Secret")
   const { data } = await adminSb

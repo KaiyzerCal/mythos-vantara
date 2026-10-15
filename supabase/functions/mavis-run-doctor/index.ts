@@ -39,7 +39,7 @@ async function checkOAuthToken(
   name: string,
   provider: string,
   userId: string,
-  sb: ReturnType<typeof createClient>,
+  sb: any,
 ): Promise<CheckResult> {
   const start = Date.now();
   const { data } = await sb
@@ -55,7 +55,7 @@ async function checkOAuthToken(
   if (data.status !== "active") {
     return { integration_name: name, status: "error", response_ms: Date.now() - start, message: `Token status: ${data.status}` };
   }
-  if (data.expires_at && new Date(data.expires_at) < new Date()) {
+  if (data.expires_at && new Date(String(data.expires_at)) < new Date()) {
     return { integration_name: name, status: "degraded", response_ms: Date.now() - start, message: "Token expired — re-connect needed" };
   }
   return { integration_name: name, status: "healthy", response_ms: Date.now() - start, message: "Connected and active" };

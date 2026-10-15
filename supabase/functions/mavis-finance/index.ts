@@ -200,7 +200,7 @@ async function analyzeSpending(
 // ─────────────────────────────────────────────────────────────
 
 async function cacheResult(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   cacheType: string,
   data: unknown,
