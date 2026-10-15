@@ -39,7 +39,7 @@ interface ArchiveResult {
 
 async function archiveFor(
   userId: string,
-  sb: ReturnType<typeof createClient>,
+  sb: any,
 ): Promise<ArchiveResult> {
   const now = new Date();
   const cutoff = new Date(now.getTime() - MAX_AGE_DAYS * 86400000).toISOString();

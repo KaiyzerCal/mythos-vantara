@@ -26,7 +26,7 @@ function json(data: unknown, status = 200): Response {
 
 async function refreshToken(
   config: Record<string, unknown>,
-  adminSb: ReturnType<typeof createClient>,
+  adminSb: any,
   userId: string,
 ): Promise<string> {
   if (typeof config.expires_at === "number" && config.expires_at > Date.now() / 1000 + 300) {
@@ -123,7 +123,7 @@ async function fetchNewMessages(
   userId: string,
   config: Record<string, unknown>,
   newHistoryId: string,
-  adminSb: ReturnType<typeof createClient>,
+  adminSb: any,
 ): Promise<NewMessage[]> {
   const lastHistoryId = String(config.gmail_history_id ?? newHistoryId);
   const token = await refreshToken(config, adminSb, userId);

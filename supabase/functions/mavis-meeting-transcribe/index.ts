@@ -34,7 +34,7 @@ interface MeetingStructure {
 }
 
 async function transcribeAudio(audioBytes: Uint8Array, mimeType: string): Promise<string> {
-  const blob     = new Blob([audioBytes], { type: mimeType });
+  const blob     = new Blob([audioBytes as BlobPart], { type: mimeType });
   const formData = new FormData();
   formData.append("file", blob, `audio.${mimeType.split("/")[1] ?? "mp3"}`);
   formData.append("model", "whisper-1");

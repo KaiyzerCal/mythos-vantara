@@ -235,7 +235,7 @@ Deno.serve(async (req) => {
       const title   = String(body.title ?? "Untitled Note");
       const content = String(body.content ?? "");
       const tags    = Array.isArray(body.tags) ? body.tags : [];
-      const props   = (body.properties && typeof body.properties === "object") ? body.properties : {};
+      const props: Record<string, unknown> = (body.properties && typeof body.properties === "object") ? body.properties as Record<string, unknown> : {};
 
       // Semantic deduplication: if a near-identical note exists (≥92% similarity),
       // update it instead of creating a duplicate. Skip for system-chunked notes.

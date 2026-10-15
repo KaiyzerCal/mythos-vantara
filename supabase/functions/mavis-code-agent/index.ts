@@ -235,7 +235,7 @@ async function getUserId(req: Request): Promise<string | null> {
 // ── GitHub PAT helper (mirrors mavis-github-sync pattern) ─────────────────────
 
 async function getGitHubToken(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -245,8 +245,10 @@ async function getGitHubToken(
     .eq("provider", "github")
     .maybeSingle();
 
-  if (error || !data?.config?.token) return null;
-  return data.config.token as string;
+  if (error || !data?.config) return null;
+  const token = (data.config as { token?: string }).token;
+  if (!token) return null;
+  return token;
 }
 
 // ── GitHub API helpers ────────────────────────────────────────────────────────
@@ -536,13 +538,13 @@ async function dispatchTool(
   switch (toolName) {
     case "list_repo_files": {
       const path = String(input.path ?? "");
-      const output = await ghListRepoFiles(ctx.token, ctx.owner, ctx.repo, branch);
+      const output = await ghListRepoFiles(ctx.token as string, ctx.owner, ctx.repo, branch);
       return { done: false, output };
     }
 
     case "read_file": {
       const path = String(input.path ?? "");
-      const output = await ghReadFile(ctx.token, ctx.owner, ctx.repo, path, branch);
+      const output = await ghReadFile(ctx.token as string, ctx.owner, ctx.repo, path, branch);
       return { done: false, output };
     }
 

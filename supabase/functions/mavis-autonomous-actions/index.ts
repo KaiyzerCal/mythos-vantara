@@ -242,14 +242,14 @@ async function processUser(userId: string): Promise<{ executed: number; messaged
   let expired = 0;
 
   // Expire stale actions
-  const { count: expiredCount } = await sb
+  const { data: expiredRows } = await sb
     .from("mavis_action_queue")
     .update({ status: "expired" })
     .eq("user_id", userId)
     .eq("status", "pending")
     .lt("expires_at", now)
-    .select("id", { count: "exact", head: true });
-  expired = expiredCount ?? 0;
+    .select("id");
+  expired = (expiredRows as unknown[] | null)?.length ?? 0;
 
   // Fetch all pending actions for this user
   const { data: pending } = await sb

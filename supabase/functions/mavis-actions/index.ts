@@ -211,7 +211,7 @@ function normalizeActionType(type: string): string {
 async function executeAction(sb: any, userId: string, action: MavisAction) {
   // Support nested { type, params: {...} }, flat { type, title, ... }, and
   // double-encoded { type, params: "{\"description\":\"...\"}" } (GPT-4o-mini quirk).
-  let rawParams = action.params;
+  let rawParams: any = action.params;
   if (typeof rawParams === "string") {
     try { rawParams = JSON.parse(rawParams); } catch { rawParams = undefined; }
   }
@@ -2047,7 +2047,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     case "recall_memory": {
       if (!p.query) throw new Error("recall_memory requires query string");
       const queryLower = (p.query as string).toLowerCase();
-      const limit = p.limit ?? 8;
+      const limit = typeof p.limit === "number" ? p.limit : 8;
 
       const [memoriesRes, sessionRes, tacitRes] = await Promise.all([
         sb.from("mavis_agent_memories")

@@ -131,7 +131,7 @@ async function executeSkill(
 
 async function handleTasksSend(
   params: Record<string, unknown>,
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   userId: string,
   rpcId: string | number | null,
 ): Promise<Response> {
@@ -190,7 +190,7 @@ async function handleTasksSend(
 
 async function handleTasksGet(
   params: Record<string, unknown>,
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   rpcId: string | number | null,
 ): Promise<Response> {
   const taskId = params.id as string;
@@ -220,7 +220,7 @@ async function handleTasksGet(
 
 async function handleTasksCancel(
   params: Record<string, unknown>,
-  sb: ReturnType<typeof createClient>,
+  sb: any,
   rpcId: string | number | null,
 ): Promise<Response> {
   const taskId = params.id as string;

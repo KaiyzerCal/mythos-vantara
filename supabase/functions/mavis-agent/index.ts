@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2.49.4";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
@@ -21,7 +21,7 @@ function json(data: unknown, status = 200): Response {
 // ── Google token refresh (used by Drive tool handlers) ────────────────────────
 async function refreshGoogleToken(
   config: Record<string, unknown>,
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
   provider: string,
 ): Promise<string> {
@@ -622,7 +622,7 @@ async function handleTool(
   name: string,
   input: Record<string, unknown>,
   userId: string,
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   env: Env,
 ): Promise<unknown> {
   try {
@@ -742,7 +742,7 @@ async function handleTool(
                 autonomy_tier: "approve", status: "pending", priority: 5,
               })
               .select("id").single();
-            sendTelegramNotification(summary, "approve", fallback?.id ?? null).catch(() => {});
+            sendTelegramNotification(summary, "approve", (fallback as any)?.id ?? null).catch(() => {});
             return { queued: true, tier: "approve", action_id: fallback?.id, summary, note: `Auto-execution failed (${errMsg}), queued for approval` };
           }
         }
@@ -765,7 +765,7 @@ async function handleTool(
           .single();
 
         if (error) return { queued: false, error: error.message };
-        sendTelegramNotification(summary, tier, data.id).catch(() => {});
+        sendTelegramNotification(summary, tier, (data as any).id).catch(() => {});
         return { queued: true, tier, action_id: data.id, summary };
       }
 
@@ -1484,8 +1484,8 @@ async function handleTool(
 
           return {
             memories: data ?? [],
-            count:    (data ?? []).length,
-            note:     (data ?? []).length === 0 ? "No relevant memories found — this may be new context." : undefined,
+            count:    ((data as any) ?? []).length,
+            note:     ((data as any) ?? []).length === 0 ? "No relevant memories found — this may be new context." : undefined,
           };
         } catch {
           // Embedding unavailable — fall back to keyword search
@@ -1694,7 +1694,7 @@ async function handleTool(
           if (createErr || !created) {
             return { error: `Failed to create notebook: ${createErr?.message ?? "unknown"}` };
           }
-          notebookId = created.id;
+          notebookId = (created as any).id;
           reembedRow(supabase, "notebooks", String(notebookId), userId);
         }
 
@@ -2152,7 +2152,7 @@ async function streamCompatResponse(
 // (System Settings → Autonomy). mavis-agent previously had zero awareness of
 // either — same fetch/format pattern used by mavis-chat's tacitBlock.
 async function buildSystemSettingsFragment(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   userId: string,
 ): Promise<string> {
   try {
@@ -2212,7 +2212,7 @@ async function runAgentLoop(
   system: string,
   claudeKey: string,
   userId: string,
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   env: Env,
   onEvent?: (event: Record<string, unknown>) => void,
   providerChain: ProviderId[] = ["groq", "anthropic", "gateway"],
@@ -2335,7 +2335,7 @@ async function runAgentLoop(
 
     // Try each provider in the chain until one serves this iteration.
     // A pinned provider (one that already served) always goes first.
-    const order = pinnedProvider
+    const order: ProviderId[] = pinnedProvider
       ? [pinnedProvider, ...providerChain.filter((p) => p !== pinnedProvider)]
       : providerChain;
     let served = false;
@@ -2404,7 +2404,7 @@ async function runAgentLoop(
             : { Authorization: `Bearer ${cfg.key}` };
           const res = await fetchWithFailover(cfg.url, {
             method: "POST",
-            headers: { "Content-Type": "application/json", ...authHeader },
+            headers: { "Content-Type": "application/json", ...authHeader } as unknown as Record<string, string>,
             body: JSON.stringify({
               model: cfg.model,
               [cfg.tokenParam]: 4096,
@@ -3099,7 +3099,7 @@ Deno.serve(async (req) => {
     // System settings — the operator's Standing Orders (mavis_tacit) and Autonomy
     // (auto-execute types) from the System Settings page. mavis-agent previously
     // had zero awareness of either.
-    const systemSettingsFragmentP: Promise<string> = withTimeout(buildSystemSettingsFragment(supabase, userId));
+    const systemSettingsFragmentP: Promise<string> = withTimeout(buildSystemSettingsFragment(supabase as any, userId));
 
     // Retrieval over the operator's own records, matched against what they just
     // asked. AGENT mode assembles its own prompt and so never inherited the
@@ -3225,7 +3225,7 @@ Deno.serve(async (req) => {
       systemWithContext,
       claudeKey,
       userId,
-      supabase,
+      supabase as any,
       env,
       emitSSE,
       providerChain,

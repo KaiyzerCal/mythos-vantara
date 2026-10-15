@@ -998,7 +998,7 @@ ${telosData
             },
           ];
           try {
-            await adminSb.from("mavis_agent_config").insert(
+            await sb.from("mavis_agent_config").insert(
               DEFAULTS.map(d => ({ ...d, user_id: user.id }))
             );
           } catch { /* non-critical — seeding failure is silent */ }
@@ -1745,10 +1745,12 @@ ${telosData
             }
             _fBuf = "";
           }
+          let streamProv: string | null = null;
           try {
-            const { stream: aiStream, provider: streamProv } = await callWithFallbackStream(
+            const { stream: aiStream, provider: _sp } = await callWithFallbackStream(
               provider, callMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
             );
+            streamProv = _sp;
             const reader = aiStream.getReader();
             while (true) {
               const { done, value } = await reader.read();
