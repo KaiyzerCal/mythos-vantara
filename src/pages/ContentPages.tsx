@@ -1112,7 +1112,13 @@ export function SkillsPage() {
 
   useEffect(() => { loadSkillChains(); }, [loadSkillChains]);
 
-  const autoLinkSkillChains = async () => {
+  const [confirmRebuildSkillChains, setConfirmRebuildSkillChains] = useState(false);
+
+  // Default (replaceExisting=false) is additive — only skills not already in
+  // a chain get grouped, nothing existing is touched. replaceExisting=true
+  // is the old wipe-everything-and-regenerate behavior, only ever called
+  // from the confirmed "Rebuild All" path below.
+  const autoLinkSkillChains = async (replaceExisting = false) => {
     if (!user) return;
     const { data: { session } } = await (supabase as any).auth.getSession();
     if (!session?.access_token) return;
@@ -1121,12 +1127,16 @@ export function SkillsPage() {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-        body: JSON.stringify({ userId: user.id, action: "auto_link_skill_chains" }),
+        body: JSON.stringify({ userId: user.id, action: "auto_link_skill_chains", replace_existing: replaceExisting }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       await loadSkillChains();
-      toast.success(`Created ${data.chains_created} skill chain${data.chains_created !== 1 ? "s" : ""}`);
+      if (data.chains_created === 0 && data.message) {
+        toast.success(data.message);
+      } else {
+        toast.success(`Created ${data.chains_created} skill chain${data.chains_created !== 1 ? "s" : ""}`);
+      }
       setSkillChainsPanelOpen(true);
     } catch (e: any) {
       toast.error(e.message ?? "Skill chain linking failed");
@@ -1233,13 +1243,24 @@ export function SkillsPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={autoLinkSkillChains}
+              onClick={() => autoLinkSkillChains()}
               disabled={skillChainsLoading}
+              title="Groups skills that aren't in a chain yet — never touches existing chains"
               className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-cyan-400 border border-cyan-500/30 rounded hover:bg-cyan-500/10 transition-all disabled:opacity-50"
             >
               {skillChainsLoading ? <Loader2 size={9} className="animate-spin" /> : <Wand2 size={9} />}
               {skillChainsLoading ? "Linking..." : "AI Generate"}
             </button>
+            {skillChains.length > 0 && (
+              <button
+                onClick={() => setConfirmRebuildSkillChains(true)}
+                disabled={skillChainsLoading}
+                title="Deletes all existing skill chains and regenerates from scratch"
+                className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-red-400 border border-red-700/30 rounded hover:bg-red-400/10 transition-all disabled:opacity-50"
+              >
+                Rebuild All
+              </button>
+            )}
             <button onClick={() => setSkillChainsPanelOpen((v) => !v)} className="text-muted-foreground hover:text-foreground transition-colors">
               <ChevronRight size={12} className={`transition-transform ${skillChainsPanelOpen ? "rotate-90" : ""}`} />
             </button>
@@ -1467,6 +1488,16 @@ export function SkillsPage() {
           setConfirmDeleteSkill(null);
         }}
         onCancel={() => setConfirmDeleteSkill(null)}
+      />
+      <ConfirmDialog
+        open={confirmRebuildSkillChains}
+        title="Rebuild all skill chains?"
+        description={`This deletes all ${skillChains.length} existing skill chain${skillChains.length !== 1 ? "s" : ""} and regenerates from scratch. "AI Generate" alone only adds chains for skills not yet grouped — it never does this.`}
+        onConfirm={async () => {
+          setConfirmRebuildSkillChains(false);
+          await autoLinkSkillChains(true);
+        }}
+        onCancel={() => setConfirmRebuildSkillChains(false)}
       />
     </div>
   );

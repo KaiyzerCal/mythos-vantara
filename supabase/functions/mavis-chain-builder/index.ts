@@ -58,12 +58,38 @@ serve(async (req) => {
 
       // ── AUTO LINK QUEST CHAINS ───────────────────────────────────────────────
       case "auto_link_quest_chains": {
+        // Default is additive: only quests not already in any chain get sent
+        // to the LLM, and nothing existing is touched — so clicking "AI
+        // Generate" repeatedly fills gaps instead of destroying every chain
+        // (including manually built ones) on each click. Pass
+        // replace_existing:true for the old wipe-and-rebuild-everything
+        // behavior, which the UI now gates behind an explicit confirmation.
+        const replaceExisting = p.replace_existing === true;
         const { data: quests } = await sb.from("quests").select("id,title,description,type,category,status").eq("user_id", userId);
         if (!quests?.length) { result = { chains_created: 0, message: "No quests found" }; break; }
 
+        const existingChainIds = (await sb.from("quest_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
+
+        let candidateQuests = quests as any[];
+        if (replaceExisting) {
+          if (existingChainIds.length) {
+            await sb.from("quest_chain_items").delete().in("chain_id", existingChainIds);
+            await sb.from("quest_chains").delete().eq("user_id", userId);
+          }
+        } else if (existingChainIds.length) {
+          const { data: existingItems } = await sb.from("quest_chain_items").select("quest_id").in("chain_id", existingChainIds);
+          const alreadyChained = new Set((existingItems ?? []).map((i: any) => i.quest_id));
+          candidateQuests = candidateQuests.filter((q: any) => !alreadyChained.has(q.id));
+        }
+
+        if (candidateQuests.length === 0) {
+          result = { chains_created: 0, quests_analyzed: 0, message: "Every quest is already in a chain. Pass replace_existing:true to rebuild from scratch." };
+          break;
+        }
+
         // Build title→id map (lowercase for matching)
         const titleToId: Record<string, string> = {};
-        const questList = (quests as any[]).map((q: any) => {
+        const questList = candidateQuests.map((q: any) => {
           titleToId[q.title.toLowerCase().trim()] = q.id;
           return `- ${q.title} [${q.type}/${q.category || "misc"}/${q.status}]`;
         }).join("\n");
@@ -81,13 +107,6 @@ serve(async (req) => {
           if (arrMatch) suggested = JSON.parse(arrMatch[0]);
         } catch { /* falls through with empty array */ }
 
-        // Clear existing chains
-        const existingChainIds = (await sb.from("quest_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
-        if (existingChainIds.length) {
-          await sb.from("quest_chain_items").delete().in("chain_id", existingChainIds);
-          await sb.from("quest_chains").delete().eq("user_id", userId);
-        }
-
         let chainsCreated = 0;
         for (const chain of suggested) {
           // Accept titles array OR indices array as fallback
@@ -102,7 +121,7 @@ serve(async (req) => {
 
           // Fallback: if titles produced < 2 hits, try indices against the ordered array
           if (questIds.length < 2 && rawIndices.length >= 2) {
-            const ordered = quests as any[];
+            const ordered = candidateQuests;
             for (const idx of rawIndices) {
               const q = ordered[idx - 1]; // 1-based
               if (q) questIds.push(q.id);
@@ -126,18 +145,40 @@ serve(async (req) => {
           chainsCreated++;
         }
 
-        result = { chains_created: chainsCreated, quests_analyzed: quests.length, chains_suggested: suggested.length };
+        result = { chains_created: chainsCreated, quests_analyzed: candidateQuests.length, chains_suggested: suggested.length, mode: replaceExisting ? "replace" : "additive" };
         break;
       }
 
       // ── AUTO LINK SKILL CHAINS ───────────────────────────────────────────────
       case "auto_link_skill_chains": {
+        // Additive by default — see the matching comment on
+        // auto_link_quest_chains above for why.
+        const replaceExisting = p.replace_existing === true;
         const { data: skills } = await sb.from("skills").select("id,name,description,category,tier,proficiency").eq("user_id", userId);
         if (!skills?.length) { result = { chains_created: 0, message: "No skills found" }; break; }
 
+        const existingChainIds = (await sb.from("skill_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
+
+        let candidateSkills = skills as any[];
+        if (replaceExisting) {
+          if (existingChainIds.length) {
+            await sb.from("skill_chain_items").delete().in("chain_id", existingChainIds);
+            await sb.from("skill_chains").delete().eq("user_id", userId);
+          }
+        } else if (existingChainIds.length) {
+          const { data: existingItems } = await sb.from("skill_chain_items").select("skill_id").in("chain_id", existingChainIds);
+          const alreadyChained = new Set((existingItems ?? []).map((i: any) => i.skill_id));
+          candidateSkills = candidateSkills.filter((s: any) => !alreadyChained.has(s.id));
+        }
+
+        if (candidateSkills.length === 0) {
+          result = { chains_created: 0, skills_analyzed: 0, message: "Every skill is already in a chain. Pass replace_existing:true to rebuild from scratch." };
+          break;
+        }
+
         // Build name→id map (lowercase for matching)
         const titleToSkillId: Record<string, string> = {};
-        const skillList = (skills as any[]).map((s: any) => {
+        const skillList = candidateSkills.map((s: any) => {
           titleToSkillId[s.name.toLowerCase().trim()] = s.id;
           return `- ${s.name} [${s.category || "misc"}/Tier${s.tier}/${s.proficiency}%]`;
         }).join("\n");
@@ -155,13 +196,6 @@ serve(async (req) => {
           if (arrMatch) suggested = JSON.parse(arrMatch[0]);
         } catch { /* falls through with empty array */ }
 
-        // Clear existing chains
-        const existingChainIds = (await sb.from("skill_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
-        if (existingChainIds.length) {
-          await sb.from("skill_chain_items").delete().in("chain_id", existingChainIds);
-          await sb.from("skill_chains").delete().eq("user_id", userId);
-        }
-
         let chainsCreated = 0;
         for (const chain of suggested) {
           // Accept titles array OR indices array as fallback
@@ -176,7 +210,7 @@ serve(async (req) => {
 
           // Fallback: if names produced < 2 hits, try indices against the ordered array
           if (skillIds.length < 2 && rawIndices.length >= 2) {
-            const ordered = skills as any[];
+            const ordered = candidateSkills;
             for (const idx of rawIndices) {
               const s = ordered[idx - 1]; // 1-based
               if (s) skillIds.push(s.id);
@@ -199,7 +233,7 @@ serve(async (req) => {
           chainsCreated++;
         }
 
-        result = { chains_created: chainsCreated, skills_analyzed: skills.length, chains_suggested: suggested.length };
+        result = { chains_created: chainsCreated, skills_analyzed: candidateSkills.length, chains_suggested: suggested.length, mode: replaceExisting ? "replace" : "additive" };
         break;
       }
 

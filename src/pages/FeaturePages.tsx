@@ -149,7 +149,13 @@ export function QuestsPage() {
 
   useEffect(() => { loadQuestChains(); }, [loadQuestChains]);
 
-  const autoLinkQuestChains = async () => {
+  const [confirmRebuildQuestChains, setConfirmRebuildQuestChains] = useState(false);
+
+  // Default (replaceExisting=false) is additive — only quests not already in
+  // a chain get grouped, nothing existing is touched. replaceExisting=true
+  // is the old wipe-everything-and-regenerate behavior, only ever called
+  // from the confirmed "Rebuild All" path below.
+  const autoLinkQuestChains = async (replaceExisting = false) => {
     const { data: { session } } = await (supabase as any).auth.getSession();
     if (!session?.user) return;
     const user = session.user;
@@ -158,12 +164,16 @@ export function QuestsPage() {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-chain-builder`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${session.access_token}` },
-        body: JSON.stringify({ userId: user.id, action: "auto_link_quest_chains" }),
+        body: JSON.stringify({ userId: user.id, action: "auto_link_quest_chains", replace_existing: replaceExisting }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       await loadQuestChains();
-      toast.success(`Created ${data.chains_created} quest chain${data.chains_created !== 1 ? "s" : ""}`);
+      if (data.chains_created === 0 && data.message) {
+        toast.success(data.message);
+      } else {
+        toast.success(`Created ${data.chains_created} quest chain${data.chains_created !== 1 ? "s" : ""}`);
+      }
       setChainsPanelOpen(true);
     } catch (e: any) {
       toast.error(e.message ?? "Chain linking failed");
@@ -392,13 +402,24 @@ export function QuestsPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={autoLinkQuestChains}
+              onClick={() => autoLinkQuestChains()}
               disabled={chainsLoading}
+              title="Groups quests that aren't in a chain yet — never touches existing chains"
               className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-purple-400 border border-purple-500/30 rounded hover:bg-purple-500/10 transition-all disabled:opacity-50"
             >
               {chainsLoading ? <Loader2 size={9} className="animate-spin" /> : <Wand2 size={9} />}
               {chainsLoading ? "Linking..." : "AI Generate"}
             </button>
+            {questChains.length > 0 && (
+              <button
+                onClick={() => setConfirmRebuildQuestChains(true)}
+                disabled={chainsLoading}
+                title="Deletes all existing quest chains and regenerates from scratch"
+                className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-red-400 border border-red-700/30 rounded hover:bg-red-400/10 transition-all disabled:opacity-50"
+              >
+                Rebuild All
+              </button>
+            )}
             <button onClick={() => setChainsPanelOpen((v) => !v)} className="text-muted-foreground hover:text-foreground transition-colors">
               <ChevronDown size={12} className={`transition-transform ${chainsPanelOpen ? "" : "-rotate-90"}`} />
             </button>
@@ -835,6 +856,16 @@ export function QuestsPage() {
           setConfirmDelete(null);
         }}
         onCancel={() => setConfirmDelete(null)}
+      />
+      <ConfirmDialog
+        open={confirmRebuildQuestChains}
+        title="Rebuild all quest chains?"
+        description={`This deletes all ${questChains.length} existing quest chain${questChains.length !== 1 ? "s" : ""} and regenerates from scratch. "AI Generate" alone only adds chains for quests not yet grouped — it never does this.`}
+        onConfirm={async () => {
+          setConfirmRebuildQuestChains(false);
+          await autoLinkQuestChains(true);
+        }}
+        onCancel={() => setConfirmRebuildQuestChains(false)}
       />
     </div>
   );
