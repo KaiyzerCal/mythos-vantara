@@ -92,6 +92,33 @@ export type Database = {
         }
         Relationships: []
       }
+      action_undo_log: {
+        Row: {
+          deleted_at: string
+          id: string
+          row_data: Json
+          table_name: string
+          undone_at: string | null
+          user_id: string
+        }
+        Insert: {
+          deleted_at?: string
+          id?: string
+          row_data: Json
+          table_name: string
+          undone_at?: string | null
+          user_id: string
+        }
+        Update: {
+          deleted_at?: string
+          id?: string
+          row_data?: Json
+          table_name?: string
+          undone_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       activity_log: {
         Row: {
           created_at: string
