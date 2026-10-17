@@ -204,6 +204,10 @@ const ACTION_ALIASES: Record<string, string> = {
   "remove_domain_effect": "delete_domain_effect", "clear_domain_effect": "delete_domain_effect",
   "lift_curse": "delete_domain_effect", "remove_curse": "delete_domain_effect",
   "remove_aura": "delete_domain_effect", "clear_aura": "delete_domain_effect",
+  // Undo
+  "undo": "undo_last_action", "undo_last_delete": "undo_last_action",
+  "undo_delete": "undo_last_action", "restore_last_deleted": "undo_last_action",
+  "undo_last": "undo_last_action",
 };
 
 function normalizeActionType(type: string): string {
@@ -2385,6 +2389,40 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       });
       if (!res.ok) throw new Error(`mavis-market-data failed (${res.status}): ${await res.text()}`);
       return;
+    }
+
+    // ── UNDO LAST DELETE ────────────────────────────────
+    // Restores the most recent not-yet-undone row from action_undo_log,
+    // populated by the trg_log_delete_for_undo DB trigger on every
+    // user-owned table — catches deletions from chat AND the dashboard's
+    // own trash-icon buttons, not just this action layer.
+    case "undo_last_action": {
+      const { data: entry, error: findErr } = await sb.from("action_undo_log")
+        .select("id, table_name, row_data")
+        .eq("user_id", userId)
+        .is("undone_at", null)
+        .order("deleted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (findErr) throw findErr;
+      if (!entry) throw new Error("Nothing to undo — no recent deletions found.");
+
+      // embedding/fts are search-index artifacts, not part of the item itself —
+      // vector/tsvector values don't round-trip reliably through jsonb, and
+      // every write path in this codebase already treats re-embedding as a
+      // separate async step rather than something inserts carry inline.
+      const row = { ...(entry.row_data as Record<string, unknown>) };
+      delete row.embedding;
+      delete row.fts;
+
+      const { error: insErr } = await sb.from(entry.table_name as string).insert(row);
+      if (insErr) throw insErr;
+
+      await sb.from("action_undo_log").update({ undone_at: new Date().toISOString() }).eq("id", entry.id);
+
+      const label = String(row.name ?? row.title ?? row.type ?? row.display_name ?? row.objective ?? entry.id);
+      await logActivity(sb, userId, "item_created", `Restored "${label}" (undo)`, 0);
+      return { table: entry.table_name, name: label };
     }
 
     default: {

@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useId } from "react";
-import { Bot, X, ArrowRight, Loader2, ChevronDown, Trash2, Zap } from "lucide-react";
+import { Bot, X, ArrowRight, Loader2, ChevronDown, Trash2, Zap, Undo2 } from "lucide-react";
 import { usePageAgent } from "@/hooks/usePageAgent";
 import { streamChatMessage } from "@/mavis/chatService";
+import { supabase } from "@/integrations/supabase/client";
 import { useLocation } from "react-router-dom";
 
 // ── Device identity (foundation for multi-device orchestration) ───────────────
@@ -186,6 +187,46 @@ export function MavisPageControl() {
     setInput("");
   }, []);
 
+  const [undoing, setUndoing] = useState(false);
+
+  // Calls mavis-actions directly rather than going through chat text parsing —
+  // undo needs to be fast and reliable, not dependent on the LLM recognizing
+  // the intent. Restores the single most recent deletion (any table, any path:
+  // chat or a page's own trash-icon button) via the action_undo_log DB trigger.
+  const undoLast = useCallback(async () => {
+    if (busy || undoing) return;
+    setUndoing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mavis-actions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({ actions: [{ type: "undo_last_action", params: {} }] }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const json = await res.json();
+      const result = json?.results?.[0];
+      if (!res.ok || !result?.success) {
+        addMsg("action", result?.error || json?.error || "Couldn't undo — try again.");
+        return;
+      }
+      const name = result.data?.name ?? "item";
+      const table = result.data?.table ?? "";
+      addMsg("action", `↺ Restored "${name}"${table ? ` (${String(table).replace(/_/g, " ")})` : ""}`);
+    } catch {
+      addMsg("action", "Couldn't reach MAVIS to undo. Try again.");
+    } finally {
+      setUndoing(false);
+    }
+  }, [busy, undoing, addMsg]);
+
   const send = useCallback(async (text = input) => {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
@@ -280,6 +321,14 @@ export function MavisPageControl() {
               </span>
             </div>
             <div className="flex items-center gap-1">
+              <button
+                onClick={undoLast}
+                disabled={busy || undoing}
+                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+                title="Undo last deletion"
+              >
+                {undoing ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
+              </button>
               {messages.length > 0 && (
                 <button
                   onClick={clearThread}

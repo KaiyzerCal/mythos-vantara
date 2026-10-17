@@ -90,6 +90,9 @@ const ACTION_ALIASES: Record<string, string> = {
   "remove_aura": "delete_domain_effect", "clear_aura": "delete_domain_effect",
   "web_search": "search_web", "search": "search_web",
   "browse": "browse_url", "scrape_url": "browse_url", "fetch_url": "browse_url", "read_url": "browse_url",
+  "undo": "undo_last_action", "undo_last_delete": "undo_last_action",
+  "undo_delete": "undo_last_action", "restore_last_deleted": "undo_last_action",
+  "undo_last": "undo_last_action",
 };
 
 // Exported for refreshContract.ts, which keys its section map on canonical
