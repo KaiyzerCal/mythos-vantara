@@ -2391,38 +2391,63 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
-    // ── UNDO LAST DELETE ────────────────────────────────
-    // Restores the most recent not-yet-undone row from action_undo_log,
+    // ── UNDO LAST DELETE(S) ──────────────────────────────
+    // Restores the most recent not-yet-undone row(s) from action_undo_log,
     // populated by the trg_log_delete_for_undo DB trigger on every
     // user-owned table — catches deletions from chat AND the dashboard's
-    // own trash-icon buttons, not just this action layer.
+    // own trash-icon buttons, not just this action layer. This is a real
+    // stack, not a single slot: each restore marks its log row undone, so
+    // the NEXT call (or the next iteration of the loop below) naturally
+    // pops the next-most-recent still-live deletion — repeated "undo"
+    // walks arbitrarily far back. `count` just lets one call pop several
+    // levels at once instead of requiring one round-trip per level.
     case "undo_last_action": {
-      const { data: entry, error: findErr } = await sb.from("action_undo_log")
-        .select("id, table_name, row_data")
+      const requestedCount = Number(p.count ?? 1);
+      const count = Math.min(Math.max(Number.isFinite(requestedCount) ? Math.trunc(requestedCount) : 1, 1), 20);
+
+      const restored: Array<{ table: string; name: string }> = [];
+      for (let i = 0; i < count; i++) {
+        const { data: entry, error: findErr } = await sb.from("action_undo_log")
+          .select("id, table_name, row_data")
+          .eq("user_id", userId)
+          .is("undone_at", null)
+          .order("deleted_at", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (findErr) throw findErr;
+        if (!entry) break; // stack exhausted — stop silently, return what we got
+
+        // embedding/fts are search-index artifacts, not part of the item itself —
+        // vector/tsvector values don't round-trip reliably through jsonb, and
+        // every write path in this codebase already treats re-embedding as a
+        // separate async step rather than something inserts carry inline.
+        const row = { ...(entry.row_data as Record<string, unknown>) };
+        delete row.embedding;
+        delete row.fts;
+
+        const { error: insErr } = await sb.from(entry.table_name as string).insert(row);
+        if (insErr) throw insErr;
+
+        await sb.from("action_undo_log").update({ undone_at: new Date().toISOString() }).eq("id", entry.id);
+
+        const label = String(row.name ?? row.title ?? row.type ?? row.display_name ?? row.objective ?? entry.id);
+        await logActivity(sb, userId, "item_created", `Restored "${label}" (undo)`, 0);
+        restored.push({ table: entry.table_name as string, name: label });
+      }
+
+      if (restored.length === 0) throw new Error("Nothing to undo — no recent deletions found.");
+
+      const { count: remaining } = await sb.from("action_undo_log")
+        .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
-        .is("undone_at", null)
-        .order("deleted_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (findErr) throw findErr;
-      if (!entry) throw new Error("Nothing to undo — no recent deletions found.");
+        .is("undone_at", null);
 
-      // embedding/fts are search-index artifacts, not part of the item itself —
-      // vector/tsvector values don't round-trip reliably through jsonb, and
-      // every write path in this codebase already treats re-embedding as a
-      // separate async step rather than something inserts carry inline.
-      const row = { ...(entry.row_data as Record<string, unknown>) };
-      delete row.embedding;
-      delete row.fts;
-
-      const { error: insErr } = await sb.from(entry.table_name as string).insert(row);
-      if (insErr) throw insErr;
-
-      await sb.from("action_undo_log").update({ undone_at: new Date().toISOString() }).eq("id", entry.id);
-
-      const label = String(row.name ?? row.title ?? row.type ?? row.display_name ?? row.objective ?? entry.id);
-      await logActivity(sb, userId, "item_created", `Restored "${label}" (undo)`, 0);
-      return { table: entry.table_name, name: label };
+      // Back-compat: single-item undo keeps returning flat {table, name} —
+      // the MavisPageControl undo button already reads those fields directly.
+      return restored.length === 1
+        ? { table: restored[0].table, name: restored[0].name, restored, remaining: remaining ?? 0 }
+        : { restored, count: restored.length, remaining: remaining ?? 0 };
     }
 
     default: {

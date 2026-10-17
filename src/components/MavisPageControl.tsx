@@ -191,9 +191,13 @@ export function MavisPageControl() {
 
   // Calls mavis-actions directly rather than going through chat text parsing —
   // undo needs to be fast and reliable, not dependent on the LLM recognizing
-  // the intent. Restores the single most recent deletion (any table, any path:
-  // chat or a page's own trash-icon button) via the action_undo_log DB trigger.
-  const undoLast = useCallback(async () => {
+  // the intent. Restores deletions (any table, any path: chat or a page's own
+  // trash-icon button) via the action_undo_log DB trigger. It's a real stack:
+  // each restore marks its log row undone, so a plain click pops the single
+  // next-most-recent deletion — click again to go back another level. Shift-
+  // click pops 3 at once via the backend's `count` param, for "undo the last
+  // few things" without repeated clicking.
+  const undoLast = useCallback(async (count = 1) => {
     if (busy || undoing) return;
     setUndoing(true);
     try {
@@ -207,7 +211,7 @@ export function MavisPageControl() {
           "Authorization": `Bearer ${token}`,
           "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
-        body: JSON.stringify({ actions: [{ type: "undo_last_action", params: {} }] }),
+        body: JSON.stringify({ actions: [{ type: "undo_last_action", params: { count } }] }),
         signal: AbortSignal.timeout(15000),
       });
 
@@ -217,9 +221,18 @@ export function MavisPageControl() {
         addMsg("action", result?.error || json?.error || "Couldn't undo — try again.");
         return;
       }
-      const name = result.data?.name ?? "item";
-      const table = result.data?.table ?? "";
-      addMsg("action", `↺ Restored "${name}"${table ? ` (${String(table).replace(/_/g, " ")})` : ""}`);
+
+      const data = result.data ?? {};
+      const items: Array<{ table: string; name: string }> =
+        data.restored ?? (data.name ? [{ table: data.table, name: data.name }] : []);
+      const remaining = data.remaining ?? 0;
+
+      if (items.length === 1) {
+        addMsg("action", `↺ Restored "${items[0].name}"${items[0].table ? ` (${String(items[0].table).replace(/_/g, " ")})` : ""}${remaining > 0 ? ` — ${remaining} more undoable` : ""}`);
+      } else {
+        const names = items.map(i => `"${i.name}"`).join(", ");
+        addMsg("action", `↺ Restored ${items.length}: ${names}${remaining > 0 ? ` — ${remaining} more undoable` : ""}`);
+      }
     } catch {
       addMsg("action", "Couldn't reach MAVIS to undo. Try again.");
     } finally {
@@ -322,10 +335,10 @@ export function MavisPageControl() {
             </div>
             <div className="flex items-center gap-1">
               <button
-                onClick={undoLast}
+                onClick={(e) => undoLast(e.shiftKey ? 3 : 1)}
                 disabled={busy || undoing}
                 className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
-                title="Undo last deletion"
+                title="Undo last deletion (Shift+click: undo last 3)"
               >
                 {undoing ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
               </button>
