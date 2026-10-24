@@ -49,6 +49,14 @@ function makeHook<T extends { id: string }>(
     // the moment enough newer rows exist. Found 2026-10 when exactly that
     // happened after a Beyonder data migration.
     const rowLimit = options?.limit ?? 500;
+    // The Supabase/PostgREST gateway on this project hard-caps every
+    // response at 1000 rows server-side (confirmed via a direct REST call:
+    // content-range: 0-999/1204) regardless of a client-requested .limit()
+    // above that — so raising rowLimit alone isn't enough once a table
+    // actually holds more than 1000 rows. Page through in 1000-row chunks
+    // via .range() instead; tables under the cap take the same single
+    // request as before.
+    const PAGE_SIZE = 1000;
     // Dedupe concurrent fetches (realtime bursts + manual refetchAll can overlap)
     const inflight = useRef<Promise<void> | null>(null);
 
@@ -56,18 +64,28 @@ function makeHook<T extends { id: string }>(
       if (!user) return;
       if (inflight.current) return inflight.current;
       const run = (async () => {
-        const { data: rows, error } = await withTransientRetry<{ data: unknown[] | null; error: unknown }>(() =>
-          (supabase as any)
-            .from(tableName)
-            .select("*")
-            .eq("user_id", user.id)
-            .order(orderColumn, { ascending })
-            .limit(rowLimit)
-        );
-        if (error) {
-          console.error(`[useDataHooks] Error fetching ${tableName}:`, error);
+        const rows: unknown[] = [];
+        let lastError: unknown = null;
+        let offset = 0;
+        while (offset < rowLimit) {
+          const pageEnd = Math.min(offset + PAGE_SIZE, rowLimit) - 1;
+          const { data: page, error } = await withTransientRetry<{ data: unknown[] | null; error: unknown }>(() =>
+            (supabase as any)
+              .from(tableName)
+              .select("*")
+              .eq("user_id", user.id)
+              .order(orderColumn, { ascending })
+              .range(offset, pageEnd)
+          );
+          if (error) { lastError = error; break; }
+          if (page) rows.push(...page);
+          if (!page || page.length < pageEnd - offset + 1) break; // short page — no more rows
+          offset += PAGE_SIZE;
         }
-        if (rows) setData(rows as unknown as T[]);
+        if (lastError) {
+          console.error(`[useDataHooks] Error fetching ${tableName}:`, lastError);
+        }
+        setData(rows as unknown as T[]);
         setLoading(false);
       })();
       inflight.current = run;
