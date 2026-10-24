@@ -33,7 +33,7 @@ function scheduleAfterFirstPaint(run: () => void): () => void {
 
 function makeHook<T extends { id: string }>(
   tableName: string,
-  options?: { orderColumn?: string; ascending?: boolean; deferInitial?: boolean }
+  options?: { orderColumn?: string; ascending?: boolean; deferInitial?: boolean; limit?: number }
 ) {
   return function useTableData() {
     const { user } = useAuth();
@@ -41,6 +41,14 @@ function makeHook<T extends { id: string }>(
     const [loading, setLoading] = useState(true);
     const orderColumn = options?.orderColumn ?? "created_at";
     const ascending = options?.ascending ?? false;
+    // 500 is plenty for every table except skills, whose Beyonder tree alone
+    // is 1000+ rows (27 pathways x 10 sequences x 3 abilities, plus roots) —
+    // a flat cap there silently drops the oldest rows out of the fetch
+    // window, which (since it's ordered by created_at desc) means older,
+    // non-Beyonder skills the operator already had disappear from the UI
+    // the moment enough newer rows exist. Found 2026-10 when exactly that
+    // happened after a Beyonder data migration.
+    const rowLimit = options?.limit ?? 500;
     // Dedupe concurrent fetches (realtime bursts + manual refetchAll can overlap)
     const inflight = useRef<Promise<void> | null>(null);
 
@@ -54,7 +62,7 @@ function makeHook<T extends { id: string }>(
             .select("*")
             .eq("user_id", user.id)
             .order(orderColumn, { ascending })
-            .limit(500)
+            .limit(rowLimit)
         );
         if (error) {
           console.error(`[useDataHooks] Error fetching ${tableName}:`, error);
@@ -208,7 +216,7 @@ export interface Skill {
   created_at: string;
   updated_at: string;
 }
-export const useSkills = makeHook<Skill>("skills", { deferInitial: true });
+export const useSkills = makeHook<Skill>("skills", { deferInitial: true, limit: 5000 });
 
 // ─── ENERGY SYSTEMS ────────────────────────────────────────
 export interface EnergySystem {

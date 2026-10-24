@@ -1439,7 +1439,10 @@ export function SkillsPage() {
                 </div>
               </HudCard>
               {/* Subskills */}
-              {isExpanded && subs.map((sub) => (
+              {isExpanded && subs.map((sub) => {
+                const subSubs = getSubskills(sub.id);
+                const isSubExpanded = expandedSkills.has(sub.id);
+                return (
                 <div key={sub.id} className="ml-6">
                   {editingId === sub.id ? (
                     <HudCard className="border-primary/20">
@@ -1468,6 +1471,11 @@ export function SkillsPage() {
                         <div className="flex items-center gap-2">
                           <p className="text-xs font-display font-bold">{sub.name}</p>
                           <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1 py-0.5">T{sub.tier}</span>
+                          {subSubs.length > 0 && (
+                            <button onClick={(e) => { e.stopPropagation(); toggleExpand(sub.id); }} className="text-xs font-mono text-primary/60 hover:text-primary transition-colors">
+                              {isSubExpanded ? "▾" : "▸"} {subSubs.length}
+                            </button>
+                          )}
                         </div>
                         <p className="text-xs font-mono text-primary/60">{sub.energy_type}</p>
                         {sub.description && <p className={`text-xs font-body text-muted-foreground mt-0.5 ${expandedDetail === sub.id ? "" : "line-clamp-2"}`}>{sub.description}</p>}
@@ -1488,8 +1496,26 @@ export function SkillsPage() {
                     </div>
                   </HudCard>
                   )}
+                  {/* Sub-subskills (e.g. Beyonder sequence abilities) */}
+                  {isSubExpanded && subSubs.map((leaf) => (
+                    <div key={leaf.id} className="ml-6 mt-1">
+                      <HudCard className={`border-l-2 border-primary/10 cursor-pointer transition-all ${expandedDetail === leaf.id ? "ring-1 ring-primary/30" : ""}`} onClick={() => setExpandedDetail(expandedDetail === leaf.id ? null : leaf.id)}>
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-display font-bold">{leaf.name}</p>
+                            {leaf.description && <p className={`text-xs font-body text-muted-foreground mt-0.5 ${expandedDetail === leaf.id ? "" : "line-clamp-2"}`}>{leaf.description}</p>}
+                          </div>
+                          <div className="flex flex-col gap-0.5 shrink-0">
+                            <button onClick={(e) => { e.stopPropagation(); handleEdit(leaf); }} className="p-0.5 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={10} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteSkill({ id: leaf.id, label: leaf.name }); }} className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={10} /></button>
+                          </div>
+                        </div>
+                      </HudCard>
+                    </div>
+                  ))}
                 </div>
-              ))}
+                );
+              })}
             </div>
           );
         })}
