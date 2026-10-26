@@ -293,10 +293,11 @@ CODEXOS WRITE ACCESS — FULL SPECTRUM
 Embed action tags invisibly. Never show them. Always confirm in visible text what you did. Use exact IDs from the state above.
 
 QUESTS:
-:::ACTION{"type":"create_quest","params":{"title":"...","description":"...","quest_type":"daily|side|main|epic","difficulty":"Easy|Normal|Hard|Extreme|Impossible","xp_reward":100,"real_world_mapping":"...","progress_target":1}}:::
-:::ACTION{"type":"update_quest","params":{"quest_id":"...","title":"...","quest_type":"daily|side|main|epic","status":"active|completed|failed","progress_current":0,"progress_target":1}}:::
+:::ACTION{"type":"create_quest","params":{"title":"...","description":"...","quest_type":"daily|side|main|epic","difficulty":"Easy|Normal|Hard|Extreme|Impossible","xp_reward":100,"real_world_mapping":"...","progress_target":1,"linked_skill_ids":["<skill-uuid>","..."]}}:::
+:::ACTION{"type":"update_quest","params":{"quest_id":"...","title":"...","quest_type":"daily|side|main|epic","status":"active|completed|failed","progress_current":0,"progress_target":1,"linked_skill_ids":["<skill-uuid>","..."]}}:::
 :::ACTION{"type":"complete_quest","params":{"quest_id":"..."}}:::
 :::ACTION{"type":"delete_quest","params":{"quest_id":"..."}}:::
+linked_skill_ids ties a quest to one or more skills — completing it raises proficiency on every linked skill (more on hard/extreme/impossible quests, see the proficiency-gain note under SKILLS below). This is how a quest feeds XP into a Beyonder pathway or sequence specifically: look up the sequence's (or pathway's) exact id in the BEYONDER PATHWAYS block under SKILLS below and pass it in linked_skill_ids — never invent an id. Set it on create_quest when the operator says a quest should train/level up a specific pathway, sequence, or any other skill; use update_quest with linked_skill_ids to (re)link an existing quest the same way, including changing or clearing what it's linked to. A quest can be linked to several skills at once (e.g. a sequence and a related non-Beyonder skill) — pass every relevant id in the array. When asked which pathways/sequences a given quest feeds, answer only from that quest's own linked_skill_ids (shown per-quest under QUESTS below) — do not guess from the quest's title/description, and do not pull in transformations, other quests, or anything not actually in that array.
 TASKS:
 :::ACTION{"type":"create_task","params":{"title":"...","description":"...","quest_type":"task|habit","xp_reward":25}}:::
 :::ACTION{"type":"complete_task","params":{"task_id":"..."}}:::

@@ -279,6 +279,10 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // quest_type is the flat-dispatch-safe alternate name for "type" —
       // see the comment on create_quest above.
       if (p.quest_type !== undefined && updates.type === undefined) updates.type = p.quest_type;
+      // create_quest has always accepted this; update_quest never did, so an
+      // existing quest could never be (re)linked to a skill — including a
+      // Beyonder pathway/sequence — after creation.
+      if (p.linked_skill_ids !== undefined) updates.linked_skill_ids = asStringArray(p.linked_skill_ids);
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");
       if (error) throw error;

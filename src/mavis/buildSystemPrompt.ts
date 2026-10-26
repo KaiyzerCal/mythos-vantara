@@ -76,9 +76,17 @@ export function buildSystemPrompt(
   archivedMemories?: string,
   vaultMedia?: any[],
 ): string {
-  const questList = (appContext.quests || []).map((q: any) => `  • [${q.id}] ${q.title} | type:${q.type} | status:${q.status} | difficulty:${q.difficulty} | xp:${q.xp_reward} | progress:${q.progress_current}/${q.progress_target}${q.description ? ` | desc: ${q.description}` : ""}${q.real_world_mapping ? ` | mapping: ${q.real_world_mapping}` : ""}${q.deadline ? ` | deadline: ${q.deadline}` : ""}`).join("\n");
-  const taskList = (appContext.tasks || []).map((t: any) => `  • [${t.id}] ${t.title} | type:${t.type} | status:${t.status} | recurrence:${t.recurrence} | streak:${t.streak} | xp:${t.xp_reward}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
   const allSkills = appContext.skills || [];
+  const skillNameById = new Map<string, string>(allSkills.map((s: any) => [s.id, s.name]));
+  // Resolved to names (not left as bare UUIDs) so MAVIS can answer "which
+  // pathway/sequence does this quest feed?" directly from this line instead
+  // of guessing from the quest's title/description — see the linked_skill_ids
+  // note under QUESTS in promptBuilder.ts for how it's meant to use this.
+  const questList = (appContext.quests || []).map((q: any) => {
+    const linkedNames = (q.linked_skill_ids || []).map((id: string) => skillNameById.get(id) || id);
+    return `  • [${q.id}] ${q.title} | type:${q.type} | status:${q.status} | difficulty:${q.difficulty} | xp:${q.xp_reward} | progress:${q.progress_current}/${q.progress_target}${q.description ? ` | desc: ${q.description}` : ""}${q.real_world_mapping ? ` | mapping: ${q.real_world_mapping}` : ""}${q.deadline ? ` | deadline: ${q.deadline}` : ""} | linked_skills:${linkedNames.length ? linkedNames.join(", ") : "none"}`;
+  }).join("\n");
+  const taskList = (appContext.tasks || []).map((t: any) => `  • [${t.id}] ${t.title} | type:${t.type} | status:${t.status} | recurrence:${t.recurrence} | streak:${t.streak} | xp:${t.xp_reward}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
   const beyonderSkills = allSkills.filter((s: any) => s.category === "Beyonder");
   const otherSkills = allSkills.filter((s: any) => s.category !== "Beyonder");
   const skillList = [
