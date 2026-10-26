@@ -42,6 +42,26 @@ async function callClaude(system: string, user: string): Promise<string> {
   return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS)).content.trim();
 }
 
+// The Supabase/PostgREST gateway on this project hard-caps every response at
+// 1000 rows server-side regardless of client request shape (confirmed live
+// this session: a skills fetch here was silently truncating to 1000 of 1204
+// rows, dropping ~204 skills — including a chunk of the Beyonder tree — from
+// auto_link_skill_chains with no error). Page through in 1000-row chunks
+// instead of a single unbounded select.
+const GATEWAY_PAGE_SIZE = 1000;
+async function fetchAllRows(sb: any, table: string, cols: string, userId: string): Promise<any[]> {
+  const rows: any[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await sb.from(table).select(cols).eq("user_id", userId).range(offset, offset + GATEWAY_PAGE_SIZE - 1);
+    if (error) throw error;
+    if (data) rows.push(...data);
+    if (!data || data.length < GATEWAY_PAGE_SIZE) break;
+    offset += GATEWAY_PAGE_SIZE;
+  }
+  return rows;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -65,7 +85,7 @@ serve(async (req) => {
         // replace_existing:true for the old wipe-and-rebuild-everything
         // behavior, which the UI now gates behind an explicit confirmation.
         const replaceExisting = p.replace_existing === true;
-        const { data: quests } = await sb.from("quests").select("id,title,description,type,category,status").eq("user_id", userId);
+        const quests = await fetchAllRows(sb, "quests", "id,title,description,type,category,status", userId);
         if (!quests?.length) { result = { chains_created: 0, message: "No quests found" }; break; }
 
         const existingChainIds = (await sb.from("quest_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
@@ -154,7 +174,7 @@ serve(async (req) => {
         // Additive by default — see the matching comment on
         // auto_link_quest_chains above for why.
         const replaceExisting = p.replace_existing === true;
-        const { data: skills } = await sb.from("skills").select("id,name,description,category,tier,proficiency").eq("user_id", userId);
+        const skills = await fetchAllRows(sb, "skills", "id,name,description,category,tier,proficiency", userId);
         if (!skills?.length) { result = { chains_created: 0, message: "No skills found" }; break; }
 
         const existingChainIds = (await sb.from("skill_chains").select("id").eq("user_id", userId)).data?.map((r: any) => r.id) ?? [];
