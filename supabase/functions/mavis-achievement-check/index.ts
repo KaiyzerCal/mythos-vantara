@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveAuthedUid } from "../_shared/auth.ts";
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 
 const ACHIEVEMENTS = [
@@ -88,9 +89,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { user_id, trigger, data } = await req.json();
+    const { user_id: requestedUserId, trigger, data } = await req.json();
 
-    if (!user_id) {
+    if (!requestedUserId) {
       return new Response(JSON.stringify({ error: "user_id is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -100,6 +101,24 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
+
+    // Confirmed unauthenticated: anyone who found this URL could award XP /
+    // unlock achievements on an arbitrary user_id, since nothing validated
+    // the caller. Service-role callers (mavis-chat's own server-to-server
+    // calls) may act as any user_id they supply; a real end-user JWT may
+    // only act as the id it authenticates to.
+    const authedUid = await resolveAuthedUid(req, sb);
+    if (!authedUid) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!isServiceRoleCaller(req) && requestedUserId !== authedUid) {
+      return new Response(JSON.stringify({ error: "Forbidden: caller does not own that user_id" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const user_id = requestedUserId;
 
     const { data: existingRows, error: fetchError } = await sb
       .from("achievements")

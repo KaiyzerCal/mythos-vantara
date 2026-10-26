@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -372,18 +373,38 @@ async function processCron(): Promise<{ users: number; executed: number; message
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
+// verify_jwt is false (needed for the cron path, which presents the
+// service-role key rather than a user JWT) — but every path here reads or
+// writes a caller-supplied user_id with nothing to stop one caller acting as
+// another. Confirmed: no request to this function was ever authenticated.
+// Mirrors the trust model mavis-actions/index.ts already established (and
+// the rationale documented in _shared/auth.ts after the same gap was found
+// and fixed across ~100 other functions): the service-role key is the
+// highest trust tier already, so a caller presenting it may act as any
+// user_id it supplies (that's how the cron job processes every user); a
+// real end-user JWT may only act as the id it authenticates to.
+function requireOwnUserId(req: Request, authedUid: string, requestedUserId: string | null | undefined): string | null {
+  if (isServiceRoleCaller(req)) return requestedUserId ?? null;
+  return requestedUserId === authedUid ? requestedUserId : null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+  const authedUid = await resolveAuthedUid(req, sb);
+  if (!authedUid) return json({ error: "Unauthorized" }, 401);
+
   try {
     // GET: return pending queue + recent executed actions for a user
     if (req.method === "GET") {
       const url = new URL(req.url);
-      const userId = url.searchParams.get("user_id");
-      if (!userId) return json({ error: "user_id required" }, 400);
+      const rawUserId = url.searchParams.get("user_id");
+      if (!rawUserId) return json({ error: "user_id required" }, 400);
+      const userId = requireOwnUserId(req, authedUid, rawUserId);
+      if (!userId) return json({ error: "Forbidden: caller does not own that user_id" }, 403);
 
       const [pendingRes, recentRes] = await Promise.all([
         sb.from("mavis_action_queue")
@@ -410,6 +431,7 @@ serve(async (req) => {
 
     // ── cron: process all users ──────────────────────────────────────────────
     if (body.cron === true) {
+      if (!isServiceRoleCaller(req)) return json({ error: "Forbidden: cron processing requires the service-role key" }, 403);
       const result = await processCron();
       return json(result);
     }
@@ -418,8 +440,10 @@ serve(async (req) => {
 
     // ── enqueue: add action to queue ─────────────────────────────────────────
     if (action === "enqueue") {
-      const { user_id, action_type, action_payload, source_system, source_context, priority } = body;
-      if (!user_id || !action_type) return json({ error: "user_id and action_type required" }, 400);
+      const { action_type, action_payload, source_system, source_context, priority } = body;
+      if (!body.user_id || !action_type) return json({ error: "user_id and action_type required" }, 400);
+      const user_id = requireOwnUserId(req, authedUid, body.user_id);
+      if (!user_id) return json({ error: "Forbidden: caller does not own that user_id" }, 403);
 
       const tier = await getTier(user_id, action_type);
       const now = new Date();
@@ -472,8 +496,10 @@ serve(async (req) => {
 
     // ── approve: approve a queued action ─────────────────────────────────────
     if (action === "approve") {
-      const { user_id, action_id } = body;
-      if (!user_id || !action_id) return json({ error: "user_id and action_id required" }, 400);
+      if (!body.user_id || !body.action_id) return json({ error: "user_id and action_id required" }, 400);
+      const { action_id } = body;
+      const user_id = requireOwnUserId(req, authedUid, body.user_id);
+      if (!user_id) return json({ error: "Forbidden: caller does not own that user_id" }, 403);
 
       const { data: queuedAction } = await sb
         .from("mavis_action_queue")
@@ -516,8 +542,10 @@ serve(async (req) => {
 
     // ── reject: reject and log learning signal ────────────────────────────────
     if (action === "reject") {
-      const { user_id, action_id } = body;
-      if (!user_id || !action_id) return json({ error: "user_id and action_id required" }, 400);
+      if (!body.user_id || !body.action_id) return json({ error: "user_id and action_id required" }, 400);
+      const { action_id } = body;
+      const user_id = requireOwnUserId(req, authedUid, body.user_id);
+      if (!user_id) return json({ error: "Forbidden: caller does not own that user_id" }, 403);
 
       const { data: queuedAction } = await sb
         .from("mavis_action_queue")
@@ -539,8 +567,9 @@ serve(async (req) => {
 
     // ── process: process queue for single user ────────────────────────────────
     if (action === "process") {
-      const { user_id } = body;
-      if (!user_id) return json({ error: "user_id required" }, 400);
+      if (!body.user_id) return json({ error: "user_id required" }, 400);
+      const user_id = requireOwnUserId(req, authedUid, body.user_id);
+      if (!user_id) return json({ error: "Forbidden: caller does not own that user_id" }, 403);
       const result = await processUser(user_id);
       return json(result);
     }

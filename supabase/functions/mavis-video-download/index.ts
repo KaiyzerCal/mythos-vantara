@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller, resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,8 +11,8 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { url, project_id, user_id } = await req.json();
-    if (!url || !project_id || !user_id) {
+    const { url, project_id, user_id: requestedUserId } = await req.json();
+    if (!url || !project_id || !requestedUserId) {
       return new Response(JSON.stringify({ error: 'url, project_id, user_id required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
@@ -19,6 +20,20 @@ serve(async (req) => {
     const SB_URL = Deno.env.get("SUPABASE_URL")!;
     const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SB_URL, SB_KEY);
+
+    // Confirmed unauthenticated: this function fetches a caller-supplied URL
+    // server-side and writes the result to storage + the DB under a
+    // caller-supplied user_id, with nothing validating who's calling.
+    const authedUid = await resolveAuthedUid(req, supabase);
+    if (!authedUid) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    if (!isServiceRoleCaller(req) && requestedUserId !== authedUid) {
+      return new Response(JSON.stringify({ error: 'Forbidden: caller does not own that user_id' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const user_id = requestedUserId;
 
     // Detect URL type
     let downloadUrl: string | null = null;

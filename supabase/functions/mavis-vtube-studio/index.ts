@@ -17,6 +17,9 @@
 //   VTUBE_STUDIO_URL        — wss://your-ngrok-url  (required)
 //   VTUBE_AUTH_TOKEN        — stored auth token from prior get_token approval
 
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type",
@@ -231,6 +234,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // Confirmed unauthenticated: anyone who found this URL could send live
+  // commands to the operator's VTube Studio avatar (move the model, trigger
+  // hotkeys, change expressions) with zero credentials. No per-user data
+  // here (single external device, not multi-tenant), so any valid caller —
+  // real session or service-role — is sufficient; this just needs to not be
+  // wide open to the public internet.
+  const authSb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const authedUid = await resolveAuthedUid(req, authSb);
+  if (!authedUid) {
+    return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   const wsUrl = Deno.env.get("VTUBE_STUDIO_URL");
