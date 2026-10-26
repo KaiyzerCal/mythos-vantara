@@ -4,7 +4,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "framer-motion";
-import { Target, Plus, Trash2, CheckCircle2, XCircle, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight, Copy, Brain } from "lucide-react";
+import { Target, Plus, Trash2, CheckCircle2, XCircle, Filter, Loader2, Users, MessageCircle, Send, Square, X, Edit2, ArrowDown, ArrowUp, Database, PhoneCall, Check, ChevronDown, ChevronRight, Wand2, ArrowRight, Copy, Brain, ChevronsUpDown } from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -87,6 +89,60 @@ function AddSubQuestRow({ parentId, onCreate }: { parentId: string; onCreate: (d
       <button onClick={() => { setTitle(""); setOpen(false); }} className="text-muted-foreground hover:text-foreground">
         <X className="w-3 h-3" />
       </button>
+    </div>
+  );
+}
+
+// Searchable multi-select for linking skills to a quest. Was a flat row of
+// one toggle button per skill — fine at a few dozen skills, unusable once
+// the Beyonder tree pushed the skill count past a thousand (every quest
+// form rendered 1000+ buttons to scroll through). cmdk's built-in filter
+// handles the search; selected skills show as removable chips below.
+function SkillLinkPicker({ skills, selectedIds, onToggle }: { skills: any[]; selectedIds: string[]; onToggle: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const selected = skills.filter((s) => selectedIds.includes(s.id));
+  return (
+    <div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="w-full flex items-center justify-between gap-2 bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono text-muted-foreground hover:border-border/80 focus:outline-none focus:border-primary/40"
+          >
+            <span>{selectedIds.length > 0 ? `${selectedIds.length} skill${selectedIds.length === 1 ? "" : "s"} linked` : "Link skills..."}</span>
+            <ChevronsUpDown size={12} className="opacity-50 shrink-0" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[320px] p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search skills..." className="text-sm" />
+            <CommandList>
+              <CommandEmpty>No skills found.</CommandEmpty>
+              <CommandGroup>
+                {skills.map((s) => (
+                  <CommandItem key={s.id} value={`${s.name} ${s.category}`} onSelect={() => onToggle(s.id)} className="text-xs font-mono">
+                    <Check size={12} className={`mr-2 shrink-0 ${selectedIds.includes(s.id) ? "opacity-100 text-primary" : "opacity-0"}`} />
+                    <span className="flex-1 truncate">{s.name}</span>
+                    <span className="text-[10px] text-muted-foreground ml-2 shrink-0">{s.category}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {selected.length > 0 && (
+        <div className="flex gap-1.5 flex-wrap mt-1.5">
+          {selected.map((s) => (
+            <span key={s.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-mono rounded border bg-primary/10 border-primary/30 text-primary">
+              {s.name}
+              <button type="button" onClick={() => onToggle(s.id)} className="hover:text-destructive">
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -517,28 +573,20 @@ export function QuestsPage() {
               {/* Linking: Skills */}
               <div>
                 <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Skills (proficiency +2 to +15 on completion, scaled by difficulty)</p>
-                <div className="flex gap-1.5 flex-wrap">
-                  {skills.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setForm((f) => ({
-                        ...f,
-                        linked_skill_ids: f.linked_skill_ids.includes(s.id)
-                          ? f.linked_skill_ids.filter((id) => id !== s.id)
-                          : [...f.linked_skill_ids, s.id],
-                      }))}
-                      className={`px-2 py-0.5 text-xs font-mono rounded border transition-all ${
-                        form.linked_skill_ids.includes(s.id)
-                          ? "bg-primary/10 border-primary/30 text-primary"
-                          : "border-border/50 text-muted-foreground hover:border-border"
-                      }`}
-                    >
-                      {s.name}
-                    </button>
-                  ))}
-                  {skills.length === 0 && <span className="text-xs font-mono text-muted-foreground">No skills — create skills first</span>}
-                </div>
+                {skills.length === 0 ? (
+                  <span className="text-xs font-mono text-muted-foreground">No skills — create skills first</span>
+                ) : (
+                  <SkillLinkPicker
+                    skills={skills}
+                    selectedIds={form.linked_skill_ids}
+                    onToggle={(id) => setForm((f) => ({
+                      ...f,
+                      linked_skill_ids: f.linked_skill_ids.includes(id)
+                        ? f.linked_skill_ids.filter((x) => x !== id)
+                        : [...f.linked_skill_ids, id],
+                    }))}
+                  />
+                )}
               </div>
               {/* Linking: Stat */}
               <div className="grid grid-cols-2 gap-2">
