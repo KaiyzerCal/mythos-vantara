@@ -49,6 +49,11 @@ export const UpdateQuestSchema = z.object({
   progress_target: z.number().int().positive().optional(),
   real_world_mapping: z.string().optional(),
   category: z.string().optional(),
+  // create_quest has always accepted this; update_quest didn't, so a quest
+  // could only ever be linked to a skill at creation time — no way to link
+  // an existing quest to a Beyonder pathway/sequence (or any skill)
+  // afterward, or change which skills a quest advances.
+  linked_skill_ids: z.array(z.string()).optional(),
 }).refine(
   (v) => v.quest_id || v.task_id || v.id,
   { message: "quest_id or task_id (or id) is required to identify the quest" },
