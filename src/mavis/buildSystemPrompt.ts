@@ -39,6 +39,36 @@ const MODE_FOCUS: Record<string, string> = {
   CREATOR: "video editing, content strategy, clip extraction, repurposing, creator monetization",
 };
 
+// The Beyonder tree (27 pathways x 10 sequences x 3 abilities, ~1100+ rows)
+// is too large and too cross-referenced by raw parent_skill_id UUIDs to dump
+// as flat per-row lines like every other skill — at that volume the model
+// can't reliably reconstruct which ability belongs to which sequence belongs
+// to which pathway, and answers questions about it by guessing instead of
+// reading. Nest it by name instead: one line per sequence (pathway label +
+// tier + proficiency + acting method + its 3 abilities inline), grouped
+// under its pathway. Non-Beyonder skills (a few dozen rows) stay in the
+// original flat format below — nesting isn't worth it at that size.
+function formatBeyonderTree(beyonderSkills: any[]): string {
+  if (beyonderSkills.length === 0) return "";
+  const roots = beyonderSkills.filter((s) => !s.parent_skill_id).sort((a, b) => a.name.localeCompare(b.name));
+  const lines: string[] = [];
+  for (const root of roots) {
+    lines.push(`• ${root.name} — ${root.description || "Pathway"}`);
+    const sequences = beyonderSkills
+      .filter((s) => s.parent_skill_id === root.id)
+      .sort((a, b) => (b.tier ?? 0) - (a.tier ?? 0)); // Seq.9 (tier1) down to Seq.0 (tier10)
+    for (const seq of sequences) {
+      const seqNum = 10 - (seq.tier ?? 0);
+      const abilities = beyonderSkills.filter((s) => s.parent_skill_id === seq.id);
+      const abilityText = abilities.length
+        ? ` Abilities: ${abilities.map((a) => (a.description || a.name).replace(/\.$/, "")).join("; ")}.`
+        : "";
+      lines.push(`  Seq.${seqNum} ${seq.name} (T${seq.tier}, prof:${seq.proficiency}%, ${seq.unlocked ? "unlocked" : "locked"}): ${seq.description || ""}${abilityText}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export function buildSystemPrompt(
   profile: any,
   mode: string,
@@ -48,7 +78,13 @@ export function buildSystemPrompt(
 ): string {
   const questList = (appContext.quests || []).map((q: any) => `  • [${q.id}] ${q.title} | type:${q.type} | status:${q.status} | difficulty:${q.difficulty} | xp:${q.xp_reward} | progress:${q.progress_current}/${q.progress_target}${q.description ? ` | desc: ${q.description}` : ""}${q.real_world_mapping ? ` | mapping: ${q.real_world_mapping}` : ""}${q.deadline ? ` | deadline: ${q.deadline}` : ""}`).join("\n");
   const taskList = (appContext.tasks || []).map((t: any) => `  • [${t.id}] ${t.title} | type:${t.type} | status:${t.status} | recurrence:${t.recurrence} | streak:${t.streak} | xp:${t.xp_reward}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
-  const skillList = (appContext.skills || []).map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | T${s.tier} | prof:${s.proficiency}% | energy:${s.energy_type} | unlocked:${s.unlocked} | cost:${s.cost}${s.description ? ` | desc: ${s.description}` : ""}${s.parent_skill_id ? ` | parent:${s.parent_skill_id}` : ""}`).join("\n");
+  const allSkills = appContext.skills || [];
+  const beyonderSkills = allSkills.filter((s: any) => s.category === "Beyonder");
+  const otherSkills = allSkills.filter((s: any) => s.category !== "Beyonder");
+  const skillList = [
+    otherSkills.map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | T${s.tier} | prof:${s.proficiency}% | energy:${s.energy_type} | unlocked:${s.unlocked} | cost:${s.cost}${s.description ? ` | desc: ${s.description}` : ""}${s.parent_skill_id ? ` | parent:${s.parent_skill_id}` : ""}`).join("\n"),
+    beyonderSkills.length ? `  BEYONDER PATHWAYS (${beyonderSkills.filter((s: any) => !s.parent_skill_id).length} pathways, each with 10 sequences from Sequence 9 — least developed — down to Sequence 0 — mastery — each sequence carries 3 real-world abilities):\n${formatBeyonderTree(beyonderSkills).split("\n").map((l) => `  ${l}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
   const journalList = (appContext.journalEntries || []).map((j: any) => `  • [${j.id}] ${j.title} | cat:${j.category} | importance:${j.importance}${j.mood ? ` | mood:${j.mood}` : ""} | xp:${j.xp_earned} | tags:${(j.tags||[]).join(",")} | content: ${(j.content || "").slice(0, 500)}`).join("\n");
   const vaultList = (appContext.vaultEntries || []).map((v: any) => `  • [${v.id}] ${v.title} | cat:${v.category} | importance:${v.importance} | content: ${(v.content || "").slice(0, 500)}`).join("\n");
   const councilList = (appContext.councils || []).map((c: any) => `  • [${c.id}] ${c.name} | role:${c.role} | class:${c.class}${c.specialty ? ` | spec:${c.specialty}` : ""} | notes: ${c.notes || ""}`).join("\n");

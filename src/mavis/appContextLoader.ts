@@ -22,19 +22,37 @@ export interface AppContextSnapshot {
   loadedAt: string;
 }
 
+// The Supabase/PostgREST gateway on this project hard-caps every response at
+// 1000 rows server-side (confirmed via a direct REST call: content-range:
+// 0-999/1204) regardless of client request shape. With no .order()/.limit()
+// here at all, a table that grows past 1000 rows — skills did, via the
+// Beyonder tree — silently loses whatever the gateway didn't return, in an
+// unspecified order, and MAVIS answers questions about the missing rows by
+// making something up instead of saying it doesn't know. Page through in
+// 1000-row chunks so every row actually reaches the prompt.
+const GATEWAY_PAGE_SIZE = 1000;
+
 async function safeQuery(table: string, userId: string, cols = "*"): Promise<unknown[]> {
   const ALLOWED = new Set(["quests","tasks","skills","rankings_profiles","transformations","journal_entries","vault_entries","councils","inventory","store_items","energy_systems","bpm_sessions","allies","personas","mavis_tasks","approvals","mavis_action_queue"]);
   if (!ALLOWED.has(table)) { console.warn(`[AppContext] Blocked query to unknown table: ${table}`); return []; }
   try {
-    const { data, error } = await supabase
-      .from(table as any)
-      .select(cols)
-      .eq("user_id", userId);
-    if (error) {
-      console.warn(`[AppContext] ${table}:`, error.message);
-      return [];
+    const rows: unknown[] = [];
+    let offset = 0;
+    for (;;) {
+      const { data, error } = await supabase
+        .from(table as any)
+        .select(cols)
+        .eq("user_id", userId)
+        .range(offset, offset + GATEWAY_PAGE_SIZE - 1);
+      if (error) {
+        console.warn(`[AppContext] ${table}:`, error.message);
+        break;
+      }
+      if (data) rows.push(...data);
+      if (!data || data.length < GATEWAY_PAGE_SIZE) break; // short page — no more rows
+      offset += GATEWAY_PAGE_SIZE;
     }
-    return data ?? [];
+    return rows;
   } catch {
     return [];
   }
