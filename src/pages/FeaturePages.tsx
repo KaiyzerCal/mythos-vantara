@@ -148,7 +148,7 @@ function SkillLinkPicker({ skills, selectedIds, onToggle }: { skills: any[]; sel
 }
 
 export function QuestsPage() {
-  const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, failQuest, deleteQuest, logActivity, skills, energySystems, updateEnergyFull, updateProfile, profile, createInventoryItem } = useAppData();
+  const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, failQuest, deleteQuest, skills, energySystems } = useAppData();
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [showCreate, setShowCreate] = useState(false);
@@ -349,81 +349,17 @@ export function QuestsPage() {
   };
 
   const handleComplete = async (q: any) => {
-    // completeQuest now routes through mavis-actions' complete_quest action,
-    // which already awards XP, logs "quest_completed", and bumps every
-    // linked skill's proficiency (with tier-unlock cascade) server-side —
-    // so this no longer duplicates that client-side. What's left here is
-    // genuinely separate: real_world_mapping-driven stat/energy rewards,
-    // codex points, and buff/debuff logging have no server-side equivalent.
+    // completeQuest routes through mavis-actions' complete_quest action,
+    // which awards XP, logs "quest_completed", bumps every linked skill's
+    // proficiency (with tier-unlock cascade), AND (as of the same backend
+    // change that made MAVIS-driven completion pay out identically)
+    // resolves real_world_mapping-driven stat/energy rewards, codex points,
+    // buff/debuff logging, and loot drops — all server-side now. This used
+    // to duplicate that last group of rewards client-side, back when
+    // completing a quest through chat/voice/Telegram silently skipped them;
+    // now that the server applies them too, doing it again here would
+    // double every stat/energy/codex gain and create duplicate loot.
     await completeQuest(q.id);
-
-    // Calculate XP-scaled reward: harder quests = bigger boosts
-    const difficultyMultiplier: Record<string, number> = { Easy: 1, Normal: 2, Hard: 3, Extreme: 5, Impossible: 8 };
-    const mult = difficultyMultiplier[q.difficulty] ?? 2;
-    const xpScale = Math.max(1, Math.floor(q.xp_reward / 50));
-
-    // Boost linked stat — scales with difficulty (+1 Easy, +2 Normal, +3 Hard, etc.)
-    if (q.real_world_mapping?.startsWith("stat:")) {
-      const statKey = q.real_world_mapping.replace("stat:", "");
-      const statDbKey = `stat_${statKey.toLowerCase()}`;
-      const currentVal = (profile as any)[statDbKey];
-      const statGain = Math.min(5, mult);
-      if (typeof currentVal === "number") {
-        await updateProfile({ [statDbKey]: currentVal + statGain } as any);
-        await logActivity("stat_xp", `${statKey} +${statGain} from quest`, statGain);
-      }
-    }
-
-    // Boost linked energy — proficiency/status upgrade based on quest XP
-    if (q.real_world_mapping?.startsWith("energy:")) {
-      const energyId = q.real_world_mapping.replace("energy:", "");
-      const energy = energySystems.find((e) => e.id === energyId);
-      if (energy) {
-        const energyGain = Math.min(10, Math.max(2, xpScale * mult));
-        const newVal = Math.min(energy.max_value, energy.current_value + energyGain);
-        // Auto-upgrade status at thresholds
-        let newStatus = energy.status;
-        const pct = (newVal / energy.max_value) * 100;
-        if (pct >= 100) newStatus = "perfect";
-        else if (pct >= 90) newStatus = "mastered";
-        else if (pct >= 70) newStatus = "advanced";
-        await updateEnergyFull(energyId, { current_value: newVal, status: newStatus });
-        await logActivity("energy_xp", `${energy.type} +${energyGain} from quest`, energyGain);
-      }
-    }
-
-    // Award codex points
-    if (q.codex_points_reward > 0) {
-      const newCodex = (profile.codex_integrity || 0) + q.codex_points_reward;
-      await updateProfile({ codex_integrity: Math.min(100, newCodex) } as any);
-      await logActivity("codex_points", `+${q.codex_points_reward} Codex Points from quest`, q.codex_points_reward);
-    }
-
-    // Log buff effects
-    if ((q.buff_effects as any[])?.length > 0) {
-      for (const buff of q.buff_effects as any[]) {
-        await logActivity("buff_applied", `Buff: ${buff.label} +${buff.value}${buff.unit}`, 0);
-      }
-    }
-
-    // Log debuff effects
-    if ((q.debuff_effects as any[])?.length > 0) {
-      for (const debuff of q.debuff_effects as any[]) {
-        await logActivity("debuff_applied", `Debuff: ${debuff.label} -${debuff.value}${debuff.unit}`, 0);
-      }
-    }
-
-    // Award loot drops to inventory
-    if ((q.loot_rewards as any[])?.length > 0) {
-      for (const loot of q.loot_rewards as any[]) {
-        await createInventoryItem({
-          name: loot.itemName, description: `Loot from quest: ${q.title}`,
-          type: "material", rarity: loot.rarity || "common", quantity: loot.quantity,
-          effect: null, slot: null, tier: null, stat_effects: [], is_equipped: false,
-        });
-        await logActivity("loot_drop", `Loot: ${loot.itemName} ×${loot.quantity}`, 0);
-      }
-    }
   };
 
   if (questsLoading) return (
