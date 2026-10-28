@@ -37,7 +37,7 @@ Requires `APIFY_API_KEY` in Supabase secrets vault.
 | `dz_omar/youtube-transcript-metadata-extractor` | Transcript + metadata | `{ videoUrl }` |
 | `agentx/video-transcript` | Multi-platform video to text (YT, TikTok, etc.) | `{ videoUrl }` |
 | `starvibe/youtube-scraper` | Channel/keyword video metadata | `{ keyword, channelUrl }` |
-| `nextapi/youtube-video-downloader` | Download or get video info | `{ url }` |
+| `johnvc/youtube-download-api` | Download video or audio file (fileUrl + title, duration), or video info only | `{ videoUrls: [url], format: "video"/"audio", metadataOnly }` |
 
 ### Social Media Intelligence
 
