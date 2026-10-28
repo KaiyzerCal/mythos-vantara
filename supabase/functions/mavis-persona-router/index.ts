@@ -15,6 +15,7 @@ import {
   callGroq,
   getProviderKeys,
   GROQ_MODEL,
+  hasCrudIntent,
 } from "../_shared/providers.ts";
 
 const corsHeaders = {
@@ -61,7 +62,13 @@ async function callClaude(model: string, system: string, messages: any[], key: s
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model, max_tokens: 1024, system, messages }),
+    // Was 1024 -- a persona's reply is meant to stay short (the system
+    // prompt already enforces that), but a PROPOSE_ACTION tag with
+    // linked_skill_ids/real_world_mapping/buff_effects/loot_rewards fully
+    // populated plus the visible confirmation can still exceed that, with
+    // the same silent-truncation risk fixed in _shared/providers.ts for
+    // mavis-chat.
+    body: JSON.stringify({ model, max_tokens: 4096, system, messages }),
     signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
   if (!res.ok) {
@@ -77,7 +84,7 @@ async function callOpenAI(model: string, system: string, messages: any[], key: s
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096 }),
     signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
   if (!res.ok) {
@@ -93,7 +100,7 @@ async function callGrok(model: string, system: string, messages: any[], key: str
   const res = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 1024 }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096 }),
     signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
   if (!res.ok) {
@@ -131,7 +138,7 @@ async function callLovableGateway(model: string, system: string, messages: any[]
 //   1. Lovable Gemini Flash (free) — every persona starts here
 //   2. The persona's MAVIS-chosen `model` (claude / openai / grok) — chosen at forge time as the persona's signature voice
 //   3. Generic safety net: OpenAI mini → Claude Haiku → Claude Sonnet → Grok
-async function callLLM(model: string, system: string, messages: any[]): Promise<{ content: string; provider: string }> {
+async function callLLM(model: string, system: string, messages: any[], userText = ""): Promise<{ content: string; provider: string }> {
   // Resolve keys exactly the way MAVIS chat and council chat do.
   //
   // These were read inline here, and two of the names had drifted from the
@@ -163,6 +170,22 @@ async function callLLM(model: string, system: string, messages: any[]): Promise<
     failures.push(`${tier}: ${reason}`);
     console.warn(`[persona-router] ${tier} failed (${reason})`);
   };
+
+  // Tier -1 — CRUD/action writes go straight to Claude, ahead of the free
+  // tiers below. Those free tiers exist to keep ordinary persona chat cheap,
+  // which is the right tradeoff for conversation but not for a request that
+  // needs to get a field schema exactly right (linked_skill_ids, never an
+  // invented id) on the first try -- the same precision-over-cost choice
+  // mavis-chat's routeToProvider already makes for CRUD/AGENT work. Falls
+  // through to the normal cascade below on failure or if Claude has no key.
+  if (claudeKey && hasCrudIntent(userText)) {
+    try {
+      return { content: await callClaude("claude-sonnet-4-6", system, messages, claudeKey), provider: "claude-sonnet-4-6" };
+    } catch (err: any) {
+      if (!(err instanceof ProviderUnavailableError)) throw err;
+      note("claude-sonnet-crud", `unfunded (${err.status})`);
+    }
+  }
 
   // Tier 0a — Gemini on the rolling `gemini-flash-latest` alias (free).
   //
@@ -797,7 +820,7 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
     // repeat its previous message.
     const userMsgAt = new Date().toISOString();
     const llmStartedAt = Date.now();
-    const { content: rawResponse, provider: servedBy } = await callLLM(activeModel, systemPrompt, llmMessages);
+    const { content: rawResponse, provider: servedBy } = await callLLM(activeModel, systemPrompt, llmMessages, message);
     const llmMs = Date.now() - llmStartedAt;
     const assistantMsgAt = new Date().toISOString();
 
