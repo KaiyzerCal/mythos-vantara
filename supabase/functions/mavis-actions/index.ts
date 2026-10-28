@@ -96,6 +96,74 @@ async function bumpLinkedSkillProficiency(sb: any, userId: string, skillIds: str
   }
 }
 
+// Every reward a quest can carry besides XP and linked-skill proficiency
+// (both already handled above) — linked stat/energy via real_world_mapping,
+// codex points, buff/debuff logging, and loot drops. This existed only in
+// FeaturePages.tsx's client-side handleComplete, so a quest MAVIS completed
+// through chat/voice/Telegram/persona (all go through complete_quest here,
+// never through that client handler) silently skipped every one of these —
+// the "stat:STR +1" badge on the quest card was real only if the operator
+// clicked Complete in the UI themselves. Same formulas as that client code
+// so a quest pays out identically regardless of who completes it.
+async function applyQuestCompletionRewards(sb: any, userId: string, quest: Record<string, any>) {
+  const mult = DIFFICULTY_MULTIPLIER[String(quest.difficulty || "Normal")] ?? 2;
+  const xpScale = Math.max(1, Math.floor(Number(quest.xp_reward || 0) / 50));
+  const mapping = String(quest.real_world_mapping || "");
+
+  if (mapping.startsWith("stat:")) {
+    const statKey = mapping.slice("stat:".length).toLowerCase();
+    const statDbKey = `stat_${statKey}`;
+    const { data: profile } = await sb.from("profiles").select(statDbKey).eq("id", userId).maybeSingle();
+    const currentVal = profile?.[statDbKey];
+    if (typeof currentVal === "number") {
+      const gain = Math.min(5, mult);
+      await sb.from("profiles").update({ [statDbKey]: currentVal + gain }).eq("id", userId);
+      await logActivity(sb, userId, "stat_xp", `${statKey.toUpperCase()} +${gain} from quest`, gain);
+    }
+  }
+
+  if (mapping.startsWith("energy:")) {
+    const energyId = mapping.slice("energy:".length);
+    const { data: energy } = await sb.from("energy_systems").select("id, type, current_value, max_value, status").eq("id", energyId).eq("user_id", userId).maybeSingle();
+    if (energy) {
+      const gain = Math.min(10, Math.max(2, xpScale * mult));
+      const newVal = Math.min(Number(energy.max_value), Number(energy.current_value) + gain);
+      const pct = (newVal / Number(energy.max_value)) * 100;
+      const newStatus = pct >= 100 ? "perfect" : pct >= 90 ? "mastered" : pct >= 70 ? "advanced" : energy.status;
+      await sb.from("energy_systems").update({ current_value: newVal, status: newStatus }).eq("id", energyId).eq("user_id", userId);
+      await logActivity(sb, userId, "energy_xp", `${energy.type} +${gain} from quest`, gain);
+    }
+  }
+
+  const codexPoints = Number(quest.codex_points_reward || 0);
+  if (codexPoints > 0) {
+    const { data: profile } = await sb.from("profiles").select("codex_integrity").eq("id", userId).maybeSingle();
+    const newCodex = Math.min(100, Number(profile?.codex_integrity || 0) + codexPoints);
+    await sb.from("profiles").update({ codex_integrity: newCodex }).eq("id", userId);
+    await logActivity(sb, userId, "codex_points", `+${codexPoints} Codex Points from quest`, codexPoints);
+  }
+
+  for (const buff of (Array.isArray(quest.buff_effects) ? quest.buff_effects : []) as any[]) {
+    await logActivity(sb, userId, "buff_applied", `Buff: ${buff.label} +${buff.value}${buff.unit ?? ""}`, 0);
+  }
+  for (const debuff of (Array.isArray(quest.debuff_effects) ? quest.debuff_effects : []) as any[]) {
+    await logActivity(sb, userId, "debuff_applied", `Debuff: ${debuff.label} -${debuff.value}${debuff.unit ?? ""}`, 0);
+  }
+
+  for (const loot of (Array.isArray(quest.loot_rewards) ? quest.loot_rewards : []) as any[]) {
+    await sb.from("inventory").insert({
+      user_id: userId,
+      name: String(loot.itemName || "Loot"),
+      description: `Loot from quest: ${quest.title}`,
+      type: "material",
+      rarity: String(loot.rarity || "common"),
+      quantity: Number(loot.quantity || 1),
+      effect: null, slot: null, tier: null, stat_effects: [], is_equipped: false,
+    });
+    await logActivity(sb, userId, "loot_drop", `Loot: ${loot.itemName} ×${loot.quantity}`, 0);
+  }
+}
+
 // ── Name-based ID resolver ────────────────────────────────
 // Resolves an entry_id from either a direct id or a fuzzy name/title match.
 // THROWS when nothing can be resolved, instead of returning "" — every one of
@@ -287,6 +355,12 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         real_world_mapping: p.real_world_mapping ? String(p.real_world_mapping) : null,
         category: p.category ? String(p.category) : null,
         loot_rewards: p.loot_rewards || [],
+        // Were accepted by neither create_quest nor update_quest -- the
+        // model could emit them and they'd be silently dropped, even though
+        // FeaturePages.tsx's quest card has always rendered buff_effects/
+        // debuff_effects badges.
+        buff_effects: p.buff_effects || [],
+        debuff_effects: p.debuff_effects || [],
         linked_skill_ids: linkedSkillIds,
         parent_quest_id: p.parent_quest_id ? String(p.parent_quest_id) : null,
       }).select("id").single();
@@ -303,7 +377,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // task_id. Found via vantara-crud-update-fix-brief.md follow-up.
       const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.task_id || p.id) as string, (p.quest_name || p.title) as string, "title");
       const updates: Record<string, unknown> = {};
-      for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "progress_current", "progress_target", "real_world_mapping", "category"]) {
+      for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "codex_points_reward", "progress_current", "progress_target", "real_world_mapping", "category", "buff_effects", "debuff_effects", "loot_rewards"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       // quest_type is the flat-dispatch-safe alternate name for "type" —
@@ -323,7 +397,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "complete_quest": {
       const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
-      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title, linked_skill_ids, difficulty").eq("id", questId).eq("user_id", userId).maybeSingle();
+      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title, linked_skill_ids, difficulty, real_world_mapping, codex_points_reward, buff_effects, debuff_effects, loot_rewards").eq("id", questId).eq("user_id", userId).maybeSingle();
       if (findErr) throw findErr;
       if (!quest) throw new Error(`quests: no quest found for id "${questId}"`);
       const { data: updated, error: updErr } = await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", questId).eq("user_id", userId).select("id");
@@ -332,6 +406,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       await awardXP(sb, userId, Number(quest.xp_reward || 0));
       await logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}`, Number(quest.xp_reward || 0));
       await bumpLinkedSkillProficiency(sb, userId, asStringArray(quest.linked_skill_ids), Number(quest.xp_reward || 0), String(quest.difficulty || "Normal"));
+      await applyQuestCompletionRewards(sb, userId, quest);
       return;
     }
 

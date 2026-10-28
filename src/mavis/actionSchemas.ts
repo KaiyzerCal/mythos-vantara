@@ -25,6 +25,10 @@ export const CreateQuestSchema = z.object({
   real_world_mapping: z.string().optional(),
   category: z.string().optional(),
   loot_rewards: z.array(z.unknown()).optional(),
+  // Real columns (quests.buff_effects/debuff_effects, both jsonb) that the
+  // mavis-actions insert silently dropped until now — added here to match.
+  buff_effects: z.array(z.unknown()).optional(),
+  debuff_effects: z.array(z.unknown()).optional(),
   linked_skill_ids: z.array(z.string()).optional(),
   parent_quest_id: z.string().uuid().optional(),
 });
@@ -49,6 +53,10 @@ export const UpdateQuestSchema = z.object({
   progress_target: z.number().int().positive().optional(),
   real_world_mapping: z.string().optional(),
   category: z.string().optional(),
+  codex_points_reward: z.number().int().nonnegative().optional(),
+  loot_rewards: z.array(z.unknown()).optional(),
+  buff_effects: z.array(z.unknown()).optional(),
+  debuff_effects: z.array(z.unknown()).optional(),
   // create_quest has always accepted this; update_quest didn't, so a quest
   // could only ever be linked to a skill at creation time — no way to link
   // an existing quest to a Beyonder pathway/sequence (or any skill)
