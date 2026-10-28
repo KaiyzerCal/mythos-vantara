@@ -22,6 +22,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { fetchAllRows } from "../_shared/pagination.ts";
 
 const SB_URL  = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -42,25 +43,6 @@ async function callClaude(system: string, user: string): Promise<string> {
   return (await callWithFallback("claude", [{ role: "user", content: user }], system, PROVIDER_KEYS)).content.trim();
 }
 
-// The Supabase/PostgREST gateway on this project hard-caps every response at
-// 1000 rows server-side regardless of client request shape (confirmed live
-// this session: a skills fetch here was silently truncating to 1000 of 1204
-// rows, dropping ~204 skills — including a chunk of the Beyonder tree — from
-// auto_link_skill_chains with no error). Page through in 1000-row chunks
-// instead of a single unbounded select.
-const GATEWAY_PAGE_SIZE = 1000;
-async function fetchAllRows(sb: any, table: string, cols: string, userId: string): Promise<any[]> {
-  const rows: any[] = [];
-  let offset = 0;
-  for (;;) {
-    const { data, error } = await sb.from(table).select(cols).eq("user_id", userId).range(offset, offset + GATEWAY_PAGE_SIZE - 1);
-    if (error) throw error;
-    if (data) rows.push(...data);
-    if (!data || data.length < GATEWAY_PAGE_SIZE) break;
-    offset += GATEWAY_PAGE_SIZE;
-  }
-  return rows;
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });

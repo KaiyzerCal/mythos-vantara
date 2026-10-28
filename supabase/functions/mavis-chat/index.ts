@@ -5,11 +5,12 @@ import { scoreImportance, compressBlock, isHighStakesQuery, estimateLlmCost, det
 import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream } from "../_shared/providers.ts";
 import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionIntent, hasResearchIntent, resolveActionsNative } from "./toolDispatch.ts";
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
-import { tavilySearch, needsWebSearch, buildMavisPrompt } from "./promptBuilder.ts";
+import { tavilySearch, needsWebSearch, buildMavisPrompt, formatBeyonderTree } from "./promptBuilder.ts";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock, type AppSearchHit } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { fetchAllRows } from "../_shared/pagination.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -183,10 +184,24 @@ serve(async (req) => {
     };
     const lim = (key: keyof typeof wants, deep: number, shallow: number) => wants[key] ? deep : shallow;
 
+    // quests and skills are fetched separately below via fetchAllRows, not
+    // capped at 10-25/12-30-most-recently-created like everything else here.
+    // Was ordered by created_at desc with a tiny limit, which for skills
+    // meant "whichever ~12-30 rows happen to be newest" — on an account with
+    // the 1100+-row Beyonder tree, that's effectively a random slice that
+    // frequently contains no pathway roots at all. The model, told this
+    // block is "the user's real data" and under a never-refuse execution
+    // policy, filled the gap by inventing plausible-sounding skill names and
+    // UUIDs instead of reporting it couldn't find a match. Quests have the
+    // same shape of problem (207 quests, only 10-25 most recent visible), so
+    // get the same fix.
+    const fullQuestsAndSkills = Promise.allSettled([
+      fetchAllRows(sb, "quests", "id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping,current_state,ideal_state,effort_tier,phase,completion_criteria,last_reviewed_at,linked_skill_ids", user.id),
+      fetchAllRows(sb, "skills", "id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id,cost", user.id),
+    ]);
+
     const _settled = await Promise.allSettled([
-      sb.from("quests").select("id,title,description,type,status,difficulty,xp_reward,progress_current,progress_target,deadline,real_world_mapping,current_state,ideal_state,effort_tier,phase,completion_criteria,last_reviewed_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("quest", 25, 10)),
       sb.from("tasks").select("id,title,description,type,status,recurrence,xp_reward,streak,completed_count").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("task", 20, 8)),
-      sb.from("skills").select("id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id,cost").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("skill", 30, 12)),
       sb.from("journal_entries").select("id,title,content,category,importance,mood,tags,xp_earned").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("journal", 15, 5)),
       sb.from("vault_entries").select("id,title,content,category,importance,attachments").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("vault", 15, 5)),
       sb.from("councils").select("id,name,role,class,specialty,notes").eq("user_id", user.id),
@@ -211,15 +226,19 @@ serve(async (req) => {
       sb.from("mavis_goals").select("id,objective,context,status,decomposed,quest_ids,created_at,last_reviewed_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(lim("goal", 15, 6)),
     ]);
     const [
-      questsRes, tasksRes, skillsRes, journalRes, vaultRes, councilsRes,
+      tasksRes, journalRes, vaultRes, councilsRes,
       alliesRes, energyRes, inventoryRes, ritualsRes, transformationsRes,
       rankingsRes, bpmRes, storeRes, currenciesRes, vaultMediaRes,
       activityRes, memoriesRes,
       contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes,
     ] = _settled.map((r: any) => r.status === "fulfilled" ? r.value : { data: null });
 
+    const [fullQuestsSettled, fullSkillsSettled] = await fullQuestsAndSkills;
+    const fullQuests = fullQuestsSettled.status === "fulfilled" ? fullQuestsSettled.value : [];
+    const fullSkills = fullSkillsSettled.status === "fulfilled" ? fullSkillsSettled.value : [];
+
     const dbState = {
-      quests: questsRes.data || [], tasks: tasksRes.data || [], skills: skillsRes.data || [],
+      quests: fullQuests, tasks: tasksRes.data || [], skills: fullSkills,
       journalEntries: journalRes.data || [], vaultEntries: vaultRes.data || [], councils: councilsRes.data || [],
       allies: alliesRes.data || [], energySystems: energyRes.data || [], inventory: inventoryRes.data || [],
       rituals: ritualsRes.data || [], transformations: transformationsRes.data || [], rankings: rankingsRes.data || [],
@@ -420,7 +439,18 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
       }
       return "F";
     };
-    const fmtQuests = dbState.quests.map((q: any) => {
+    const skillNameById: Record<string, string> = {};
+    for (const s of dbState.skills) skillNameById[s.id] = s.name;
+
+    // All active quests (not just the 10-25 most recently created) plus the
+    // 10 most recently completed — same reasoning as skills below: an
+    // id-matching task needs the full set, not a recency slice.
+    const activeQuestsForPrompt = dbState.quests.filter((q: any) => q.status === "active");
+    const recentCompletedQuests = dbState.quests
+      .filter((q: any) => q.status !== "active")
+      .sort((a: any, b: any) => new Date(b.last_reviewed_at ?? 0).getTime() - new Date(a.last_reviewed_at ?? 0).getTime())
+      .slice(0, 10);
+    const fmtQuests = [...activeQuestsForPrompt, ...recentCompletedQuests].map((q: any) => {
       const freshness = freshGrade(q.last_reviewed_at, [7, 30, 90, 180, 365]);
       const isaLine = q.current_state || q.ideal_state
         ? `\n        ISA: ${q.current_state ? `now:"${String(q.current_state).slice(0, 80)}"` : ""} ${q.ideal_state ? `→ goal:"${String(q.ideal_state).slice(0, 80)}"` : ""}${q.effort_tier ? ` [${q.effort_tier}]` : ""}${q.phase ? ` phase:${q.phase}` : ""}`
@@ -428,16 +458,31 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
       const criteriaLine = Array.isArray(q.completion_criteria) && q.completion_criteria.length
         ? `\n        Criteria: ${(q.completion_criteria as string[]).slice(0, 3).join(" | ")}`
         : "";
-      return `  • [${q.id}] "${q.title}" [${q.status}/${q.type}/${q.difficulty}] xp:${q.xp_reward} ${q.progress_current}/${q.progress_target} freshness:${freshness}${q.description ? ` — ${q.description.slice(0, questDescLen)}` : ""}${isaLine}${criteriaLine}`;
+      const linkedNames = (q.linked_skill_ids || []).map((id: string) => skillNameById[id] || id);
+      const linkedLine = linkedNames.length ? `\n        linked_skills: ${linkedNames.join(", ")}` : "";
+      return `  • [${q.id}] "${q.title}" [${q.status}/${q.type}/${q.difficulty}] xp:${q.xp_reward} ${q.progress_current}/${q.progress_target} freshness:${freshness}${q.description ? ` — ${q.description.slice(0, questDescLen)}` : ""}${isaLine}${criteriaLine}${linkedLine}`;
     }).join("\n") || "  None";
     const fmtTasks = dbState.tasks.map((t: any) =>
       `  • [${t.id}] "${t.title}" [${t.status}/${t.recurrence}] xp:${t.xp_reward} streak:${t.streak}`
     ).join("\n") || "  None";
-    const skillNameById: Record<string, string> = {};
-    for (const s of dbState.skills) skillNameById[s.id] = s.name;
-    const fmtSkills = dbState.skills.map((s: any) =>
-      `  • [${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type}${s.unlocked ? "" : ", locked"})${s.parent_skill_id ? ` [sub-skill of: "${skillNameById[s.parent_skill_id] ?? s.parent_skill_id}"]` : " [root skill]"}${wants.skill && s.description ? ` — ${s.description.slice(0, 100)}` : ""}`
-    ).join("\n") || "  None";
+
+    // Full skill list (not a recency-ordered slice of 12-30) — matching the
+    // fix in promptBuilder.ts's buildMavisPrompt. This block is the one
+    // actually labeled "LIVE BACKEND STATE ... the user's real data" below,
+    // so it's the one that matters most for correct id-matching: a model
+    // told to trust this block as authoritative, shown only a handful of
+    // recently-created skills with no Beyonder structure, filled the gap by
+    // inventing plausible-sounding skill names and ids instead of reporting
+    // it couldn't find a match.
+    const skillsNonBeyonder = dbState.skills.filter((s: any) => s.category !== "Beyonder");
+    const skillsBeyonder = dbState.skills.filter((s: any) => s.category === "Beyonder");
+    const fmtSkillsFlat = skillsNonBeyonder.map((s: any) =>
+      `  • [${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type}${s.unlocked ? "" : ", locked"})${s.parent_skill_id ? ` [sub-skill of: "${skillNameById[s.parent_skill_id] ?? s.parent_skill_id}"]` : " [root skill]"}${s.description ? ` — ${s.description.slice(0, 100)}` : ""}`
+    ).join("\n");
+    const fmtSkillsBeyonder = skillsBeyonder.length
+      ? `\n  BEYONDER PATHWAYS (${skillsBeyonder.filter((s: any) => !s.parent_skill_id).length} pathways, Sequence 9 = least developed down to Sequence 0 = mastery, each sequence has 3 abilities):\n${formatBeyonderTree(skillsBeyonder).split("\n").map((l) => `  ${l}`).join("\n")}`
+      : "";
+    const fmtSkills = [fmtSkillsFlat, fmtSkillsBeyonder].filter(Boolean).join("\n") || "  None";
     const fmtCouncils = dbState.councils.map((c: any) =>
       `  • [${c.id}] ${c.name} — ${c.role} (${c.class}${c.specialty ? `, ${c.specialty}` : ""})${wants.council && c.notes ? ` — ${c.notes.slice(0, 150)}` : ""}`
     ).join("\n") || "  None";
@@ -519,13 +564,13 @@ PROFILE: ${profile.inscribed_name} | Lv${profile.level}[${profile.rank}] | ${pro
 Stats: STR${profile.stat_str}/AGI${profile.stat_agi}/VIT${profile.stat_vit}/INT${profile.stat_int}/WIS${profile.stat_wis}/CHA${profile.stat_cha}/LCK${profile.stat_lck} | Aura:${profile.aura} | GPR:${profile.gpr} PvP:${profile.pvp_rating}
 Arc: ${profile.arc_story} | Currencies: ${fmtCurrencies}
 
-QUESTS (${dbState.quests.length}):
+QUESTS (${activeQuestsForPrompt.length} active + ${recentCompletedQuests.length} recently completed, of ${dbState.quests.length} total):
 ${fmtQuests}
 
 TASKS (${dbState.tasks.length}):
 ${fmtTasks}
 
-SKILLS (${dbState.skills.length}):
+SKILLS (${dbState.skills.length}, full set — every id below is real, never invent one):
 ${fmtSkills}
 
 JOURNAL (${dbState.journalEntries.length}${wants.journal ? ", FULL" : ", preview"}):
