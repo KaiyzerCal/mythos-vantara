@@ -175,10 +175,33 @@ export function trimToFit(
   return { messages: msgs, system: trimmedSystem };
 }
 
+// CRUD write intent — create/update/delete/link a real app record (quest,
+// skill, journal, etc). Deliberately narrower than toolDispatch.ts's
+// hasActionIntent (which also covers research, A2A consults, video
+// posting...) so this only catches the class of request the operator
+// asked to route to Claude for: writes that need to get every field right
+// (e.g. linked_skill_ids, real_world_mapping) on the first try, not request
+// shapes that merely imply SOME action.
+const CRUD_VERBS = "create|add|make|new|update|edit|modify|change|set|link|unlink|relink|delete|remove|complete|finish|mark|award|log|unlock";
+const CRUD_NOUNS = "quest|sub ?quest|skill|sub ?skill|pathway|task|habit|journal|vault|council|ally|allies|inventory|item|transformation|form|ranking|store|energy|calendar|event|meeting|goal|contact|note|ritual|loot|reward|buff|debuff|stat|xp|codex point";
+const CRUD_INTENT_RE = new RegExp(`\\b(${CRUD_VERBS})\\b[^.!?]{0,40}\\b(${CRUD_NOUNS})s?\\b`, "i");
+export function hasCrudIntent(message: string): boolean {
+  return CRUD_INTENT_RE.test(message ?? "");
+}
+
 export function routeToProvider(mode: string, message: string): Provider {
   const m = mode?.toUpperCase();
   if (["ARCH", "CODEX", "SOVEREIGN"].includes(m)) return "claude";
+  // AGENT mode runs the autonomous/agentic tool-use loop -- the same
+  // precision-over-speed tradeoff as CRUD writes below, every time.
+  if (m === "AGENT") return "claude";
   if (["WATCHTOWER", "COURT"].includes(m)) return "grok";
+  // CRUD writes (quest/skill/journal/etc create, update, delete, link) go to
+  // Claude for the same reason ARCH/CODEX/SOVEREIGN do: these need to follow
+  // a field schema exactly (real ids, never invented) more than they need to
+  // be fast, and Claude has been the more reliable of the two at that in
+  // this app's own routing design already.
+  if (hasCrudIntent(message)) return "claude";
   const lower = message?.toLowerCase() ?? "";
   const realtimeTriggers = [
     "what's happening", "latest news", "breaking", "right now", "today",
