@@ -44,7 +44,18 @@ function rateLimitCooldownMs(reason: string, defaultMs = 60_000): number {
 export type Provider = "claude" | "grok" | "openai" | "gemini";
 
 export const OPENAI_CONTEXT_WINDOW_TOKENS = 128_000;
-export const OPENAI_MAX_COMPLETION_TOKENS = 2_048;
+// Was 2_048 -- far below every other provider here (Gemini 8192/16000,
+// Grok 8192, Claude 8192 in several paths). OpenAI is the default route
+// (PRIME/QUEST/FORGE/ENRYU), so most ordinary chat used this ceiling. A
+// request to create a quest and fill out every field (linked_skill_ids,
+// real_world_mapping, buff_effects, loot_rewards) needs room to search a
+// 1200+-row skill context, reason about matches, AND emit a multi-field
+// :::ACTION::: JSON tag, on top of the visible confirmation text -- 2048
+// tokens (~1500 words) is tight enough that the action tag could come out
+// truncated (silently dropped -- parseActions just logs a parse failure)
+// or the model could learn to keep it minimal to fit. Negligible cost
+// against the 128k input window either way.
+export const OPENAI_MAX_COMPLETION_TOKENS = 8_192;
 export const OPENAI_CONTEXT_SAFETY_TOKENS = 6_000;
 
 export function estimateTokensFromChars(chars: number): number {

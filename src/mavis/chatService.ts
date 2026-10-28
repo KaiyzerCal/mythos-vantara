@@ -33,7 +33,11 @@ export async function invokeAI(
 export interface ChatServiceOptions {
   mode: string;
   conversationId?: string | null;
-  appState?: string;
+  // The structured snapshot (same shape loadFullAppContext returns) that
+  // mavis-chat's buildMavisPrompt reads appState.quests/.skills/etc from --
+  // was typed as a string because callers used to send a flattened summary
+  // string that function could never actually read correctly.
+  appState?: Record<string, unknown>;
   chatKind?: string;
   threadRef?: string;
   attachmentIds?: string[];
@@ -79,7 +83,7 @@ export async function streamChatMessage(
       systemPrompt,
       mode: options.mode,
       conversationId: options.conversationId ?? null,
-      appState: options.appState ?? "",
+      appState: options.appState ?? {},
       chatKind: options.chatKind ?? "mavis",
       threadRef: options.threadRef ?? "main",
       attachmentIds: options.attachmentIds ?? [],
@@ -360,7 +364,7 @@ export async function sendChatMessage(
       systemPrompt,
       mode: options.mode,
       conversationId: options.conversationId ?? null,
-      appState: options.appState ?? "",
+      appState: options.appState ?? {},
       chatKind: options.chatKind ?? "mavis",
       threadRef: options.threadRef ?? "main",
       attachmentIds: options.attachmentIds ?? [],

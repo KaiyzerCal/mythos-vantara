@@ -480,13 +480,22 @@ export default function MavisDemo() {
 
     const archivedMemories = memoriesRes as string;
 
-    const compactState = [
-      ...(quests   || []).map((q: any) => `QUEST [${q.id}] "${q.title}" status:${q.status}`),
-      ...(tasks    || []).map((t: any) => `TASK [${t.id}] "${t.title}" status:${t.status}`),
-      ...(skills   || []).map((s: any) => `SKILL [${s.id}] "${s.name}"`),
-      ...(councils || []).map((c: any) => `COUNCIL [${c.id}] "${c.name}"`),
-      ...(allies   || []).map((a: any) => `ALLY [${a.id}] "${a.name}"`),
-    ].join("\n");
+    // mavis-chat's buildMavisPrompt (live for every non-COUNCIL-mode request,
+    // i.e. every normal chat here) reads appState.quests/.skills/.tasks/etc
+    // as ARRAYS. This used to send a single flattened text summary string
+    // instead — appState.quests on a string is undefined, so the server-side
+    // prompt saw zero quests and zero skills (no Beyonder tree, no ids at
+    // all) regardless of what the client-built systemPrompt below contained,
+    // since that client prompt is discarded server-side outside council mode.
+    // Send the real structured snapshot instead, same shape loadFullAppContext
+    // returns, so linking actually has real ids to work with here too.
+    const appStatePayload = fullCtx
+      ? { ...fullCtx, councils: fullCtx.councilMembers }
+      : {
+          quests, tasks, skills, rankings: [], transformations,
+          journalEntries, vaultEntries, councils, inventory,
+          storeItems, energySystems, bpmSessions, allies, rituals,
+        };
 
     const sid = `streaming-${Date.now()}`;
     setStreamingId(sid);
@@ -515,7 +524,7 @@ export default function MavisDemo() {
         setChatMessages((prev: any[]) => prev.map((m: any) => m.id === sid ? { ...m, content: accumulated } : m));
       };
 
-      const opts = { mode: chatMode, conversationId: convoId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds: [] as string[] };
+      const opts = { mode: chatMode, conversationId: convoId, appState: appStatePayload, chatKind: "mavis", threadRef: "main", attachmentIds: [] as string[] };
       const result =
         chatMode === "AGENT"
           ? await streamAgentMessage(content, systemPrompt, history, opts, onToken, () => {}, abortController.signal)
