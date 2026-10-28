@@ -53,7 +53,7 @@ function formatBeyonderTree(beyonderSkills: any[]): string {
   const roots = beyonderSkills.filter((s) => !s.parent_skill_id).sort((a, b) => a.name.localeCompare(b.name));
   const lines: string[] = [];
   for (const root of roots) {
-    lines.push(`• ${root.name} — ${root.description || "Pathway"}`);
+    lines.push(`[${root.id}] • ${root.name} — ${root.description || "Pathway"}`);
     const sequences = beyonderSkills
       .filter((s) => s.parent_skill_id === root.id)
       .sort((a, b) => (b.tier ?? 0) - (a.tier ?? 0)); // Seq.9 (tier1) down to Seq.0 (tier10)
@@ -61,9 +61,9 @@ function formatBeyonderTree(beyonderSkills: any[]): string {
       const seqNum = 10 - (seq.tier ?? 0);
       const abilities = beyonderSkills.filter((s) => s.parent_skill_id === seq.id);
       const abilityText = abilities.length
-        ? ` Abilities: ${abilities.map((a) => (a.description || a.name).replace(/\.$/, "")).join("; ")}.`
+        ? ` Abilities: ${abilities.map((a) => `[${a.id}] ${(a.description || a.name).replace(/\.$/, "")}`).join("; ")}.`
         : "";
-      lines.push(`  Seq.${seqNum} ${seq.name} (T${seq.tier}, prof:${seq.proficiency}%, ${seq.unlocked ? "unlocked" : "locked"}): ${seq.description || ""}${abilityText}`);
+      lines.push(`  [${seq.id}] Seq.${seqNum} ${seq.name} (T${seq.tier}, prof:${seq.proficiency}%, ${seq.unlocked ? "unlocked" : "locked"}): ${seq.description || ""}${abilityText}`);
     }
   }
   return lines.join("\n");

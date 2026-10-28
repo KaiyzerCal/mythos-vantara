@@ -42,6 +42,35 @@ export function needsWebSearch(msg: string): boolean {
 // ============================================================
 import { truncationLabel } from "../_shared/entrySearch.ts";
 
+// The Beyonder tree (27 pathways x 10 sequences x 3 abilities, ~1100+ rows)
+// is too large and too cross-referenced by raw parent_skill_id UUIDs to dump
+// as flat per-row lines like every other skill — at that volume the model
+// can't reliably reconstruct which ability belongs to which sequence belongs
+// to which pathway, and answers questions about it (or picks a subskill to
+// link) by guessing instead of reading. Nest it by name instead: one line
+// per sequence (pathway label + tier + proficiency + description + its 3
+// abilities inline), grouped under its pathway.
+function formatBeyonderTree(beyonderSkills: any[]): string {
+  if (beyonderSkills.length === 0) return "";
+  const roots = beyonderSkills.filter((s: any) => !s.parent_skill_id).sort((a: any, b: any) => a.name.localeCompare(b.name));
+  const lines: string[] = [];
+  for (const root of roots) {
+    lines.push(`[${root.id}] • ${root.name} — ${root.description || "Pathway"}`);
+    const sequences = beyonderSkills
+      .filter((s: any) => s.parent_skill_id === root.id)
+      .sort((a: any, b: any) => (b.tier ?? 0) - (a.tier ?? 0)); // Seq.9 (tier1) down to Seq.0 (tier10)
+    for (const seq of sequences) {
+      const seqNum = 10 - (seq.tier ?? 0);
+      const abilities = beyonderSkills.filter((s: any) => s.parent_skill_id === seq.id);
+      const abilityText = abilities.length
+        ? ` Abilities: ${abilities.map((a: any) => `[${a.id}] ${(a.description || a.name).replace(/\.$/, "")}`).join("; ")}.`
+        : "";
+      lines.push(`  [${seq.id}] Seq.${seqNum} ${seq.name} (T${seq.tier}, prof:${seq.proficiency}%, ${seq.unlocked ? "unlocked" : "locked"}): ${seq.description || ""}${abilityText}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export function buildMavisPrompt(
   profile: any,
   mode: string,
@@ -68,14 +97,35 @@ You are speaking with Caliyah — Calvin's daughter, the second bound Operator o
 
   // Format app state
   const qs = appState.quests || [];
+  // Full skill list (not a slice) — quest-skill linking needs the exact id of
+  // whatever the operator means by name/category/energy_type, and a slice of
+  // 8 silently hid almost everything (1000+ rows on an active Beyonder tree).
+  // Beyonder gets its own nested block (see formatBeyonderTree above); every
+  // other skill stays a flat line like before.
+  const allSkillsForPrompt = appState.skills || [];
+  const skillNameById = new Map<string, string>(allSkillsForPrompt.map((s: any) => [s.id, s.name]));
+  const resolveLinkedSkillNames = (ids: unknown) =>
+    (Array.isArray(ids) ? ids : []).map((id: string) => skillNameById.get(id) || id);
+  const beyonderSkillsForPrompt = allSkillsForPrompt.filter((s: any) => s.category === "Beyonder");
+  const otherSkillsForPrompt = allSkillsForPrompt.filter((s: any) => s.category !== "Beyonder");
+  const skills = [
+    otherSkillsForPrompt.map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | T${s.tier} | prof:${s.proficiency}% | energy:${s.energy_type} | unlocked:${s.unlocked}${s.description ? ` | desc: ${s.description}` : ""}${s.parent_skill_id ? ` | parent:${s.parent_skill_id}` : ""}`).join("\n"),
+    beyonderSkillsForPrompt.length
+      ? `  BEYONDER PATHWAYS (${beyonderSkillsForPrompt.filter((s: any) => !s.parent_skill_id).length} pathways, each with 10 sequences from Sequence 9 — least developed — down to Sequence 0 — mastery — each sequence carries 3 real-world abilities):\n${formatBeyonderTree(beyonderSkillsForPrompt).split("\n").map((l) => `  ${l}`).join("\n")}`
+      : "",
+  ].filter(Boolean).join("\n") || "  None";
+  // Every active quest, not a slice of 8 — and linked_skills resolved to
+  // names so MAVIS can answer "what does this quest feed?" (and avoid
+  // double-linking) directly from this line instead of guessing.
   const activeQuests = qs.filter((q: any) => q.status === "active")
-    .slice(0, 8).map((q: any) => `  • [${q.id}] ${q.title} (${q.type}, +${q.xp_reward} XP, ${q.progress_current}/${q.progress_target})`).join("\n") || "  None";
+    .map((q: any) => {
+      const linked = resolveLinkedSkillNames(q.linked_skill_ids);
+      return `  • [${q.id}] ${q.title} (${q.type}, ${q.difficulty}, +${q.xp_reward} XP, ${q.progress_current}/${q.progress_target})${linked.length ? ` | linked_skills:${linked.join(", ")}` : ""}`;
+    }).join("\n") || "  None";
   const completedRecent = qs.filter((q: any) => q.status === "completed")
-    .slice(0, 3).map((q: any) => `  • ${q.title} (+${q.xp_reward} XP)`).join("\n") || "  None";
+    .slice(0, 5).map((q: any) => `  • ${q.title} (+${q.xp_reward} XP)`).join("\n") || "  None";
   const tasks = (appState.tasks || []).filter((t: any) => t.status === "active")
     .slice(0, 5).map((t: any) => `  • [${t.id}] ${t.title} (${t.recurrence})`).join("\n") || "  None";
-  const skills = (appState.skills || []).slice(0, 8)
-    .map((s: any) => `  • [${s.id}] ${s.name} (T${s.tier}, ${s.proficiency}%)`).join("\n") || "  None";
   const councils = (appState.councils || []).slice(0, 8)
     .map((c: any) => `  • [${c.id}] ${c.name} — ${c.role} (${c.class})`).join("\n") || "  None";
   const energy = (appState.energySystems || [])
