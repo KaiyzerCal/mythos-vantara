@@ -25,6 +25,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { reembedRow } from "../_shared/reembedRow.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
+import { hasCrudIntent } from "../_shared/providers.ts";
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
@@ -627,6 +628,22 @@ async function callLLM(
   messages: ChatMessage[],
   maxTokens = 800,
 ): Promise<string> {
+  // ── Tier 0: CRUD/action writes go straight to Claude ───────────────────
+  // Creating/updating/linking a quest, skill, journal entry, etc. needs to
+  // follow the field schema exactly (real ids, never invented) more than it
+  // needs to be fast — the free Gemini tier below kept fabricating
+  // linked_skill_ids and reward fields instead of leaving that to the real
+  // action-executor. Falls through to the usual cascade on any failure.
+  const userText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  if (ANTHROPIC_KEY && hasCrudIntent(userText) && !_isUnhealthy("claude-sonnet-4-6")) {
+    try {
+      const text = await _callAnthropicModel("claude-sonnet-4-6", system, messages, Math.max(maxTokens, 4096));
+      if (text) return text;
+    } catch (err) {
+      console.warn("[llm] CRUD-intent claude-sonnet-4-6 failed:", err instanceof Error ? err.message : String(err));
+    }
+  }
+
   // ── Tier 1: Free Gemini on the rolling alias ──────────────────────────
   //
   // Tiers 1 and 2 were gemini-2.0-flash and gemini-2.0-flash-lite. Google has
