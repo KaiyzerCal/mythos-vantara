@@ -4,6 +4,7 @@
 // in config.toml; we validate the Supabase token ourselves after WS connect.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { toGeminiFunctionDeclarations } from "../_shared/voiceTools.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,8 +98,16 @@ Deno.serve(async (req) => {
                   },
                 },
               },
-              system_instruction: { parts: [{ text: systemPrompt }] },
-              tools: [],
+              // Was `tools: []` — this session could only talk, never create
+              // or link a quest/skill no matter what the operator asked for.
+              // msg.context carries a real skills/quests summary (with the
+              // Beyonder tree + ids) built client-side by buildVoiceContext;
+              // appended to the identity/persona prompt from the `system`
+              // query param rather than replacing it.
+              system_instruction: {
+                parts: [{ text: msg.context ? `${systemPrompt}\n\n${msg.context}` : systemPrompt }],
+              },
+              tools: [{ function_declarations: toGeminiFunctionDeclarations() }],
             },
           }));
           clientWs.send(JSON.stringify({ type: "connected", provider: "gemini-live" }));
@@ -130,6 +139,18 @@ Deno.serve(async (req) => {
             }
             if (gMsg?.setupComplete) {
               clientWs.send(JSON.stringify({ type: "ready" }));
+            }
+
+            // Function calling — relay to the client, which executes through
+            // the same actionExecutor → mavis-actions pipeline text chat and
+            // the tap-to-speak overlay use, then sends a tool_result back
+            // (forwarded to Gemini as toolResponse below).
+            const calls = gMsg?.toolCall?.functionCalls;
+            if (Array.isArray(calls) && calls.length > 0) {
+              clientWs.send(JSON.stringify({
+                type: "tool_call",
+                calls: calls.map((c: any) => ({ id: c.id, name: c.name, args: c.args ?? {} })),
+              }));
             }
           } catch { /* skip malformed */ }
         };
@@ -166,6 +187,12 @@ Deno.serve(async (req) => {
       } else if (msg.type === "interrupt") {
         // Signal Gemini to stop its current turn.
         geminiWs.send(JSON.stringify({ client_content: { turns: [], turn_complete: true } }));
+      } else if (msg.type === "tool_result" && Array.isArray(msg.responses)) {
+        geminiWs.send(JSON.stringify({
+          tool_response: {
+            function_responses: msg.responses.map((r: any) => ({ id: r.id, name: r.name, response: r.response ?? {} })),
+          },
+        }));
       }
     } catch { /* skip malformed messages */ }
   };

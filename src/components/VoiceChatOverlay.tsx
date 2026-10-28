@@ -5,6 +5,9 @@ import { toast } from "sonner";
 import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
 import { edgeErrorMessage } from "@/lib/edgeFunctionError";
+import { buildVoiceContext } from "@/mavis/voiceContext";
+import { executeActions } from "@/mavis/actionExecutor";
+import type { ParsedAction } from "@/mavis/types";
 import { Capacitor } from "@capacitor/core";
 import { SpeechRecognition as NativeSpeechRecognition } from "@capacitor-community/speech-recognition";
 import { TextToSpeech as NativeTextToSpeech } from "@capacitor-community/text-to-speech";
@@ -570,6 +573,32 @@ export function VoiceChatOverlay({
     source.start();
   }, []);
 
+  // Executes a Gemini Live tool call through the exact same pipeline text
+  // chat and tap-to-speak voice use (actionExecutor → mavis-actions), then
+  // reports every result back so Gemini can confirm verbally.
+  const handleLiveToolCalls = useCallback(async (calls: { id: string; name: string; args: Record<string, unknown> }[]) => {
+    const responses = await Promise.all(calls.map(async (call) => {
+      const action: ParsedAction = {
+        type: call.name,
+        payload: { type: call.name, params: call.args ?? {} },
+        raw: JSON.stringify(call.args ?? {}),
+      };
+      try {
+        const [result] = await executeActions([action]);
+        return {
+          id: call.id,
+          name: call.name,
+          response: result.status === "success" ? { success: true } : { success: false, error: result.message ?? "Action failed" },
+        };
+      } catch (err) {
+        return { id: call.id, name: call.name, response: { success: false, error: err instanceof Error ? err.message : String(err) } };
+      }
+    }));
+    if (liveWsRef.current?.readyState === WebSocket.OPEN) {
+      liveWsRef.current.send(JSON.stringify({ type: "tool_result", responses }));
+    }
+  }, []);
+
   const connectLiveVoice = useCallback(async () => {
     // Pre-create the output AudioContext HERE — synchronously, before any await —
     // so Chrome/Opera see it created during the user gesture (button click).
@@ -606,8 +635,16 @@ export function VoiceChatOverlay({
     // functions behind the standard WS upgrade — send it as the first message instead.
     ws.onopen = async () => {
       liveWsRef.current = ws;
-      // Authenticate: send bearer token as first message
-      ws.send(JSON.stringify({ type: "auth", token: session.access_token }));
+      // Authenticate: send bearer token as first message. Also send a real
+      // skills/quests summary (with the Beyonder tree + ids) so this session
+      // can actually create/link quests and skills — before this it had no
+      // app context and no tools at all, so it could only talk.
+      let liveContext = "";
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) liveContext = await buildVoiceContext(user.id);
+      } catch { /* non-fatal — session still connects with reduced context */ }
+      ws.send(JSON.stringify({ type: "auth", token: session.access_token, context: liveContext }));
 
       // Start capturing mic audio and streaming PCM chunks
       try {
@@ -669,6 +706,9 @@ export function VoiceChatOverlay({
         if (msg.type === "ready") {
           setPhase("listening");
         }
+        if (msg.type === "tool_call" && Array.isArray(msg.calls)) {
+          void handleLiveToolCalls(msg.calls);
+        }
       } catch { /* skip malformed */ }
     };
 
@@ -677,7 +717,7 @@ export function VoiceChatOverlay({
       setLiveMode(false);
       setPhase("idle");
     };
-  }, [playNextAudioChunk]);
+  }, [playNextAudioChunk, handleLiveToolCalls]);
 
   const disconnectLiveVoice = useCallback(() => {
     // Stop mic capture

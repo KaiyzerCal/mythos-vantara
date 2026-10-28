@@ -2,6 +2,7 @@
 // so the browser can connect directly via WebRTC without exposing the API key.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { toOpenAIRealtimeTools } from "../_shared/voiceTools.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,7 +21,11 @@ You speak in a clear, direct, confident voice. Keep responses concise for voice 
 unless depth is explicitly requested. You are proactive, precise, and never sycophantic. \
 You address your operator as an equal intelligence working in service of their mission. \
 Do not begin responses with filler phrases like "Certainly!" or "Of course!". \
-Lead with substance. If you don't know something, say so directly and offer the best path forward.`;
+Lead with substance. If you don't know something, say so directly and offer the best path forward. \
+You have tools to create, update, complete, and delete quests and skills — use them immediately \
+when the operator asks for anything that maps to one, the same as you would in text chat. Never \
+say you can't do something if a tool covers it, and never invent an id — use only ids given to \
+you in the SKILLS/ACTIVE QUESTS context below.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -55,10 +60,15 @@ serve(async (req) => {
   }
 
   // ── Parse optional context from body ─────────────────────────────────────────
+  // Was capped at 500 chars — fine for a one-line persona note, but the
+  // client now sends a real skills/quests summary (buildVoiceContext) so
+  // this session can actually link quests to skills by id instead of only
+  // being able to talk. 60k chars (~15k tokens) comfortably fits even a
+  // large skill tree within the realtime model's context budget.
   let operatorContext = "";
   try {
     const body = await req.json();
-    if (body.context) operatorContext = String(body.context).slice(0, 500);
+    if (body.context) operatorContext = String(body.context).slice(0, 60_000);
   } catch { /* body is optional */ }
 
   // ── Fetch operator profile for richer context ─────────────────────────────────
@@ -96,6 +106,8 @@ serve(async (req) => {
         prefix_padding_ms: 300,
         silence_duration_ms: 600,
       },
+      tools: toOpenAIRealtimeTools(),
+      tool_choice: "auto",
     }),
   });
 

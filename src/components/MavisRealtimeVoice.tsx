@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mic, MicOff, Phone, PhoneOff, Loader2, Volume2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { buildVoiceContext } from "@/mavis/voiceContext";
+import { executeActions } from "@/mavis/actionExecutor";
+import type { ParsedAction } from "@/mavis/types";
 
 type Phase = "idle" | "connecting" | "listening" | "thinking" | "speaking";
 
@@ -57,6 +60,11 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
   // Partial transcript accumulation (MAVIS streaming)
   const partialMavisRef = useRef("");
   const partialIdRef    = useRef<string>("");
+
+  // call_id → function name, populated as each function_call output item is
+  // announced so function_call_arguments.done (which carries call_id +
+  // arguments but not always name) can be dispatched correctly.
+  const pendingFunctionCallsRef = useRef<Map<string, string>>(new Map());
 
   const scrollToBottom = useCallback(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -148,6 +156,26 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
         setPhase("listening");
         break;
 
+      // Function calling — OpenAI announces each call as an output item
+      // (type:"function_call", carrying call_id + name) before streaming its
+      // arguments; capture the name here so the .done handler below can
+      // dispatch correctly even on the runs where .done omits it.
+      case "response.output_item.added": {
+        const item = event.item;
+        if (item?.type === "function_call" && item.call_id && item.name) {
+          pendingFunctionCallsRef.current.set(item.call_id, item.name);
+        }
+        break;
+      }
+
+      case "response.function_call_arguments.done": {
+        const callId = event.call_id;
+        const name = event.name ?? pendingFunctionCallsRef.current.get(callId);
+        pendingFunctionCallsRef.current.delete(callId);
+        if (callId && name) void handleFunctionCall(callId, name, event.arguments ?? "{}");
+        break;
+      }
+
       case "error":
         console.error("[MavisRealtimeVoice] Server error:", event.error);
         setError(event.error?.message ?? "Unknown error from voice session");
@@ -155,15 +183,59 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
     }
   }
 
+  // Executes a tool call through the exact same pipeline text chat and the
+  // tap-to-speak voice overlay use (actionExecutor → mavis-actions), then
+  // reports the result back to OpenAI so MAVIS can confirm it verbally.
+  // Before this, neither realtime voice surface had any tools wired up at
+  // all, so a request like "create a quest for my Fool pathway" could only
+  // be talked about, never actually done.
+  async function handleFunctionCall(callId: string, name: string, argsJson: string) {
+    let params: Record<string, unknown> = {};
+    try { params = JSON.parse(argsJson); } catch { /* malformed args — execute with empty payload, let validation report it */ }
+
+    const action: ParsedAction = { type: name, payload: { type: name, params }, raw: argsJson };
+    let output: Record<string, unknown>;
+    try {
+      const [result] = await executeActions([action]);
+      output = result.status === "success"
+        ? { success: true }
+        : { success: false, error: result.message ?? "Action failed" };
+    } catch (err) {
+      output = { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+
+    const dc = dcRef.current;
+    if (!dc || dc.readyState !== "open") return;
+    dc.send(JSON.stringify({
+      type: "conversation.item.create",
+      item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) },
+    }));
+    dc.send(JSON.stringify({ type: "response.create" }));
+  }
+
   async function connect() {
     setError(null);
     setPhase("connecting");
 
     try {
+      // 0. Build a real skills/quests summary (with Beyonder tree + ids) so
+      // this session can actually link quests to skills, not just talk
+      // about them. Falls back to whatever `context` prop was passed (or
+      // none) if the user can't be resolved or the context fails to build —
+      // connecting should never hard-fail over this.
+      let voiceContext = context ?? "";
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) {
+          const summary = await buildVoiceContext(user.id);
+          voiceContext = context ? `${context}\n\n${summary}` : summary;
+        }
+      } catch { /* non-fatal — session still connects with reduced context */ }
+
       // 1. Get ephemeral token from MAVIS
       const { data: sessionData, error: fnErr } = await (supabase as any).functions.invoke(
         "mavis-voice-session",
-        { body: { context: context ?? "" } },
+        { body: { context: voiceContext } },
       );
 
       if (fnErr || !sessionData?.client_secret?.value) {

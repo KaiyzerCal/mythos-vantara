@@ -48,7 +48,7 @@ const MODE_FOCUS: Record<string, string> = {
 // tier + proficiency + acting method + its 3 abilities inline), grouped
 // under its pathway. Non-Beyonder skills (a few dozen rows) stay in the
 // original flat format below — nesting isn't worth it at that size.
-function formatBeyonderTree(beyonderSkills: any[]): string {
+export function formatBeyonderTree(beyonderSkills: any[]): string {
   if (beyonderSkills.length === 0) return "";
   const roots = beyonderSkills.filter((s) => !s.parent_skill_id).sort((a, b) => a.name.localeCompare(b.name));
   const lines: string[] = [];
