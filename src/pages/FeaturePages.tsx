@@ -10,7 +10,7 @@ import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, Command
 import { useAppData } from "@/contexts/AppDataContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge, FieldError, fieldClass } from "@/components/SharedUI";
+import { PageHeader, HudCard, ProgressBar, QuestTypeBadge, RarityBadge, FieldError, fieldClass, ScanPopover } from "@/components/SharedUI";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AvatarUploader } from "@/components/AvatarUploader";
 import ReactMarkdown from "react-markdown";
@@ -148,7 +148,7 @@ function SkillLinkPicker({ skills, selectedIds, onToggle }: { skills: any[]; sel
 }
 
 export function QuestsPage() {
-  const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, failQuest, deleteQuest, skills, energySystems } = useAppData();
+  const { quests, questsLoading, questStats, createQuest, updateQuest, completeQuest, failQuest, deleteQuest, skills, energySystems, profile } = useAppData();
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [showCreate, setShowCreate] = useState(false);
@@ -761,33 +761,127 @@ export function QuestsPage() {
                       </div>
                     )}
 
-                    {/* Show linked items */}
+                    {/* Show linked items — each chip is scannable: tap it for a quantified readout, same idea as the Scouter feature. */}
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                       {q.linked_skill_ids?.length > 0 && q.linked_skill_ids.map((sid: string) => {
                         const sk = skills.find((s) => s.id === sid);
-                        return sk ? <span key={sid} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">🎯 Skill: {sk.name}</span> : null;
+                        if (!sk) return null;
+                        return (
+                          <ScanPopover
+                            key={sid}
+                            label="SKILL"
+                            title={sk.name}
+                            subtitle={`${sk.category} · Tier ${sk.tier}`}
+                            description={sk.description}
+                            fields={[
+                              { label: "Status", value: sk.unlocked ? "Unlocked" : "Locked", color: sk.unlocked ? "#4ade80" : "#ef4444" },
+                              { label: "Proficiency", value: `${sk.proficiency}%` },
+                              { label: "Energy Type", value: sk.energy_type || "—" },
+                              { label: "Cost", value: sk.cost },
+                            ]}
+                          >
+                            <span className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5 hover:border-primary/50 hover:text-primary transition-colors">🎯 Skill: {sk.name}</span>
+                          </ScanPopover>
+                        );
                       })}
-                      {q.real_world_mapping?.startsWith("stat:") && (
-                        <span className="text-xs font-mono text-amber-400/80 border border-amber-700/30 rounded px-1.5 py-0.5">📊 {q.real_world_mapping.replace("stat:", "")} +1</span>
-                      )}
+                      {q.real_world_mapping?.startsWith("stat:") && (() => {
+                        const statKey = q.real_world_mapping.replace("stat:", "");
+                        const current = (profile as any)?.[`stat_${statKey.toLowerCase()}`];
+                        return (
+                          <ScanPopover
+                            label="STAT"
+                            title={statKey}
+                            subtitle="Core attribute reward"
+                            description="Completing this quest permanently raises this stat."
+                            fields={[
+                              { label: "Current Value", value: current ?? "—" },
+                              { label: "Reward on Complete", value: "+1", color: "#fbbf24" },
+                            ]}
+                          >
+                            <span className="text-xs font-mono text-amber-400/80 border border-amber-700/30 rounded px-1.5 py-0.5 hover:border-amber-500/60 hover:text-amber-300 transition-colors">📊 {statKey} +1</span>
+                          </ScanPopover>
+                        );
+                      })()}
                       {q.real_world_mapping?.startsWith("energy:") && (() => {
                         const en = energySystems.find((e) => e.id === q.real_world_mapping?.replace("energy:", ""));
-                        return en ? <span className="text-xs font-mono border rounded px-1.5 py-0.5" style={{ color: en.color, borderColor: en.color + "44" }}>⚡ {en.type} +5</span> : null;
+                        if (!en) return null;
+                        return (
+                          <ScanPopover
+                            label="ENERGY"
+                            title={en.type}
+                            subtitle={en.status}
+                            description={en.description}
+                            accent={en.color}
+                            fields={[
+                              { label: "Current / Max", value: `${en.current_value} / ${en.max_value}` },
+                              { label: "Reward on Complete", value: "+5", color: en.color },
+                            ]}
+                          >
+                            <span className="text-xs font-mono border rounded px-1.5 py-0.5 hover:brightness-125 transition-all" style={{ color: en.color, borderColor: en.color + "44" }}>⚡ {en.type} +5</span>
+                          </ScanPopover>
+                        );
                       })()}
                       {q.real_world_mapping && !q.real_world_mapping.startsWith("stat:") && !q.real_world_mapping.startsWith("energy:") && (
-                        <span className="text-xs font-mono text-primary/60">↗ {q.real_world_mapping}</span>
+                        <ScanPopover
+                          label="MAPPING"
+                          title={q.real_world_mapping}
+                          subtitle="Real-world mapping"
+                          description="This quest tracks progress on a real-world system or project outside the app."
+                        >
+                          <span className="text-xs font-mono text-primary/60 hover:text-primary transition-colors">↗ {q.real_world_mapping}</span>
+                        </ScanPopover>
                       )}
                       {q.codex_points_reward > 0 && (
-                        <span className="text-xs font-mono text-purple-400 border border-purple-700/30 rounded px-1.5 py-0.5">📜 +{q.codex_points_reward} CP</span>
+                        <ScanPopover
+                          label="CODEX"
+                          title={`+${q.codex_points_reward} Codex Points`}
+                          subtitle="Knowledge/lore progression currency"
+                          fields={[{ label: "Reward on Complete", value: `+${q.codex_points_reward}`, color: "#c084fc" }]}
+                        >
+                          <span className="text-xs font-mono text-purple-400 border border-purple-700/30 rounded px-1.5 py-0.5 hover:border-purple-500/60 hover:text-purple-300 transition-colors">📜 +{q.codex_points_reward} CP</span>
+                        </ScanPopover>
                       )}
                       {(q.buff_effects as any[])?.length > 0 && (q.buff_effects as any[]).map((b: any, bi: number) => (
-                        <span key={`b${bi}`} className="text-xs font-mono text-green-400 border border-green-700/30 rounded px-1.5 py-0.5">▲ {b.label} +{b.value}{b.unit}</span>
+                        <ScanPopover
+                          key={`b${bi}`}
+                          label="BUFF"
+                          title={b.label}
+                          subtitle="Applied on quest completion"
+                          fields={[
+                            { label: "Magnitude", value: `+${b.value}${b.unit}`, color: "#4ade80" },
+                            ...(b.duration ? [{ label: "Duration", value: b.duration }] : []),
+                          ]}
+                        >
+                          <span className="text-xs font-mono text-green-400 border border-green-700/30 rounded px-1.5 py-0.5 hover:border-green-500/60 hover:text-green-300 transition-colors">▲ {b.label} +{b.value}{b.unit}</span>
+                        </ScanPopover>
                       ))}
                       {(q.debuff_effects as any[])?.length > 0 && (q.debuff_effects as any[]).map((d: any, di: number) => (
-                        <span key={`d${di}`} className="text-xs font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5">▼ {d.label} -{d.value}{d.unit}</span>
+                        <ScanPopover
+                          key={`d${di}`}
+                          label="DEBUFF"
+                          title={d.label}
+                          subtitle="Applied on quest completion"
+                          fields={[
+                            { label: "Magnitude", value: `-${d.value}${d.unit}`, color: "#f87171" },
+                            ...(d.duration ? [{ label: "Duration", value: d.duration }] : []),
+                          ]}
+                        >
+                          <span className="text-xs font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5 hover:border-red-500/60 hover:text-red-300 transition-colors">▼ {d.label} -{d.value}{d.unit}</span>
+                        </ScanPopover>
                       ))}
                       {(q.loot_rewards as any[])?.length > 0 && (q.loot_rewards as any[]).map((l: any, li: number) => (
-                        <span key={`l${li}`} className="text-xs font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5">🎁 {l.itemName} ×{l.quantity}</span>
+                        <ScanPopover
+                          key={`l${li}`}
+                          label="LOOT"
+                          title={l.itemName}
+                          subtitle="Added to inventory on completion"
+                          fields={[
+                            { label: "Quantity", value: `×${l.quantity}` },
+                            ...(l.rarity ? [{ label: "Rarity", value: <RarityBadge rarity={l.rarity} /> }] : []),
+                          ]}
+                        >
+                          <span className="text-xs font-mono text-amber-400 border border-amber-700/30 rounded px-1.5 py-0.5 hover:border-amber-500/60 hover:text-amber-300 transition-colors">🎁 {l.itemName} ×{l.quantity}</span>
+                        </ScanPopover>
                       ))}
                       {q.is_consequence && (
                         <span className="text-xs font-mono text-red-400 border border-red-700/30 rounded px-1.5 py-0.5">⚠ Consequence Quest</span>
