@@ -9,6 +9,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { fetchAllRows } from "../_shared/pagination.ts";
+import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -146,26 +148,48 @@ async function markContinue(taskId: string, updatedPayload: unknown) {
 // ─────────────────────────────────────────────────────────────
 
 async function loadGoalContext(uid: string): Promise<string> {
-  const [profileRes, questsRes, skillsRes, revenueRes, productsRes] = await Promise.all([
+  // Skills and quests are fetched full-set, not a capped/unordered slice —
+  // same bug fixed in every other MAVIS surface this session: this planner
+  // can emit a direct_action step for create_quest/update_quest with
+  // linked_skill_ids (re-dispatched through mavis-actions, which validates
+  // ids but has nothing to validate AGAINST if none are ever shown), and
+  // SKILLS was ordered by proficiency — structurally excludes low-
+  // proficiency Beyonder pathways from the top 8. Runs unattended every 15
+  // min, so getting this right matters more here, not less.
+  const [profileRes, revenueRes, productsRes, fullQuests, fullSkills] = await Promise.all([
     supabase.from("profiles").select("display_name,level,rank,xp,current_form").eq("id", uid).single(),
-    supabase.from("quests").select("title,status,type").eq("user_id", uid).eq("status", "active").limit(5),
-    supabase.from("skills").select("name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(8),
     supabase.from("mavis_revenue").select("amount,source").eq("user_id", uid).order("created_at", { ascending: false }).limit(10),
     supabase.from("mavis_products").select("title,status,platform,revenue_total").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
+    fetchAllRows(supabase, "quests", "id,title,status,type,linked_skill_ids", uid),
+    fetchAllRows(supabase, "skills", "id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id", uid),
   ]);
 
   const profile  = profileRes.data as any;
-  const quests   = (questsRes.data ?? []) as any[];
-  const skills   = (skillsRes.data ?? []) as any[];
+  const quests   = (fullQuests as any[]).filter((q) => q.status === "active");
+  const skills   = fullSkills as any[];
   const revenue  = (revenueRes.data ?? []) as any[];
   const products = (productsRes.data ?? []) as any[];
 
   const totalRevenue = revenue.reduce((s: number, r: any) => s + Number(r.amount), 0);
 
+  const skillNameById: Record<string, string> = {};
+  for (const s of skills) skillNameById[s.id] = s.name;
+  const nonBeyonder = skills.filter((s) => s.category !== "Beyonder");
+  const beyonder = skills.filter((s) => s.category === "Beyonder");
+  const skillLines = [
+    ...nonBeyonder.map((s) => `  • [${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})${s.parent_skill_id ? ` [sub-skill of: "${skillNameById[s.parent_skill_id] ?? s.parent_skill_id}"]` : ""}`),
+    beyonder.length
+      ? `  BEYONDER PATHWAYS (${beyonder.filter((s) => !s.parent_skill_id).length} pathways, Sequence 9 = least developed down to Sequence 0 = mastery, each sequence has 3 abilities):\n${formatBeyonderTree(beyonder)}`
+      : "",
+  ].filter(Boolean).join("\n");
+
   const lines = [
     `OPERATOR: ${profile?.display_name ?? "Calvin"} | Level ${profile?.level} | Rank ${profile?.rank}`,
-    `ACTIVE QUESTS: ${quests.map((q: any) => q.title).join(", ") || "none"}`,
-    `TOP SKILLS: ${skills.map((s: any) => `${s.name}(T${s.tier},${s.proficiency}%)`).join(", ")}`,
+    `ACTIVE QUESTS (${quests.length}):\n${quests.map((q: any) => {
+      const linked = (q.linked_skill_ids || []).map((id: string) => skillNameById[id] || id);
+      return `  • [${q.id}] "${q.title}" [${q.type}]${linked.length ? ` | linked_skills:${linked.join(", ")}` : ""}`;
+    }).join("\n") || "  none"}`,
+    `SKILLS (${skills.length}, full set — every id below is real, never invent one):\n${skillLines || "  none"}`,
     `TOTAL REVENUE: $${totalRevenue.toFixed(2)}`,
     `EXISTING PRODUCTS: ${products.map((p: any) => `${p.title}[${p.status},$${Number(p.revenue_total ?? 0).toFixed(0)}]`).join(", ") || "none"}`,
     `TODAY: ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}`,
@@ -181,7 +205,7 @@ Available step types (use ONLY these):
 - demand_scan: scan for monetizable product opportunities (params: {})
 - revenue_snapshot: check current total revenue (params: {})
 - nora_tweet: post content as Nora Vale on Twitter (params: {content: "..."})
-- direct_action: execute any CODEXOS app action (params: {type: "create_quest|create_task|award_xp|...", ...action_params})
+- direct_action: execute any CODEXOS app action (params: {type: "create_quest|create_task|award_xp|...", ...action_params}). create_quest/update_quest also accept "linked_skill_ids" (array) — completing the quest raises each linked skill's proficiency. Every id MUST be copied exactly from the SKILLS block in context (including the BEYONDER PATHWAYS tree below it, where every pathway/sequence/ability carries its own real id) — never invent one, never invent a skill name either. Omit the field entirely rather than guessing when nothing in SKILLS actually relates.
 - create_product: propose a product for approval — queued to Inbox (params: {title, description, audience, price_cents, category, platform})
 - web_search: search the web for info (params: {query: "..."})
 - daily_brief: generate a status brief (params: {})

@@ -23,6 +23,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { fetchAllRows } from "../_shared/pagination.ts";
+import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
@@ -1318,7 +1320,7 @@ DIRECT ACTIONS — embed anywhere in your response to write to the app:
 :::PROPOSE_ACTION{"type":"<type>","params":{<fields>}}:::
 
 Supported types:
-  create_quest       — params: title, description, type (daily|side|main|boss), xp_reward
+  create_quest       — params: title, description, type (daily|side|main|boss), xp_reward, linked_skill_ids (optional array — exact skill/subskill ids copied from the SKILLS block above, including the nested BEYONDER PATHWAYS tree; completing the quest raises each linked skill's proficiency. Never invent an id — if nothing in SKILLS actually relates, omit it rather than guessing.)
   complete_quest     — params: title (or id)
   create_journal     — params: title, content, category (general|reflection|gratitude|focus|dream), mood — ONLY use after operator explicitly says yes to saving a journal entry. Never auto-trigger.
   create_vault       — params: title, content, category (legal|business|personal|evidence|achievement)
@@ -1409,16 +1411,23 @@ Rules:
 
 async function loadAppContext(uid: string): Promise<string> {
   try {
-    const [profileRes, questsRes, journalRes, vaultRes, energyRes, ritualsRes, memoriesRes, skillsRes] =
+    // Skills and active quests are fetched separately, full set, not a
+    // capped/unordered slice — same bug fixed in mavis-chat and
+    // mavis-persona-router: neither id selected before meant create_quest's
+    // linked_skill_ids (now supported, see executeDirectAction) had nothing
+    // real to reference, and SKILLS was ordered by proficiency, which
+    // structurally excludes low-proficiency Beyonder pathways from the 8
+    // shown.
+    const [profileRes, journalRes, vaultRes, energyRes, ritualsRes, memoriesRes, fullQuests, fullSkills] =
       await Promise.all([
         sb.from("profiles").select("full_name,level,rank,form,xp,xp_to_next_level,str,agi,int,vit,wis,cha,lck,arc_story").eq("id", uid).maybeSingle(),
-        sb.from("quests").select("title,type,status,progress,description").eq("user_id", uid).in("status", ["active","in_progress"]).order("created_at", { ascending: false }).limit(8),
         sb.from("journal_entries").select("title,content,category,mood,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
         sb.from("vault_entries").select("title,content,category,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
         sb.from("energy_systems").select("type,current,max,status").eq("user_id", uid).limit(4),
         sb.from("rituals").select("name,type,streak,last_completed").eq("user_id", uid).order("streak", { ascending: false }).limit(6),
         sb.from("mavis_memory").select("content,importance_score").eq("user_id", uid).eq("role", "user").order("importance_score", { ascending: false }).limit(6),
-        sb.from("skills").select("name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(8),
+        fetchAllRows(sb, "quests", "id,title,type,status,progress_current,progress_target,description,linked_skill_ids", uid),
+        fetchAllRows(sb, "skills", "id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id", uid),
       ]);
 
     const lines: string[] = ["═══ OPERATOR APP CONTEXT ═══"];
@@ -1431,20 +1440,35 @@ async function loadAppContext(uid: string): Promise<string> {
       lines.push(`XP: ${pr.xp ?? 0}/${pr.xp_to_next_level ?? 1000}${pr.arc_story ? ` | Arc: ${String(pr.arc_story).slice(0, 80)}` : ""}`);
     }
 
+    const skillNameById: Record<string, string> = {};
+    for (const s of fullSkills as any[]) skillNameById[s.id] = s.name;
+
     // Active quests
-    const quests = (questsRes.data ?? []) as any[];
-    if (quests.length) {
-      lines.push(`\nACTIVE QUESTS (${quests.length}):`);
-      for (const q of quests) {
-        const prog = q.progress != null ? ` ${q.progress}%` : "";
-        lines.push(`• "${q.title}" [${q.type}]${prog} — ${String(q.description ?? "").slice(0, 60)}`);
+    const activeQuests = (fullQuests as any[]).filter((q) => q.status === "active" || q.status === "in_progress");
+    if (activeQuests.length) {
+      lines.push(`\nACTIVE QUESTS (${activeQuests.length}):`);
+      for (const q of activeQuests) {
+        const prog = q.progress_current != null ? ` ${q.progress_current}/${q.progress_target}` : "";
+        const linked = (q.linked_skill_ids || []).map((id: string) => skillNameById[id] || id);
+        lines.push(`• [${q.id}] "${q.title}" [${q.type}]${prog} — ${String(q.description ?? "").slice(0, 60)}${linked.length ? ` | linked_skills:${linked.join(", ")}` : ""}`);
       }
     }
 
-    // Skills
-    const skills = (skillsRes.data ?? []) as any[];
+    // Skills — full flat list plus the nested Beyonder pathway/sequence/
+    // ability tree, every line carrying its real [id]. linked_skill_ids on
+    // create_quest must be copied from here, never invented.
+    const skills = fullSkills as any[];
     if (skills.length) {
-      lines.push(`\nSKILLS: ${skills.map((s: any) => `${s.name}(T${s.tier ?? 1} ${s.proficiency ?? 0}%)`).join(", ")}`);
+      const nonBeyonder = skills.filter((s) => s.category !== "Beyonder");
+      const beyonder = skills.filter((s) => s.category === "Beyonder");
+      lines.push(`\nSKILLS (${skills.length}, full set — every id below is real, never invent one):`);
+      for (const s of nonBeyonder) {
+        lines.push(`• [${s.id}] ${s.name} (${s.category}, T${s.tier ?? 1}, ${s.proficiency ?? 0}%, ${s.energy_type})${s.parent_skill_id ? ` [sub-skill of: "${skillNameById[s.parent_skill_id] ?? s.parent_skill_id}"]` : ""}`);
+      }
+      if (beyonder.length) {
+        lines.push(`BEYONDER PATHWAYS (${beyonder.filter((s) => !s.parent_skill_id).length} pathways, Sequence 9 = least developed down to Sequence 0 = mastery, each sequence has 3 abilities):`);
+        lines.push(formatBeyonderTree(beyonder));
+      }
     }
 
     // Journal
@@ -1500,10 +1524,27 @@ async function loadAppContext(uid: string): Promise<string> {
 // DIRECT ACTION EXECUTION
 // ─────────────────────────────────────────────────────────────
 
+// Same backstop as mavis-actions' resolveLinkedSkillIds: linked_skill_ids is
+// a text[] column with no foreign key possible, and this bot's action
+// execution never went through mavis-actions (it has its own hand-rolled
+// switch below), so nothing here validated a linked skill id was real
+// either. Drops ids that don't belong to this user's own skills rather than
+// writing them — total fabrication is dropped silently to an empty link
+// rather than failing quest creation outright, since this bot has no
+// update_quest to retry the link afterward.
+async function resolveLinkedSkillIds(uid: string, ids: unknown): Promise<string[]> {
+  const list = (Array.isArray(ids) ? ids : []).filter((i): i is string => typeof i === "string");
+  if (list.length === 0) return [];
+  const { data } = await sb.from("skills").select("id").eq("user_id", uid).in("id", list);
+  const validSet = new Set((data || []).map((r: any) => r.id as string));
+  return list.filter((id) => validSet.has(id));
+}
+
 async function executeDirectAction(type: string, params: Record<string, any>, uid: string): Promise<string | null> {
   try {
     switch (type) {
       case "create_quest": {
+        const linkedSkillIds = await resolveLinkedSkillIds(uid, params.linked_skill_ids);
         const { data } = await sb.from("quests").insert({
           user_id:     uid,
           title:       params.title ?? "Untitled Quest",
@@ -1511,6 +1552,7 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
           type:        params.type ?? "daily",
           status:      "active",
           xp_reward:   Number(params.xp_reward) || 50,
+          linked_skill_ids: linkedSkillIds,
         }).select("id,title").single();
         if ((data as any)?.id) reembedRow(sb, "quests", String((data as any).id), uid);
         return data ? `Quest created: "${(data as any).title}"` : null;
