@@ -124,6 +124,35 @@ async function resolveId(
   return data.id as string;
 }
 
+// ── linked_skill_ids validator ────────────────────────────
+// Nothing enforced that a quest's linked_skill_ids actually point at real
+// skills — linked_skill_ids is a text[] column, so it can't carry a FK the
+// way skills.parent_skill_id or quests.parent_quest_id do, and there was no
+// app-level check standing in for one. A model that hallucinated a skill
+// name under a never-refuse execution policy could — and did live, 2026-
+// 10-28 — write a well-formed but entirely fabricated UUID straight into a
+// quest with nothing to catch it until a human noticed the skill didn't
+// exist. Every id gets checked against this user's own skills before it's
+// allowed to land. A ref that resolves to NOTHING real throws (same
+// fail-loud posture as resolveId below) so the model sees a real error
+// instead of a silent successful write of garbage; a MIX of real and fake
+// keeps the real ones and drops the fake ones with an activity-log entry,
+// rather than failing an otherwise-legitimate quest over one bad link.
+async function resolveLinkedSkillIds(sb: any, userId: string, ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const { data } = await sb.from("skills").select("id").eq("user_id", userId).in("id", ids);
+  const validSet = new Set((data || []).map((r: any) => r.id as string));
+  const valid = ids.filter((id) => validSet.has(id));
+  const invalid = ids.filter((id) => !validSet.has(id));
+  if (invalid.length > 0 && valid.length === 0) {
+    throw new Error(`linked_skill_ids: none of the provided ids exist in this operator's skills (${invalid.join(", ")}) — these look fabricated. Search SKILLS/BEYONDER PATHWAYS in context for a real id instead of inventing one.`);
+  }
+  if (invalid.length > 0) {
+    await logActivity(sb, userId, "skill_link_rejected", `Dropped ${invalid.length} fabricated skill id(s) from a quest link attempt — not present in your skills: ${invalid.join(", ")}`, 0);
+  }
+  return valid;
+}
+
 // ── Profile fields MAVIS is allowed to update ─────────────
 const PROFILE_ALLOWED = [
   "inscribed_name", "true_name", "titles", "species_lineage", "aura",
@@ -243,6 +272,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // accepted alternate name for exactly that path. Same structural
       // issue as update_inventory_item's "type" field, fixed here since
       // the fallback name doesn't collide with anything.
+      const linkedSkillIds = await resolveLinkedSkillIds(sb, userId, asStringArray(p.linked_skill_ids));
       const { data: newQuest, error } = await sb.from("quests").insert({
         user_id: userId,
         title: String(p.title || "New Quest"),
@@ -257,7 +287,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         real_world_mapping: p.real_world_mapping ? String(p.real_world_mapping) : null,
         category: p.category ? String(p.category) : null,
         loot_rewards: p.loot_rewards || [],
-        linked_skill_ids: asStringArray(p.linked_skill_ids),
+        linked_skill_ids: linkedSkillIds,
         parent_quest_id: p.parent_quest_id ? String(p.parent_quest_id) : null,
       }).select("id").single();
       if (error) throw error;
@@ -282,7 +312,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // create_quest has always accepted this; update_quest never did, so an
       // existing quest could never be (re)linked to a skill — including a
       // Beyonder pathway/sequence — after creation.
-      if (p.linked_skill_ids !== undefined) updates.linked_skill_ids = asStringArray(p.linked_skill_ids);
+      if (p.linked_skill_ids !== undefined) updates.linked_skill_ids = await resolveLinkedSkillIds(sb, userId, asStringArray(p.linked_skill_ids));
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");
       if (error) throw error;
