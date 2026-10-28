@@ -803,6 +803,24 @@ export function QuestsPage() {
                           {q.deadline && <div><span className="text-muted-foreground">Deadline:</span> <span className="text-foreground">{new Date(q.deadline).toLocaleDateString()}</span></div>}
                           {q.real_world_mapping && <div className="col-span-2"><span className="text-muted-foreground">Mapping:</span> <span className="text-foreground">{q.real_world_mapping}</span></div>}
                         </div>
+                        <div className="text-xs font-mono">
+                          <span className="text-muted-foreground">Linked Skills:</span>{" "}
+                          {q.linked_skill_ids?.length > 0 ? (
+                            <span className="text-foreground">
+                              {q.linked_skill_ids.map((sid: string, idx: number) => {
+                                const sk = skills.find((s) => s.id === sid);
+                                return (
+                                  <span key={sid}>
+                                    {idx > 0 && ", "}
+                                    {sk ? sk.name : <span className="text-muted-foreground/60 italic">unknown skill</span>}
+                                  </span>
+                                );
+                              })}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground/60 italic">none</span>
+                          )}
+                        </div>
                         <div className="text-xs font-mono text-muted-foreground">Created: {new Date(q.created_at).toLocaleString()}</div>
                       </div>
                     )}
@@ -811,7 +829,7 @@ export function QuestsPage() {
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                       {q.linked_skill_ids?.length > 0 && q.linked_skill_ids.map((sid: string) => {
                         const sk = skills.find((s) => s.id === sid);
-                        return sk ? <span key={sid} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">⚡ {sk.name}</span> : null;
+                        return sk ? <span key={sid} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">🎯 Skill: {sk.name}</span> : null;
                       })}
                       {q.real_world_mapping?.startsWith("stat:") && (
                         <span className="text-xs font-mono text-amber-400/80 border border-amber-700/30 rounded px-1.5 py-0.5">📊 {q.real_world_mapping.replace("stat:", "")} +1</span>
