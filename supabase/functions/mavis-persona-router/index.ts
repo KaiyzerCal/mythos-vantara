@@ -6,6 +6,8 @@ import { buildTsQuery, truncationLabel } from "../_shared/entrySearch.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { fetchAllRows } from "../_shared/pagination.ts";
+import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 import {
   ProviderUnavailableError,
   isUnfundedStatus,
@@ -364,7 +366,7 @@ Examples (copy these patterns exactly):
 • Create inventory item: :::PROPOSE_ACTION{"type":"create_inventory_item","params":{"name":"Shadow Gauntlet","type":"equipment","rarity":"legendary","description":"Channels dark energy"}}:::
 
 Direct types (you have full authority):
-• Quests/tasks: create_quest update_quest complete_quest delete_quest
+• Quests/tasks: create_quest update_quest complete_quest delete_quest — both accept an optional "linked_skill_ids" array. Linking a quest to a skill means completing it raises that skill's proficiency. Pick the id(s) straight out of the SKILLS block below — including the nested BEYONDER PATHWAYS tree, where every pathway, sequence, and ability line carries its own real id — and never invent one. "Pathway" means a root-level Beyonder skill (no parent); "subskill" means anything nested under it. When linking a quest to a pathway/category the user names, link a specific subskill under it, not the root. If nothing in SKILLS actually relates to what the user described, say so and ask rather than inventing a plausible-sounding name and id.
 • Skills: create_skill update_skill delete_skill
 • Journal: create_journal update_journal delete_journal search_journal
 • Vault: create_vault update_vault delete_vault search_vault
@@ -376,10 +378,11 @@ Direct types (you have full authority):
   inventory, calendar, expenses, personas, rankings, energy, tower, notebooks, achievements, bpm, time, finance, memory,
   notes (Knowledge Graph), gallery, website, website_pages, widgets
 
-Reading beyond what is in this prompt: the JOURNAL/VAULT/QUESTS/SKILLS blocks
-below are the most recent few, and RELEVANT RECORDS holds whatever matched this
-message — that one was searched across Calvin's FULL data, every section, not
-just the recent lists. If neither contains what you need, say so plainly — do
+Reading beyond what is in this prompt: the JOURNAL/VAULT blocks below are the
+most recent few (QUESTS and SKILLS are the FULL set, not a slice), and
+RELEVANT RECORDS holds whatever matched this message — that one was searched
+across Calvin's FULL data, every section, not just the recent lists. If none
+of these contain what you need, say so plainly — do
 not guess or invent an entry. You may emit search_app/search_journal/
 search_vault, but their results arrive AFTER this reply, so use them to follow
 up next turn, never to answer now.
@@ -475,9 +478,20 @@ serve(async (req) => {
     const countOf = (table: string) =>
       supabase.from(table).select("id", { count: "exact", head: true }).eq("user_id", user_id);
 
-    const [queryEmbedding, relRes, histRes, attRes, profileRes, questsRes, skillsRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes,
+    // Full sets, not a recency/unordered slice — same reasoning as mavis-chat's
+    // authoritativeContext fix: a model told to link a quest to a skill can
+    // only use an id it can actually see, and 10-12 rows out of hundreds
+    // (unordered for skills, so not even "most recent") routinely contained
+    // zero Beyonder pathway roots. Started alongside the Promise.all below so
+    // it costs no extra latency.
+    const fullQuestsAndSkills = Promise.all([
+      fetchAllRows(supabase, "quests", "id,title,description,type,status,difficulty,progress_current,progress_target,linked_skill_ids", user_id),
+      fetchAllRows(supabase, "skills", "id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id", user_id),
+    ]);
+
+    const [queryEmbedding, relRes, histRes, attRes, profileRes, journalRes, vaultRes, inventoryRes, energyRes, transformationsRes, rankingsRes, councilsRes, alliesRes, ritualsRes,
       tasksRes, contactsRes, calendarRes, meetingRes, healthRes, expensesRes, competitorsRes, goalsRes, bpmRes, storeRes, currenciesRes, activityRes, vaultMediaRes,
-      relevantRes, journalCount, vaultCount, questsCount, skillsCount, inventoryCount, tasksCount] = await Promise.all([
+      relevantRes, journalCount, vaultCount, inventoryCount, tasksCount] = await Promise.all([
       embedMessagePromise,
       supabase.from("relationship_states").select("*").eq("persona_id", persona_id).eq("user_id", user_id).single(),
       // 25 turns rather than 50. The full transcript is still in the DB and the
@@ -496,8 +510,6 @@ serve(async (req) => {
         ? supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).in("id", attachment_ids)
         : supabase.from("chat_attachments").select("id,file_name,mime_type,extracted_text,processing_status").eq("user_id", user_id).eq("chat_kind", "persona").eq("thread_ref", persona_id).order("created_at", { ascending: false }).limit(3)),
       supabase.from("profiles").select("*").eq("id", user_id).single(),
-      supabase.from("quests").select("id,title,status,type,difficulty,progress_current,progress_target,description").eq("user_id", user_id).order("created_at", { ascending: false }).limit(10),
-      supabase.from("skills").select("id,name,category,tier,proficiency,energy_type,unlocked").eq("user_id", user_id).limit(12),
       supabase.from("journal_entries").select("id,title,category,importance,mood,content").eq("user_id", user_id).order("created_at", { ascending: false }).limit(5),
       supabase.from("vault_entries").select("id,title,category,importance,content").eq("user_id", user_id).order("created_at", { ascending: false }).limit(5),
       supabase.from("inventory").select("id,name,type,rarity,quantity,is_equipped,slot,effect").eq("user_id", user_id).limit(12),
@@ -525,11 +537,11 @@ serve(async (req) => {
       relevantSearch,
       countOf("journal_entries"),
       countOf("vault_entries"),
-      countOf("quests"),
-      countOf("skills"),
       countOf("inventory"),
       countOf("tasks"),
     ]);
+
+    const [fullQuests, fullSkills] = await fullQuestsAndSkills;
 
     const relState = relRes.data;
     const history = (histRes.data ?? []).reverse();
@@ -588,6 +600,26 @@ serve(async (req) => {
 
     const memoryContext = memories.map((m: any) => `[${m.memory_type}] ${m.content}`).join("\n");
 
+    // Full skill list (not a 12-row unordered slice) with real ids, Beyonder
+    // tree nested the same way mavis-chat renders it, and quests showing
+    // what each is already linked to — a persona can only link a quest to a
+    // skill it was actually shown an id for.
+    const skillNameById: Record<string, string> = {};
+    for (const s of fullSkills) skillNameById[s.id as string] = s.name as string;
+    const fmtQuestsPersona = fullQuests.map((q: any) => {
+      const linked = (q.linked_skill_ids || []).map((id: string) => skillNameById[id] || id);
+      return `  • [${q.id}] "${q.title}" [${q.status}/${q.type}] ${q.progress_current}/${q.progress_target}${q.description ? ` — ${q.description.slice(0, 80)}` : ""}${linked.length ? ` | linked_skills:${linked.join(", ")}` : ""}`;
+    }).join("\n") || "  None";
+    const skillsNonBeyonderPersona = fullSkills.filter((s: any) => s.category !== "Beyonder");
+    const skillsBeyonderPersona = fullSkills.filter((s: any) => s.category === "Beyonder");
+    const fmtSkillsPersonaFlat = skillsNonBeyonderPersona.map((s: any) =>
+      `  • [${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})${s.parent_skill_id ? ` [sub-skill of: "${skillNameById[s.parent_skill_id] ?? s.parent_skill_id}"]` : ""}`
+    ).join("\n");
+    const fmtSkillsPersonaBeyonder = skillsBeyonderPersona.length
+      ? `\n  BEYONDER PATHWAYS (${skillsBeyonderPersona.filter((s: any) => !s.parent_skill_id).length} pathways, Sequence 9 = least developed down to Sequence 0 = mastery, each sequence has 3 abilities):\n${formatBeyonderTree(skillsBeyonderPersona).split("\n").map((l) => `  ${l}`).join("\n")}`
+      : "";
+    const fmtSkillsPersona = [fmtSkillsPersonaFlat, fmtSkillsPersonaBeyonder].filter(Boolean).join("\n") || "  None";
+
     // App-context block — gives the persona awareness of the user's full state
     const appCtx = profile ? `
 
@@ -596,11 +628,11 @@ PROFILE: ${profile.inscribed_name} — Lv${profile.level} [${profile.rank}] — 
 Stats: STR:${profile.stat_str} AGI:${profile.stat_agi} INT:${profile.stat_int} VIT:${profile.stat_vit} WIS:${profile.stat_wis} CHA:${profile.stat_cha} LCK:${profile.stat_lck}
 Arc: ${profile.arc_story} | XP: ${profile.xp}/${profile.xp_to_next_level} | GPR: ${profile.gpr} | Fatigue: ${profile.fatigue}
 
-${truncationLabel("QUESTS", (questsRes.data || []).length, questsCount.count ?? (questsRes.data || []).length)}:
-${(questsRes.data || []).map((q: any) => `  • [${q.id}] "${q.title}" [${q.status}/${q.type}] ${q.progress_current}/${q.progress_target}${q.description ? ` — ${q.description.slice(0, 80)}` : ""}`).join("\n") || "  None"}
+QUESTS (${fullQuests.length}, full set):
+${fmtQuestsPersona}
 
-${truncationLabel("SKILLS", (skillsRes.data || []).length, skillsCount.count ?? (skillsRes.data || []).length)}:
-${(skillsRes.data || []).map((s: any) => `  • ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type})`).join("\n") || "  None"}
+SKILLS (${fullSkills.length}, full set — every id below is real, never invent one):
+${fmtSkillsPersona}
 
 ${formatSearchBlock(relevantEntries, !!searchQuery) || "RELEVANT RECORDS: (no search terms in this message)"}
 

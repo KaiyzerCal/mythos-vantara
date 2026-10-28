@@ -4,7 +4,7 @@
 // ============================================================
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff, Swords, AlertTriangle, CheckCircle2, Waves } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff, Swords, AlertTriangle, CheckCircle2, Waves, Search } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -1077,6 +1077,7 @@ export function SkillsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState("all");
+  const [skillSearch, setSkillSearch] = useState("");
   const [form, setForm] = useState({ name: "", description: "", category: "General", energy_type: "Emerald Flames", tier: 1, proficiency: 0, parent_skill_id: "" });
   const [seeding, setSeeding] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
@@ -1162,6 +1163,36 @@ export function SkillsPage() {
   const getSubskills = (parentId: string) => skills.filter((s) => s.parent_skill_id === parentId);
   const categories = ["all", ...Array.from(new Set(skills.map((s) => s.category)))];
   const filtered = parentSkills.filter((s) => catFilter === "all" || s.category === catFilter);
+
+  // Typing a search finds a skill (or sub-skill/ability at any depth — the
+  // Beyonder tree alone is 1100+ rows, three levels deep) by name or
+  // description, instead of requiring the operator to scroll the category
+  // tree and manually expand every branch to find it.
+  const skillById = useMemo(() => {
+    const map: Record<string, any> = {};
+    for (const s of skills) map[s.id] = s;
+    return map;
+  }, [skills]);
+  const breadcrumbFor = (s: any): string => {
+    const parts: string[] = [];
+    let cur = s.parent_skill_id ? skillById[s.parent_skill_id] : null;
+    while (cur) {
+      parts.unshift(cur.name);
+      cur = cur.parent_skill_id ? skillById[cur.parent_skill_id] : null;
+    }
+    return parts.join(" › ");
+  };
+  const skillSearchLower = skillSearch.trim().toLowerCase();
+  const searchResults = skillSearchLower
+    ? skills
+        .filter((s) =>
+          s.name?.toLowerCase().includes(skillSearchLower) ||
+          s.description?.toLowerCase().includes(skillSearchLower) ||
+          s.category?.toLowerCase().includes(skillSearchLower) ||
+          s.energy_type?.toLowerCase().includes(skillSearchLower)
+        )
+        .map((s) => ({ ...s, breadcrumb: breadcrumbFor(s) }))
+    : [];
 
   // skill_chains is a separate, AI-curated grouping from the parent_skill_id
   // tree above — the two can disagree about what's related. Surfacing chain
@@ -1358,6 +1389,50 @@ export function SkillsPage() {
           </div>
         </HudCard>
       )}
+      <div className="relative">
+        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          value={skillSearch}
+          onChange={(e) => setSkillSearch(e.target.value)}
+          placeholder={`Search ${skills.length} skills by name, category, or energy type...`}
+          className="w-full bg-muted/30 border border-border rounded pl-8 pr-8 py-1.5 text-sm focus:outline-none focus:border-primary/40"
+        />
+        {skillSearch && (
+          <button onClick={() => setSkillSearch("")} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {skillSearchLower ? (
+        <div className="space-y-1.5">
+          <p className="text-xs font-mono text-muted-foreground">{searchResults.length} match{searchResults.length === 1 ? "" : "es"}</p>
+          {searchResults.length === 0 ? (
+            <p className="text-xs font-mono text-muted-foreground/60 italic py-4 text-center">No skills match "{skillSearch}"</p>
+          ) : (
+            searchResults.map((s: any) => (
+              <HudCard key={s.id} className={s.unlocked ? "" : "opacity-50"}>
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded border border-primary/20 bg-primary/5 flex items-center justify-center shrink-0">
+                    <Star size={14} className="text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-display font-bold">{s.name}</p>
+                      <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5">T{s.tier}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{s.proficiency}%</span>
+                    </div>
+                    {s.breadcrumb && <p className="text-xs font-mono text-primary/50">{s.breadcrumb}</p>}
+                    <p className="text-xs font-mono text-primary/60">{s.category} · {s.energy_type}</p>
+                    {s.description && <p className="text-xs font-body text-muted-foreground mt-1 line-clamp-2">{s.description}</p>}
+                  </div>
+                </div>
+              </HudCard>
+            ))
+          )}
+        </div>
+      ) : (
+      <>
       <div className="flex gap-1.5 flex-wrap">
         {categories.map((c) => (
           <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
@@ -1521,6 +1596,8 @@ export function SkillsPage() {
         })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">No skills — unlock your first ability.</p>}
       </div>
+      </>
+      )}
       <ConfirmDialog
         open={confirmDeleteSkill !== null}
         title={`Delete "${confirmDeleteSkill?.label}"?`}
