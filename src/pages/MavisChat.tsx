@@ -864,26 +864,26 @@ export default function MavisChat() {
     const archivedMemories = memoriesRes as string;
     const vaultMedia = vaultMediaRes as any[];
 
-    // Was a flattened "QUEST [id] ..." string ("compact ID->name map"), sent
-    // as appState to mavis-chat. The server's buildMavisPrompt (live for
-    // every non-COUNCIL-mode request, which is every normal chat here)
-    // reads appState.quests/.skills/.tasks/etc as ARRAYS -- appState.quests
-    // on a string is undefined, so that section of the prompt always saw
-    // zero quests/skills (no Beyonder tree, no ids) through this path. The
-    // live quest-skill-linking data actually came from mavis-chat's own
-    // server-side authoritativeContext block instead, independent of
-    // whatever shape this sent -- so this was silent, wasted redundancy
-    // rather than the direct cause of a linking failure, but still wrong.
-    // Send the real structured snapshot, same shape loadFullAppContext
-    // returns.
-    const compactState = fullCtx
-      ? { ...fullCtx, councils: fullCtx.councilMembers }
-      : {
-          quests, tasks, skills, journalEntries, vaultEntries,
-          councils: appDataRef.current.councils, allies: appDataRef.current.allies,
-          inventory: appDataRef.current.inventory, transformations: appDataRef.current.transformations,
-          storeItems: appDataRef.current.storeItems,
-        };
+    // Reverted 2026-10-28: this used to send the FULL structured snapshot
+    // (every skill/quest row, same shape loadFullAppContext returns) as
+    // appState on every single message. Turns out that was pure cost with
+    // no benefit on either backend this UI talks to:
+    //   - mavis-agent (AGENT mode) never reads body.appState at all -- it
+    //     builds its own context server-side via buildSharedTruth. The
+    //     whole payload was discarded unread.
+    //   - mavis-chat (PRIME/every other mode) DOES read appState.quests/
+    //     .skills/etc in buildMavisPrompt, but that duplicates the exact
+    //     same quests/skills/tasks/councils/energy/journal/vault/allies
+    //     data mavis-chat's own server-side authoritativeContext block
+    //     already fetches straight from the DB and appends to the same
+    //     prompt -- so every message rendered ~1200 skills + ~200 quests
+    //     into the system prompt TWICE, and shipped that same payload over
+    //     the wire from the client for nothing. On the native Capacitor
+    //     app this was enough to make every message fail outright.
+    // appState genuinely isn't needed for anything this UI sends (COUNCIL
+    // mode -- the one case buildMavisPrompt's own client-prompt path
+    // matters for -- is never sent from here; see the comment below).
+    const compactState = {};
 
     let streamingId = "";
     try {

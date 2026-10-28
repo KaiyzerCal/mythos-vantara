@@ -480,22 +480,22 @@ export default function MavisDemo() {
 
     const archivedMemories = memoriesRes as string;
 
-    // mavis-chat's buildMavisPrompt (live for every non-COUNCIL-mode request,
-    // i.e. every normal chat here) reads appState.quests/.skills/.tasks/etc
-    // as ARRAYS. This used to send a single flattened text summary string
-    // instead — appState.quests on a string is undefined, so the server-side
-    // prompt saw zero quests and zero skills (no Beyonder tree, no ids at
-    // all) regardless of what the client-built systemPrompt below contained,
-    // since that client prompt is discarded server-side outside council mode.
-    // Send the real structured snapshot instead, same shape loadFullAppContext
-    // returns, so linking actually has real ids to work with here too.
-    const appStatePayload = fullCtx
-      ? { ...fullCtx, councils: fullCtx.councilMembers }
-      : {
-          quests, tasks, skills, rankings: [], transformations,
-          journalEntries, vaultEntries, councils, inventory,
-          storeItems, energySystems, bpmSessions, allies, rituals,
-        };
+    // Reverted 2026-10-28: this used to send the FULL structured snapshot
+    // (every skill/quest row, same shape loadFullAppContext returns) as
+    // appState on every single message. Pure cost, no benefit on either
+    // backend this tab talks to:
+    //   - mavis-agent (AGENT mode) never reads body.appState at all -- it
+    //     builds its own context server-side via buildSharedTruth.
+    //   - mavis-chat (every other mode) DOES read appState.quests/.skills/
+    //     etc in buildMavisPrompt, but that duplicates the exact same
+    //     quests/skills/tasks/councils/energy/journal/vault/allies data
+    //     mavis-chat's own server-side authoritativeContext block already
+    //     fetches straight from the DB and appends to the same prompt --
+    //     so every message rendered ~1200 skills + ~200 quests into the
+    //     system prompt TWICE, and shipped that same payload over the wire
+    //     from the client for nothing. On the native Capacitor app this was
+    //     enough to make every message fail outright.
+    const appStatePayload = {};
 
     const sid = `streaming-${Date.now()}`;
     setStreamingId(sid);
