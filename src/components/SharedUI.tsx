@@ -1,11 +1,12 @@
 // ============================================================
 // VANTARA.EXE — Shared UI Components
-// PageHeader | HudCard | ProgressBar | StatBadge | RarityBadge | RankBadge | FieldError
+// PageHeader | HudCard | ProgressBar | StatBadge | RarityBadge | RankBadge | FieldError | ScanPopover
 // ============================================================
-import { ReactNode } from "react";
+import { ReactNode, MouseEvent } from "react";
 import { AlertCircle } from "lucide-react";
 import { RANK_COLORS, type Rank } from "@/types/rpg";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
 // ─── FieldError ────────────────────────────────────────────
 // Inline validation error shown beneath a form field.
@@ -231,5 +232,74 @@ export function EnergyBar({ label, current, max, color, status }: EnergyBarProps
       </div>
       <span className="text-xs font-mono text-muted-foreground w-8 text-right">{pct}%</span>
     </div>
+  );
+}
+
+// ─── ScanPopover ───────────────────────────────────────────
+// "Scouter"-style click-to-inspect readout — the same idea as the Scouter
+// page's PvP assessment (quantify a target, show a short HUD summary),
+// applied to any chip: a quest's linked skill, a stat/energy reward, a
+// buff/debuff, a loot drop. Wrap a chip in it and it becomes tappable.
+// Usage: <ScanPopover label="SKILL" title={sk.name} fields={[...]}>
+//          <span className="...chip classes...">🎯 {sk.name}</span>
+//        </ScanPopover>
+export interface ScanField {
+  label: string;
+  value: ReactNode;
+  color?: string;
+}
+interface ScanPopoverProps {
+  label: string;
+  title: string;
+  subtitle?: string;
+  description?: string;
+  fields?: ScanField[];
+  accent?: string; // raw hex, e.g. an energy system's color. Defaults to the theme primary.
+  children: ReactNode;
+}
+export function ScanPopover({ label, title, subtitle, description, fields = [], accent, children }: ScanPopoverProps) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <span onClick={(e: MouseEvent) => e.stopPropagation()} className="inline-flex cursor-pointer">
+          {children}
+        </span>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        onClick={(e) => e.stopPropagation()}
+        className={cn("w-72 p-0 overflow-hidden font-mono", !accent && "border-primary/30")}
+        style={accent ? { borderColor: accent + "40" } : undefined}
+      >
+        <div
+          className={cn("px-3 py-1.5 border-b flex items-center gap-1.5", !accent && "border-primary/20 bg-primary/10")}
+          style={accent ? { borderColor: accent + "33", background: accent + "14" } : undefined}
+        >
+          <span
+            className={cn("text-[10px] uppercase tracking-widest font-bold", !accent && "text-primary")}
+            style={accent ? { color: accent } : undefined}
+          >
+            ⟡ {label} SCAN
+          </span>
+        </div>
+        <div className="p-3 space-y-2">
+          <div>
+            <p className="font-display text-sm font-bold text-foreground">{title}</p>
+            {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+          </div>
+          {description && <p className="text-xs font-body text-muted-foreground leading-relaxed">{description}</p>}
+          {fields.length > 0 && (
+            <div className="space-y-1 pt-1.5 border-t border-border/40">
+              {fields.map((f, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="text-muted-foreground">{f.label}</span>
+                  <span className="font-bold" style={f.color ? { color: f.color } : undefined}>{f.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
