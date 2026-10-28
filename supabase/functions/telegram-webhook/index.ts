@@ -11,7 +11,7 @@
 // After deploying, register the webhook by calling /telegram-setup once.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { aiComplete } from "../_shared/providers.ts";
+import { aiComplete, hasCrudIntent } from "../_shared/providers.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 
@@ -732,7 +732,7 @@ async function tryGeminiFlash(system: string, messages: { role: string; content:
     body: JSON.stringify({
       model: "google/gemini-3.6-flash",
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 1024,
+      max_tokens: 4096,
     }),
   });
   if (!res.ok) {
@@ -751,7 +751,7 @@ async function tryOpenAI(system: string, messages: { role: string; content: stri
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 1024,
+      max_tokens: 4096,
     }),
   });
   if (!res.ok) {
@@ -774,7 +774,7 @@ async function tryClaude(system: string, messages: { role: string; content: stri
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
     }),
@@ -796,7 +796,7 @@ async function tryGrok(system: string, messages: { role: string; content: string
     body: JSON.stringify({
       model: "grok-3-mini",
       messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 1024,
+      max_tokens: 4096,
     }),
   });
   if (!res.ok) {
@@ -812,6 +812,16 @@ async function callClaude(
   systemPrompt: string,
   messages: { role: string; content: string }[],
 ): Promise<string> {
+  // Tier -1 — CRUD/action writes (create/link/update a quest, skill, etc.)
+  // go straight to Claude, ahead of the free tiers below. Those tiers kept
+  // fabricating linked_skill_ids and reward fields instead of leaving them
+  // for the real action-executor to fill in correctly.
+  const userText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  if (AI_KEYS.claude && hasCrudIntent(userText)) {
+    try { return await tryClaude(systemPrompt, messages, "claude-sonnet-4-6"); }
+    catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] CRUD-intent Claude Sonnet unavailable → usual cascade"); }
+  }
+
   // Tier 0 — Direct free Gemini / Groq keys (zero credits burned)
   try {
     const { content } = await aiComplete({ system: systemPrompt, messages });

@@ -3,6 +3,7 @@ import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { hasCrudIntent } from "../_shared/providers.ts";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -1989,6 +1990,14 @@ type ProviderId = "gemini" | "groq" | "gateway" | "anthropic" | "openai" | "grok
 const PROVIDER_LANES: Record<string, ProviderId[]> = {
   generation: ["anthropic", "openai", "groq", "grok", "gateway"],
   code:       ["anthropic", "openai", "groq", "grok", "gateway"],
+  // CRUD writes (quest/skill/journal/etc create, update, delete, link) need
+  // to follow a field schema exactly (real ids, never invented) more than
+  // they need to be fast -- same reasoning as "code"/"generation" above,
+  // and the same CRUD-intent check _shared/providers.ts's routeToProvider
+  // uses for mavis-chat. Without this lane these requests fell into
+  // "default" and hit the free Gemini tier first, which is exactly the
+  // provider that kept fabricating quest reward/skill fields.
+  crud:       ["anthropic", "openai", "groq", "grok", "gateway"],
   realtime:   ["grok", "groq", "anthropic", "openai", "gateway"],
   reasoning:  ["openai", "anthropic", "groq", "grok", "gateway"],
   // "gemini" leads default: free direct Gemini (GEMINI_API_KEY, OpenAI-compatible
@@ -2003,6 +2012,7 @@ const REASONING_INTENT  = /\b(analy[sz]e|analysis|strateg(y|ic|ize)|deep dive|pr
 
 function selectLane(text: string): string {
   if (GENERATION_INTENT.test(text)) return "generation";
+  if (hasCrudIntent(text))          return "crud";
   if (REALTIME_INTENT.test(text))   return "realtime";
   if (CODE_INTENT.test(text))       return "code";
   if (REASONING_INTENT.test(text))  return "reasoning";
