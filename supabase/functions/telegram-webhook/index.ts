@@ -12,6 +12,8 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { aiComplete } from "../_shared/providers.ts";
+import { fetchAllRows } from "../_shared/pagination.ts";
+import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -189,16 +191,22 @@ async function persistMessage(chatId: string, role: string, content: string): Pr
 async function loadContext(): Promise<string> {
   const uid = OPERATOR_USER_ID;
 
+  // Skills and active quests are fetched full-set below via fetchAllRows,
+  // not the capped/unordered slice every other query here uses — same bug
+  // already fixed in mavis-chat/mavis-persona-router/mavis-telegram-bot:
+  // neither id was selected for skills, SKILLS was ordered by proficiency
+  // (excludes low-proficiency Beyonder pathways from the top 10 by
+  // construction), and create_quest's :::ACTION::: template below never
+  // documented linked_skill_ids as a field at all.
   const [
-    profileRes, questsRes, tasksRes, energyRes,
-    skillsRes, rankingsRes, revenueRes, tacitRes,
+    profileRes, tasksRes, energyRes,
+    rankingsRes, revenueRes, tacitRes,
     alliesRes, councilRes, transformRes, personasRes,
+    fullQuests, fullSkills,
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", uid).single(),
-    supabase.from("quests").select("id,title,status,type,deadline,xp_reward").eq("user_id", uid).eq("status", "active").limit(10),
     supabase.from("tasks").select("id,title,status,recurrence,streak,xp_reward").eq("user_id", uid).eq("status", "active").limit(12),
     supabase.from("energy_systems").select("id,type,current_value,max_value,status").eq("user_id", uid).limit(6),
-    supabase.from("skills").select("id,name,category,tier,proficiency").eq("user_id", uid).order("proficiency", { ascending: false }).limit(10),
     supabase.from("rankings_profiles").select("display_name,role,rank,gpr,is_self").eq("user_id", uid).limit(6),
     supabase.from("mavis_revenue").select("amount,source,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(8),
     supabase.from("mavis_tacit").select("category,key,value,confidence").eq("user_id", uid).in("category", ["hard_rule", "preference", "lesson_learned", "workflow_habit", "correction"]).order("confidence", { ascending: false }).limit(25),
@@ -206,13 +214,15 @@ async function loadContext(): Promise<string> {
     supabase.from("councils").select("name,role,class,specialty").eq("user_id", uid).limit(8),
     supabase.from("transformations").select("name,tier,form_order,unlocked,energy").eq("user_id", uid).order("form_order", { ascending: true }).limit(8),
     supabase.from("personas").select("name,role,archetype").eq("user_id", uid).eq("is_active", true).limit(8),
+    fetchAllRows(supabase, "quests", "id,title,status,type,deadline,xp_reward,linked_skill_ids", uid),
+    fetchAllRows(supabase, "skills", "id,name,description,category,tier,proficiency,energy_type,unlocked,parent_skill_id", uid),
   ]);
 
   const profile     = profileRes.data as any;
-  const quests      = (questsRes.data ?? []) as any[];
+  const quests      = (fullQuests as any[]).filter((q) => q.status === "active");
   const tasks       = (tasksRes.data ?? []) as any[];
   const energy      = (energyRes.data ?? []) as any[];
-  const skills      = (skillsRes.data ?? []) as any[];
+  const skills      = fullSkills as any[];
   const rankings    = (rankingsRes.data ?? []) as any[];
   const revenue     = (revenueRes.data ?? []) as any[];
   const tacit       = (tacitRes.data ?? []) as any[];
@@ -236,8 +246,15 @@ async function loadContext(): Promise<string> {
     if (profile.fatigue != null) lines.push(`FATIGUE: ${profile.fatigue}% | BPM: ${profile.current_bpm ?? "?"} | Sync: ${profile.full_cowl_sync ?? "?"}%`);
   }
 
+  const skillNameById: Record<string, string> = {};
+  for (const s of skills) skillNameById[s.id] = s.name;
+
   if (quests.length > 0) {
-    lines.push(`ACTIVE QUESTS (${quests.length}): ${quests.map((q: any) => `${q.title} [${q.type}${q.deadline ? ` due ${q.deadline.slice(0, 10)}` : ""}]`).join(" | ")}`);
+    lines.push(`ACTIVE QUESTS (${quests.length}):`);
+    for (const q of quests as any[]) {
+      const linked = (q.linked_skill_ids || []).map((id: string) => skillNameById[id] || id);
+      lines.push(`  • [${q.id}] "${q.title}" [${q.type}${q.deadline ? ` due ${q.deadline.slice(0, 10)}` : ""}]${linked.length ? ` | linked_skills:${linked.join(", ")}` : ""}`);
+    }
   }
 
   const dailyTasks = tasks.filter((t: any) => t.recurrence === "daily");
@@ -254,7 +271,16 @@ async function loadContext(): Promise<string> {
   }
 
   if (skills.length > 0) {
-    lines.push(`TOP SKILLS: ${skills.map((s: any) => `${s.name} T${s.tier ?? "?"}(${s.proficiency ?? 0}%)`).join(", ")}`);
+    const nonBeyonder = skills.filter((s: any) => s.category !== "Beyonder");
+    const beyonder = skills.filter((s: any) => s.category === "Beyonder");
+    lines.push(`SKILLS (${skills.length}, full set — every id below is real, never invent one):`);
+    for (const s of nonBeyonder as any[]) {
+      lines.push(`  • [${s.id}] ${s.name} (${s.category}, T${s.tier ?? "?"}, ${s.proficiency ?? 0}%, ${s.energy_type})${s.parent_skill_id ? ` [sub-skill of: "${skillNameById[s.parent_skill_id] ?? s.parent_skill_id}"]` : ""}`);
+    }
+    if (beyonder.length > 0) {
+      lines.push(`  BEYONDER PATHWAYS (${(beyonder as any[]).filter((s: any) => !s.parent_skill_id).length} pathways, Sequence 9 = least developed down to Sequence 0 = mastery, each sequence has 3 abilities):`);
+      lines.push(formatBeyonderTree(beyonder));
+    }
   }
 
   const npcs = rankings.filter((r: any) => !r.is_self);
@@ -573,6 +599,7 @@ QUESTS & TASKS:
 :::ACTION{"type":"update_quest","params":{"quest_id":"...","title":"...","status":"active|completed|failed","progress_current":0,"progress_target":1}}:::
 :::ACTION{"type":"complete_quest","params":{"quest_id":"..."}}:::
 :::ACTION{"type":"delete_quest","params":{"quest_id":"..."}}:::
+(create_quest/update_quest also take an optional "linked_skill_ids" array — completing the quest raises each linked skill's proficiency. Every id MUST be copied exactly from the SKILLS block above, including the nested BEYONDER PATHWAYS tree where every pathway, sequence, and ability line carries its own real id — never invent one, never invent a skill name either. "Pathway" = a root-level Beyonder skill, "subskill" = anything nested under it; link a specific subskill, not the root. If nothing in SKILLS actually relates to what Calvin described, say so and ask rather than guessing.)
 :::ACTION{"type":"create_task","params":{"title":"...","description":"...","type":"task|habit","recurrence":"once|daily|weekly|monthly","xp_reward":25,"priority":"low|medium|high|critical"}}:::
 :::ACTION{"type":"complete_task","params":{"task_id":"..."}}:::
 :::ACTION{"type":"update_task","params":{"task_id":"...","title":"...","status":"active|completed"}}:::
