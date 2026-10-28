@@ -864,19 +864,26 @@ export default function MavisChat() {
     const archivedMemories = memoriesRes as string;
     const vaultMedia = vaultMediaRes as any[];
 
-    // Build compact ID→name map for edge function action inference
-    const compactState = [
-      ...(quests || []).map((q: any) => `QUEST [${q.id}] "${q.title}" status:${q.status}`),
-      ...(tasks || []).map((t: any) => `TASK [${t.id}] "${t.title}" status:${t.status}`),
-      ...(skills || []).map((s: any) => `SKILL [${s.id}] "${s.name}"${s.parent_skill_id ? ` parent:${s.parent_skill_id}` : ""}`),
-      ...(journalEntries || []).map((j: any) => `JOURNAL [${j.id}] "${j.title}"`),
-      ...(vaultEntries || []).map((v: any) => `VAULT [${v.id}] "${v.title}"`),
-      ...(appDataRef.current.councils || []).map((c: any) => `COUNCIL [${c.id}] "${c.name}"`),
-      ...(appDataRef.current.allies || []).map((a: any) => `ALLY [${a.id}] "${a.name}"`),
-      ...(appDataRef.current.inventory || []).map((i: any) => `INVENTORY [${i.id}] "${i.name}"`),
-      ...(appDataRef.current.transformations || []).map((t: any) => `TRANSFORMATION [${t.id}] "${t.name}"`),
-      ...(appDataRef.current.storeItems || []).map((s: any) => `STORE [${s.id}] "${s.name}"`),
-    ].join("\n");
+    // Was a flattened "QUEST [id] ..." string ("compact ID->name map"), sent
+    // as appState to mavis-chat. The server's buildMavisPrompt (live for
+    // every non-COUNCIL-mode request, which is every normal chat here)
+    // reads appState.quests/.skills/.tasks/etc as ARRAYS -- appState.quests
+    // on a string is undefined, so that section of the prompt always saw
+    // zero quests/skills (no Beyonder tree, no ids) through this path. The
+    // live quest-skill-linking data actually came from mavis-chat's own
+    // server-side authoritativeContext block instead, independent of
+    // whatever shape this sent -- so this was silent, wasted redundancy
+    // rather than the direct cause of a linking failure, but still wrong.
+    // Send the real structured snapshot, same shape loadFullAppContext
+    // returns.
+    const compactState = fullCtx
+      ? { ...fullCtx, councils: fullCtx.councilMembers }
+      : {
+          quests, tasks, skills, journalEntries, vaultEntries,
+          councils: appDataRef.current.councils, allies: appDataRef.current.allies,
+          inventory: appDataRef.current.inventory, transformations: appDataRef.current.transformations,
+          storeItems: appDataRef.current.storeItems,
+        };
 
     let streamingId = "";
     try {
