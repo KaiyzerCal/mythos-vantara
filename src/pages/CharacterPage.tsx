@@ -76,7 +76,7 @@ function formatTimeLeft(ms: number): string {
 
 // Resolves one quest buff/debuff into what to show (and whether to show it at
 // all — an expired, clock-based modifier is dropped rather than left stale).
-const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // "Session" has no real end time, so it's given a fixed week-long life instead.
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // "Session" (and no duration at all) has no real end time, so both get a fixed week-long life instead.
 
 function describeQuestModifier(
   m: QuestEffect & { isDebuff: boolean },
@@ -84,9 +84,8 @@ function describeQuestModifier(
   nowMs: number,
 ): (QuestEffect & { isDebuff: boolean; timeLeft: string | null }) | null {
   const durationRaw = m.duration?.trim();
-  if (!durationRaw) return { ...m, timeLeft: null };
-  if (durationRaw.toLowerCase() === "permanent") return { ...m, timeLeft: "Permanent" };
-  const ms = /\bsession\b/i.test(durationRaw) ? SESSION_DURATION_MS : parseDurationMs(durationRaw);
+  if (durationRaw && durationRaw.toLowerCase() === "permanent") return { ...m, timeLeft: "Permanent" };
+  const ms = !durationRaw || /\bsession\b/i.test(durationRaw) ? SESSION_DURATION_MS : parseDurationMs(durationRaw);
   if (ms == null) return { ...m, timeLeft: durationRaw }; // event-based — show the label as-is
   const remaining = completedAt + ms - nowMs;
   if (remaining <= 0) return null; // clock-based and already expired
