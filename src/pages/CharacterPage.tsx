@@ -42,6 +42,55 @@ function renderBuffList(buffs: unknown): string[] {
   return [String(buffs)];
 }
 
+interface QuestEffect {
+  label: string;
+  value: number;
+  unit: string;
+  duration?: string;
+}
+
+// Parses a free-text duration ("24 hours", "48h", "4 hours") into milliseconds.
+// Returns null for anything that isn't a plain number+unit — "permanent",
+// "Session", "Active arc", "Until quest completion" etc. are event-based, not
+// clock-based, so there's no countdown to compute for them; they're shown as
+// their own raw label instead.
+function parseDurationMs(duration: string): number | null {
+  const match = duration.trim().toLowerCase().match(/(\d+(?:\.\d+)?)\s*(day|days|d|hour|hours|hr|hrs|h|minute|minutes|min|mins|m)\b/);
+  if (!match) return null;
+  const n = parseFloat(match[1]);
+  const unit = match[2];
+  if (unit.startsWith("d")) return n * 24 * 60 * 60 * 1000;
+  if (unit.startsWith("h")) return n * 60 * 60 * 1000;
+  return n * 60 * 1000;
+}
+
+function formatTimeLeft(ms: number): string {
+  const totalMin = Math.max(1, Math.ceil(ms / 60_000));
+  const days = Math.floor(totalMin / 1440);
+  const hours = Math.floor((totalMin % 1440) / 60);
+  const mins = totalMin % 60;
+  if (days > 0) return `${days}d ${hours}h left`;
+  if (hours > 0) return `${hours}h ${mins}m left`;
+  return `${mins}m left`;
+}
+
+// Resolves one quest buff/debuff into what to show (and whether to show it at
+// all — an expired, clock-based modifier is dropped rather than left stale).
+function describeQuestModifier(
+  m: QuestEffect & { isDebuff: boolean },
+  completedAt: number,
+  nowMs: number,
+): (QuestEffect & { isDebuff: boolean; timeLeft: string | null }) | null {
+  const durationRaw = m.duration?.trim();
+  if (!durationRaw) return { ...m, timeLeft: null };
+  if (durationRaw.toLowerCase() === "permanent") return { ...m, timeLeft: "Permanent" };
+  const ms = parseDurationMs(durationRaw);
+  if (ms == null) return { ...m, timeLeft: durationRaw }; // event-based — show the label as-is
+  const remaining = completedAt + ms - nowMs;
+  if (remaining <= 0) return null; // clock-based and already expired
+  return { ...m, timeLeft: formatTimeLeft(remaining) };
+}
+
 export default function CharacterPage() {
   const { profile, quests, skills, energySystems, updateProfile, inventory, transformations, domainEffects } = useAppData();
   const [copied, setCopied] = useState(false);
@@ -52,13 +101,20 @@ export default function CharacterPage() {
   const totalXPEarned = (profile.level - 1) * calculateXPForLevel(profile.level) + profile.xp;
 
   // ── Modifier sources ────────────────────────────────────────────────────────
-  const equippedItems = inventory.filter((i) => i.is_equipped);
+  // Gear stat effects apply from two kinds of items: equipment/weapons (gated
+  // on is_equipped — you have to actually have the thing on), and everything
+  // else (artifact/material/consumable — there's no "equip" concept for those,
+  // so an effect on one of them applies just by holding it, the same way a
+  // passive trinket or charm would). Previously only is_equipped items counted
+  // at all, so an artifact's stat_effects never showed up anywhere.
+  const effectiveItems = inventory.filter(
+    (i) => i.quantity > 0 && (i.is_equipped || !["equipment", "weapon"].includes(i.type)),
+  );
   const activeTransform = transformations.find((t) => t.name === profile.current_form);
-  const activeQuests = quests.filter((q) => q.status === "active");
   const activeDomains = domainEffects.filter((d) => d.is_active);
 
-  // Sum stat_effects from all equipped gear keyed by profile stat column
-  const gearBonuses = equippedItems.reduce((acc, item) => {
+  // Sum stat_effects from every item whose effect currently applies, keyed by profile stat column
+  const gearBonuses = effectiveItems.reduce((acc, item) => {
     const effects = Array.isArray(item.stat_effects)
       ? (item.stat_effects as { label: string; value: number; unit: string }[])
       : [];
@@ -81,7 +137,7 @@ export default function CharacterPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  const hasGearStats = equippedItems.some(
+  const hasGearStats = effectiveItems.some(
     (i) => Array.isArray(i.stat_effects) && (i.stat_effects as unknown[]).length > 0,
   );
   const hasDomainStats = activeDomains.some(
@@ -92,13 +148,29 @@ export default function CharacterPage() {
   const passiveBuffs = renderBuffList(activeTransform?.passive_buffs);
   const hasFormBuffs = activeBuffs.length > 0 || passiveBuffs.length > 0;
 
-  const questModifiers = activeQuests
-    .map((q) => ({
-      title: q.title,
-      buffs: renderBuffList((q as any).buff_effects),
-      debuffs: renderBuffList((q as any).debuff_effects),
-    }))
-    .filter((qm) => qm.buffs.length > 0 || qm.debuffs.length > 0);
+  // Quest buff/debuff effects apply once the quest is COMPLETE (that's when
+  // applyQuestCompletionRewards actually grants them), not while it's still
+  // active — this used to read activeQuests, which meant showing rewards for
+  // quests that hadn't paid out yet and never showing what was actually live.
+  // Quests have no completed_at column; complete_quest explicitly stamps
+  // updated_at at the moment it flips status to "completed", so that's the
+  // anchor duration is measured from.
+  const completedQuests = quests.filter((q) => q.status === "completed");
+  const nowMs = Date.now();
+  const questModifiers = completedQuests
+    .map((q) => {
+      const completedAt = new Date((q as any).updated_at ?? (q as any).created_at).getTime();
+      const buffs = (Array.isArray((q as any).buff_effects) ? (q as any).buff_effects : []) as QuestEffect[];
+      const debuffs = (Array.isArray((q as any).debuff_effects) ? (q as any).debuff_effects : []) as QuestEffect[];
+      const mods = [
+        ...buffs.map((m) => ({ ...m, isDebuff: false })),
+        ...debuffs.map((m) => ({ ...m, isDebuff: true })),
+      ]
+        .map((m) => describeQuestModifier(m, completedAt, nowMs))
+        .filter((m): m is NonNullable<typeof m> => m !== null);
+      return { title: q.title, mods };
+    })
+    .filter((qm) => qm.mods.length > 0);
 
   const hasModifiers = hasGearStats || hasFormBuffs || questModifiers.length > 0 || activeDomains.length > 0;
 
@@ -306,16 +378,21 @@ export default function CharacterPage() {
             {hasGearStats && (
               <HudCard>
                 <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                  <Package size={9} /> Gear Effects
+                  <Package size={9} /> Gear & Item Effects
                 </p>
                 <div className="space-y-2">
-                  {equippedItems
+                  {effectiveItems
                     .filter((i) => Array.isArray(i.stat_effects) && (i.stat_effects as unknown[]).length > 0)
                     .map((item) => {
                       const effects = item.stat_effects as { label: string; value: number; unit: string }[];
                       return (
                         <div key={item.id} className="flex items-center justify-between gap-2 py-1 border-b border-border/20 last:border-0">
-                          <span className="text-xs font-display font-semibold text-foreground">{item.name}</span>
+                          <span className="text-xs font-display font-semibold text-foreground">
+                            {item.name}
+                            <span className="text-xs font-mono text-muted-foreground font-normal ml-1.5">
+                              {item.is_equipped ? "(equipped)" : "(possessed)"}
+                            </span>
+                          </span>
                           <div className="flex gap-1.5 flex-wrap justify-end">
                             {effects.map((eff, idx) => (
                               <span
@@ -420,7 +497,7 @@ export default function CharacterPage() {
               </HudCard>
             )}
 
-            {/* Quest Modifiers */}
+            {/* Quest Modifiers — buffs/debuffs currently in effect from completed quests */}
             {questModifiers.length > 0 && (
               <HudCard>
                 <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1.5">
@@ -430,20 +507,17 @@ export default function CharacterPage() {
                   {questModifiers.map((qm, qi) => (
                     <div key={qi}>
                       <p className="text-xs font-display font-semibold text-foreground mb-1">{qm.title}</p>
-                      {qm.buffs.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-1">
-                          {qm.buffs.map((b, i) => (
-                            <span key={i} className="text-xs font-mono text-green-400 border border-green-500/30 bg-green-500/5 px-1.5 py-0.5 rounded">{b}</span>
-                          ))}
-                        </div>
-                      )}
-                      {qm.debuffs.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {qm.debuffs.map((d, i) => (
-                            <span key={i} className="text-xs font-mono text-red-400 border border-red-500/30 bg-red-500/5 px-1.5 py-0.5 rounded">{d}</span>
-                          ))}
-                        </div>
-                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {qm.mods.map((m, i) => (
+                          <span
+                            key={i}
+                            className={`text-xs font-mono px-1.5 py-0.5 rounded border flex items-center gap-1 ${m.isDebuff ? "text-red-400 border-red-500/30 bg-red-500/5" : "text-green-400 border-green-500/30 bg-green-500/5"}`}
+                          >
+                            {m.label} {m.isDebuff ? "-" : m.value >= 0 ? "+" : ""}{m.value}{m.unit}
+                            {m.timeLeft && <span className="text-muted-foreground">· {m.timeLeft}</span>}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
