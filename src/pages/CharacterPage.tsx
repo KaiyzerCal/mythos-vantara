@@ -76,6 +76,8 @@ function formatTimeLeft(ms: number): string {
 
 // Resolves one quest buff/debuff into what to show (and whether to show it at
 // all — an expired, clock-based modifier is dropped rather than left stale).
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // "Session" has no real end time, so it's given a fixed week-long life instead.
+
 function describeQuestModifier(
   m: QuestEffect & { isDebuff: boolean },
   completedAt: number,
@@ -84,7 +86,7 @@ function describeQuestModifier(
   const durationRaw = m.duration?.trim();
   if (!durationRaw) return { ...m, timeLeft: null };
   if (durationRaw.toLowerCase() === "permanent") return { ...m, timeLeft: "Permanent" };
-  const ms = parseDurationMs(durationRaw);
+  const ms = /\bsession\b/i.test(durationRaw) ? SESSION_DURATION_MS : parseDurationMs(durationRaw);
   if (ms == null) return { ...m, timeLeft: durationRaw }; // event-based — show the label as-is
   const remaining = completedAt + ms - nowMs;
   if (remaining <= 0) return null; // clock-based and already expired
@@ -101,14 +103,13 @@ export default function CharacterPage() {
   const totalXPEarned = (profile.level - 1) * calculateXPForLevel(profile.level) + profile.xp;
 
   // ── Modifier sources ────────────────────────────────────────────────────────
-  // Gear stat effects apply from two kinds of items: equipment/weapons (gated
-  // on is_equipped — you have to actually have the thing on), and everything
-  // else (artifact/material/consumable — there's no "equip" concept for those,
-  // so an effect on one of them applies just by holding it, the same way a
-  // passive trinket or charm would). Previously only is_equipped items counted
-  // at all, so an artifact's stat_effects never showed up anywhere.
+  // Any item with a real stat_effects payload contributes, equipped or not —
+  // confirmed against live data: both items that actually carry effects right
+  // now (a ring, a guitar) are type "equipment" sitting unequipped, so gating
+  // on is_equipped hid them entirely. The (equipped)/(possessed) tag in the
+  // render below is informational only, not a filter.
   const effectiveItems = inventory.filter(
-    (i) => i.quantity > 0 && (i.is_equipped || !["equipment", "weapon"].includes(i.type)),
+    (i) => i.quantity > 0 && Array.isArray(i.stat_effects) && i.stat_effects.length > 0,
   );
   const activeTransform = transformations.find((t) => t.name === profile.current_form);
   const activeDomains = domainEffects.filter((d) => d.is_active);
