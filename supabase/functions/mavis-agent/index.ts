@@ -1960,6 +1960,7 @@ interface AgentLoopResult {
   toolsUsed: string[];
   actionsQueued: number;
   provider?: string;
+  providerErrors?: string[];
   imageUrl?: string;
   videoUrl?: string;
   imageUrls?: string[];
@@ -2281,6 +2282,13 @@ async function runAgentLoop(
   let generatedVideoUrl: string | undefined;
   let generatedImageUrls: string[] | undefined;
   let generatedVideoUrls: string[] | undefined;
+  // Collected across every iteration (not just the one that finally served)
+  // so a request that succeeds via a low-priority fallback — e.g. the "crud"
+  // lane lands on gateway instead of anthropic — still shows WHY the
+  // higher-priority provider(s) were skipped, surfaced in the response
+  // itself. There's no log access into this project from outside Lovable's
+  // own tooling, so this was previously undiagnosable from here.
+  const allProviderErrors: string[] = [];
 
   while (iteration < MAX_ITERATIONS) {
     if (Date.now() > deadlineAt) {
@@ -2471,6 +2479,8 @@ async function runAgentLoop(
       }
     }
 
+    allProviderErrors.push(...providerErrors);
+
     if (!served) {
       throw new Error(`All providers failed — ${providerErrors.join(" | ") || "no provider keys configured"}`);
     }
@@ -2507,6 +2517,7 @@ async function runAgentLoop(
         toolsUsed,
         actionsQueued,
         ...(pinnedProvider     && { provider:  pinnedProvider     }),
+        ...(allProviderErrors.length > 0 && { providerErrors: allProviderErrors }),
         ...(generatedImageUrl  && { imageUrl:  generatedImageUrl  }),
         ...(generatedVideoUrl  && { videoUrl:  generatedVideoUrl  }),
         ...(generatedImageUrls && { imageUrls: generatedImageUrls }),
@@ -2594,6 +2605,7 @@ async function runAgentLoop(
     toolsUsed,
     actionsQueued,
     ...(pinnedProvider     && { provider:  pinnedProvider     }),
+    ...(allProviderErrors.length > 0 && { providerErrors: allProviderErrors }),
     ...(generatedImageUrl  && { imageUrl:  generatedImageUrl  }),
     ...(generatedVideoUrl  && { videoUrl:  generatedVideoUrl  }),
     ...(generatedImageUrls && { imageUrls: generatedImageUrls }),
