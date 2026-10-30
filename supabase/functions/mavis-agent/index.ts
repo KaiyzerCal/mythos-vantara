@@ -471,7 +471,11 @@ const MAVIS_TOOLS = [
             "update_note: { note_id, title, content, tags }. " +
             "log_bpm_session: { bpm, duration, form, mood, notes }. " +
             "award_xp: { amount, reason }. " +
-            "update_profile: { stat_str, stat_agi, stat_int, fatigue, full_cowl_sync, current_form, current_bpm, display_name }.",
+            "update_profile: { stat_str, stat_agi, stat_int, fatigue, full_cowl_sync, current_form, current_bpm, display_name }. " +
+            "create_inventory_item: { name, description, type ('equipment'|'weapon'|'artifact'|'consumable'|'material'), rarity ('common'|'rare'|'epic'|'legendary'|'mythic'), quantity, slot, tier, effect (prose flavor text), " +
+            "stat_effects (array of { label, value, unit } — EVERY numeric bonus the item's own effect/flavor text names, e.g. 'grants +30% VIT, +15% STR' becomes [{label:'VIT',value:30,unit:'%'},{label:'STR',value:15,unit:'%'}]; label isn't limited to the 7 core stats — a custom one like 'Network Efficiency' or 'Lethality Enhancement' is fine too, exactly as named in the text), is_equipped }. " +
+            "update_inventory_item: { item_id, plus any create_inventory_item field to change }. " +
+            "The Character tab's Stat Modifiers section reads ONLY stat_effects, never the effect text — writing a rich prose effect description and leaving stat_effects empty means the item visibly does nothing there even though it reads like it should. Any time an item's effect/flavor text states a specific number (a %, a flat value), put that number in stat_effects too; only genuinely qualitative effects (an ability name, a passive with no number, a hidden unlock condition) stay prose-only in effect.",
         },
       },
       required: ["type", "params"],
