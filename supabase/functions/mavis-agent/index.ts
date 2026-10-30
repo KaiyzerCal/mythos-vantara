@@ -2249,10 +2249,15 @@ async function runAgentLoop(
   // OpenAI's GPT-5 family rejects max_tokens — it requires max_completion_tokens.
   const compatProviders: Record<string, { url: string; key: string; model: string; tokenParam: string }> = {
     // Free direct Gemini via its OpenAI-compatible endpoint — no Lovable credits.
+    // "gemini-2.0-flash" is retired (confirmed live 2026-10-30 — Google's API
+    // now 404s it, telling callers to move to the next dated model, which
+    // will itself retire the same way). "gemini-flash-latest" is the rolling
+    // alias mavis-telegram-bot already switched to for the same reason — use
+    // it here too instead of another model name that will just go stale again.
     gemini: {
       url:        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       key:        Deno.env.get("GEMINI_API_KEY") ?? "",
-      model:      Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash",
+      model:      Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest",
       tokenParam: "max_tokens",
     },
     gateway: {
