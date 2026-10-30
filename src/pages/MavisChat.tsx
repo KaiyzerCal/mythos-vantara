@@ -25,7 +25,7 @@ import { SkillCatalogDrawer } from "@/components/chat/SkillCatalogDrawer";
 import { useMediaPoller } from "@/hooks/useMediaPoller";
 
 // ── MAVIS modules ───────────────────────────────────────────
-import { buildSystemPromptFromSnapshot, buildSystemPromptCached, invalidateSystemPromptCache } from "@/mavis/buildSystemPrompt";
+import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
 import { sectionsForActions, routeForActions } from "@/mavis/refreshContract";
 import { useMavisActionHandlers } from "@/mavis/useMavisActionHandlers";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage, invokeAI } from "@/mavis/chatService";
@@ -1138,10 +1138,17 @@ export default function MavisChat() {
             }
           }
           // ── Build full MAVIS context for the agent loop ───────────────────────────
+          // Always fresh, never cached (was buildSystemPromptCached, 90s TTL keyed
+          // only on mode+user_id — it ignored whatever quest/skill snapshot was
+          // actually passed in, so a message landing inside that window got
+          // whatever quests/skills existed up to 90s ago, including right after
+          // this same turn created the very quest the next message asks to link
+          // skills to. That's why quest/skill linking from this tab was less
+          // reliable than the MavisUI tab, which always calls this uncached.
           setAgentThinking("Building context…");
           const agentSystemPrompt = await (fullCtx
-            ? buildSystemPromptCached(chatMode, fullCtx, archivedMemories, vaultMedia)
-            : buildSystemPromptCached(chatMode, ({
+            ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
+            : buildSystemPromptFromSnapshot(chatMode, ({
                 profile: profile as any,
                 quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
                 rankings: [], transformations: appDataRef.current.transformations as any[],
@@ -1178,7 +1185,6 @@ export default function MavisChat() {
           setLastAgentMeta({ toolsUsed, actionsQueued });
           const agentExecConfirmed = (agentResult.executionResults ?? []).filter((r) => r.status === "success");
           if (agentExecConfirmed.length > 0) {
-            invalidateSystemPromptCache();
             // Realtime is the primary path now that the tables are published
             // (migration 20260822140000) — it arrives in milliseconds and
             // refetches one table. This stays as a backstop for a dropped
