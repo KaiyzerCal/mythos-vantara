@@ -457,8 +457,13 @@ const MAVIS_TOOLS = [
           type: "object",
           description:
             "Action parameters. Examples — " +
-            "create_quest: { title, description, type ('daily'|'side'|'main'|'epic'), difficulty ('Easy'|'Normal'|'Hard'|'Extreme'|'Impossible'), xp_reward, real_world_mapping, category }. " +
+            "create_quest: { title, description, type ('daily'|'side'|'main'|'epic'), difficulty ('Easy'|'Normal'|'Hard'|'Extreme'|'Impossible'), xp_reward, category, " +
+            "linked_skill_ids (string[] — ids of skills/Beyonder pathways or sequences this quest trains; completing it raises proficiency on each), " +
+            "real_world_mapping ('stat:STR'|'stat:AGI'|'stat:VIT'|'stat:INT'|'stat:WIS'|'stat:CHA'|'stat:LCK', or 'energy:<energy_system_id>' — the ONE stat/energy this quest's real-world domain most directly builds), " +
+            "codex_points_reward (number), buff_effects / debuff_effects (array of { label, value, unit, duration? }), loot_rewards (array of { itemName, quantity, rarity? }) }. " +
+            "When the operator says to 'link apt rewards/skills' or 'fill it out'/'fill out all the details': set EVERY one of those reward/linking fields that genuinely fits the quest's real theme — not just the first one that comes to mind. Match by actual overlap between the quest's description and a skill's own name/category/description, not by vibe or habit; re-using the same skill id across unrelated quests because it 'sort of' fits financial/business/social themes is exactly the failure mode to avoid. linked_skill_ids values MUST be ids copied verbatim from the SKILLS/BEYONDER context you were given — never invented, never a name with no matching id. If nothing in that list genuinely relates to the quest, leave linked_skill_ids/real_world_mapping unset and say so — an unlinked field is a normal, correct outcome, not a failure to patch over with the nearest plausible-sounding id. To (re)link an EXISTING quest, call update_quest with quest_id and the same field names (see below) — never create_quest again for a quest that already exists. " +
             "create_task: { title, description, type ('task'|'habit'), recurrence ('once'|'daily'|'weekly'|'monthly'), xp_reward, priority ('low'|'medium'|'high'|'critical') }. " +
+            "update_quest: { quest_id, plus any create_quest field to change — title, description, status ('active'|'completed'|'failed'), difficulty, xp_reward, progress_current, progress_target, linked_skill_ids, real_world_mapping, codex_points_reward, buff_effects, debuff_effects, loot_rewards }. Passing linked_skill_ids replaces the full set (not a merge), so include every id that should remain linked, not just the new ones. " +
             "complete_quest / complete_task: { quest_id } or { task_id }. " +
             "forge_persona: { description (full natural-language spec: name, role, personality, tone, quirks, values, communication style, archetype) }. " +
             "goal: { objective (one clear sentence), context }. " +
@@ -2645,6 +2650,13 @@ SEARCH WEB → search_web(query="...")
 
 CREATE A QUEST (VANTARA app) → codexos_action(type="create_quest", params={title, description, type, difficulty, xp_reward, category})
   ⚠️ NEVER use queue_action for VANTARA quests. codexos_action ONLY.
+  ⚠️ "link apt rewards/skills" / "fill it out" means set linked_skill_ids, real_world_mapping,
+  codex_points_reward, buff_effects, debuff_effects, loot_rewards too — see the codexos_action
+  tool's own params description for the full field list and the matching discipline (real
+  overlap with the quest's actual theme, ids copied verbatim from SKILLS context, leave unset
+  rather than force a loose/habitual match). To link rewards onto a quest you already created,
+  call update_quest with that quest's quest_id — do NOT call create_quest again, that makes a
+  duplicate.
 
 CREATE A VANTARA TASK (VANTARA app) → codexos_action(type="create_task", params={title, description, type, recurrence, xp_reward, priority})
   ⚠️ NEVER use queue_action for VANTARA tasks. codexos_action ONLY.
