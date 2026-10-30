@@ -1993,9 +1993,20 @@ type ProviderId = "gemini" | "groq" | "gateway" | "anthropic" | "openai" | "grok
 // Lovable placement in _shared/providers.ts's callWithFallback: this is a
 // separate cascade (mavis-agent never calls that shared one), so it needed
 // its own fix. Moved 2026-09-21.
+// "gateway" vs "gemini": both ultimately call a Gemini model, but "gateway"
+// bills through Lovable's own shared credits (ai.gateway.lovable.dev) while
+// "gemini" calls Google's API directly with the operator's own GEMINI_API_KEY
+// — zero shared/Lovable cost. Every lane below now tries the operator's own
+// key before ever spending a Lovable credit; "gateway" stays only as the
+// absolute last resort (e.g. GEMINI_API_KEY itself is unset or rate-limited).
+// Confirmed live 2026-10-30: with every paid provider (anthropic/openai/
+// groq/grok) out of credits or rate-limited at once, every non-default lane
+// skipped straight to "gateway" because it was the only Gemini option any of
+// them listed — spending Lovable credits on requests the operator's own free
+// Gemini key could have served for nothing.
 const PROVIDER_LANES: Record<string, ProviderId[]> = {
-  generation: ["anthropic", "openai", "groq", "grok", "gateway"],
-  code:       ["anthropic", "openai", "groq", "grok", "gateway"],
+  generation: ["anthropic", "openai", "groq", "grok", "gemini", "gateway"],
+  code:       ["anthropic", "openai", "groq", "grok", "gemini", "gateway"],
   // CRUD writes (quest/skill/journal/etc create, update, delete, link) need
   // to follow a field schema exactly (real ids, never invented) more than
   // they need to be fast -- same reasoning as "code"/"generation" above,
@@ -2003,9 +2014,9 @@ const PROVIDER_LANES: Record<string, ProviderId[]> = {
   // uses for mavis-chat. Without this lane these requests fell into
   // "default" and hit the free Gemini tier first, which is exactly the
   // provider that kept fabricating quest reward/skill fields.
-  crud:       ["anthropic", "openai", "groq", "grok", "gateway"],
-  realtime:   ["grok", "groq", "anthropic", "openai", "gateway"],
-  reasoning:  ["openai", "anthropic", "groq", "grok", "gateway"],
+  crud:       ["anthropic", "openai", "groq", "grok", "gemini", "gateway"],
+  realtime:   ["grok", "groq", "anthropic", "openai", "gemini", "gateway"],
+  reasoning:  ["openai", "anthropic", "groq", "grok", "gemini", "gateway"],
   // "gemini" leads default: free direct Gemini (GEMINI_API_KEY, OpenAI-compatible
   // endpoint) — zero credits, same tier mavis-chat's callWithFallback tries first.
   default:    ["gemini", "groq", "anthropic", "openai", "grok", "gateway"],
