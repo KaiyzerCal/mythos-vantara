@@ -103,13 +103,10 @@ export default function CharacterPage() {
   const totalXPEarned = (profile.level - 1) * calculateXPForLevel(profile.level) + profile.xp;
 
   // ── Modifier sources ────────────────────────────────────────────────────────
-  // Any item with a real stat_effects payload contributes, equipped or not —
-  // confirmed against live data: both items that actually carry effects right
-  // now (a ring, a guitar) are type "equipment" sitting unequipped, so gating
-  // on is_equipped hid them entirely. The (equipped)/(possessed) tag in the
-  // render below is informational only, not a filter.
+  // Only equipped gear contributes — by request, possession alone is no
+  // longer enough even for item types without a real "equip" concept.
   const effectiveItems = inventory.filter(
-    (i) => i.quantity > 0 && Array.isArray(i.stat_effects) && i.stat_effects.length > 0,
+    (i) => i.quantity > 0 && i.is_equipped && Array.isArray(i.stat_effects) && i.stat_effects.length > 0,
   );
   const activeTransform = transformations.find((t) => t.name === profile.current_form);
   const activeDomains = domainEffects.filter((d) => d.is_active);
@@ -388,12 +385,7 @@ export default function CharacterPage() {
                       const effects = item.stat_effects as { label: string; value: number; unit: string }[];
                       return (
                         <div key={item.id} className="flex items-center justify-between gap-2 py-1 border-b border-border/20 last:border-0">
-                          <span className="text-xs font-display font-semibold text-foreground">
-                            {item.name}
-                            <span className="text-xs font-mono text-muted-foreground font-normal ml-1.5">
-                              {item.is_equipped ? "(equipped)" : "(possessed)"}
-                            </span>
-                          </span>
+                          <span className="text-xs font-display font-semibold text-foreground">{item.name}</span>
                           <div className="flex gap-1.5 flex-wrap justify-end">
                             {effects.map((eff, idx) => (
                               <span
