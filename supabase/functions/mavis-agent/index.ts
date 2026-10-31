@@ -3,7 +3,7 @@ import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
-import { hasCrudIntent } from "../_shared/providers.ts";
+import { hasCrudIntent, GEMINI_DEFAULT_MODEL, GROQ_MODEL, LOVABLE_DEFAULT_MODEL } from "../_shared/providers.ts";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -2276,19 +2276,20 @@ async function runAgentLoop(
     // Free direct Gemini via its OpenAI-compatible endpoint — no Lovable credits.
     // "gemini-2.0-flash" is retired (confirmed live 2026-10-30 — Google's API
     // now 404s it, telling callers to move to the next dated model, which
-    // will itself retire the same way). "gemini-flash-latest" is the rolling
-    // alias mavis-telegram-bot already switched to for the same reason — use
-    // it here too instead of another model name that will just go stale again.
+    // will itself retire the same way). GEMINI_DEFAULT_MODEL (the rolling
+    // "gemini-flash-latest" alias) is imported from _shared/providers.ts so
+    // this cascade and the shared one retire together instead of needing the
+    // same fix twice next time Google deprecates a pinned version.
     gemini: {
       url:        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       key:        Deno.env.get("GEMINI_API_KEY") ?? "",
-      model:      Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest",
+      model:      Deno.env.get("GEMINI_MODEL") ?? GEMINI_DEFAULT_MODEL,
       tokenParam: "max_tokens",
     },
     gateway: {
       url:        "https://ai.gateway.lovable.dev/v1/chat/completions",
       key:        env.lovableKey,
-      model:      Deno.env.get("GATEWAY_MODEL") ?? "google/gemini-3.6-flash",
+      model:      Deno.env.get("GATEWAY_MODEL") ?? LOVABLE_DEFAULT_MODEL,
       tokenParam: "max_tokens",
     },
     openai: {
@@ -2300,7 +2301,9 @@ async function runAgentLoop(
     groq: {
       url:        "https://api.groq.com/openai/v1/chat/completions",
       key:        Deno.env.get("GROQ_API_KEY") ?? "",
-      model:      Deno.env.get("GROQ_MODEL") ?? "llama-3.1-8b-instant",
+      // GROQ_MODEL already resolves Deno.env.get("GROQ_MODEL") with the same
+      // fallback this used to duplicate inline.
+      model:      GROQ_MODEL,
       tokenParam: "max_tokens",
     },
     grok: {

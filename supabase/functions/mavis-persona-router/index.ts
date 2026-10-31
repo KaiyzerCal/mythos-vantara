@@ -10,12 +10,16 @@ import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 import {
   ProviderUnavailableError,
-  isUnfundedStatus,
   callGemini,
   callGroq,
   getProviderKeys,
   GROQ_MODEL,
   hasCrudIntent,
+  callClaude as llmClaude,
+  callOpenAI as llmOpenAI,
+  callGrok as llmGrok,
+  callLovable as llmLovable,
+  LOVABLE_DEFAULT_MODEL,
 } from "../_shared/providers.ts";
 
 const corsHeaders = {
@@ -25,7 +29,8 @@ const corsHeaders = {
 
 // ── LLM cascade: Gemini (free) → Groq (free) → configured-provider → OpenAI →
 //    Lovable AI Gateway ───────────────────────────────────────────────────────
-// Gemini/Groq/ProviderUnavailableError/isUnfundedStatus come from
+// Every provider adapter used below (callGemini/callGroq directly, plus
+// callClaude/callOpenAI/callGrok/callLovable aliased to llm*) comes from
 // _shared/providers.ts — the same cascade mavis-chat (and council, which
 // routes through mavis-chat) already relies on. Before this, persona chat's
 // cascade only ever tried paid providers (OpenAI/Claude/Grok) plus the
@@ -34,102 +39,40 @@ const corsHeaders = {
 // tiers (Gemini, then Groq) this cascade never attempted at all.
 
 function mapToGatewayModel(model: string): string {
-  if (!model) return "google/gemini-3.6-flash";
+  if (!model) return LOVABLE_DEFAULT_MODEL;
   const m = model.toLowerCase();
   if (m.startsWith("google/")) return model;
   if (m.startsWith("openai/")) return model;
   if (m.includes("gpt-5")) return "openai/gpt-5";
   if (m.includes("gpt-4") || m.includes("gpt-4o")) return "openai/gpt-5-mini";
   if (m.includes("claude")) return "google/gemini-2.5-pro";
-  if (m.includes("grok")) return "google/gemini-3.6-flash";
+  if (m.includes("grok")) return LOVABLE_DEFAULT_MODEL;
   if (m.includes("gemini-2.5-pro")) return "google/gemini-2.5-pro";
-  if (m.includes("gemini")) return "google/gemini-3.6-flash";
-  return "google/gemini-3.6-flash";
+  if (m.includes("gemini")) return LOVABLE_DEFAULT_MODEL;
+  return LOVABLE_DEFAULT_MODEL;
 }
 
-// How long any single provider gets before we move to the next tier.
-//
-// These four calls were unbounded. callLLM below walks up to six providers in
-// sequence, so one hung socket did not just delay a tier — it stalled the whole
-// request, and the caller sees nothing but a spinner until the platform gives
-// up. The shared helpers this file also uses (callGemini, callGroq in
-// _shared/providers.ts) have always been bounded at 30s and 20s; these local
-// ones were the gap. Responses here are awaited whole rather than streamed, so
-// a plain AbortSignal.timeout is safe — there is no stream for it to truncate.
-const PROVIDER_TIMEOUT_MS = 30_000;
-
+// Thin wrappers over the shared adapters in _shared/providers.ts. This file
+// used to reimplement the raw fetch + error-classification for Claude/OpenAI/
+// Grok/Lovable locally — duplicated with mavis-agent's and both Telegram
+// surfaces' own copies, which is exactly how a retired model id or a wrong
+// auth header ends up fixed in one place and still broken in three others.
+// Kept as local functions (rather than rewriting every call site below) only
+// to preserve this file's own (model, system, messages, key) argument order.
 async function callClaude(model: string, system: string, messages: any[], key: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    // Was 1024 -- a persona's reply is meant to stay short (the system
-    // prompt already enforces that), but a PROPOSE_ACTION tag with
-    // linked_skill_ids/real_world_mapping/buff_effects/loot_rewards fully
-    // populated plus the visible confirmation can still exceed that, with
-    // the same silent-truncation risk fixed in _shared/providers.ts for
-    // mavis-chat.
-    body: JSON.stringify({ model, max_tokens: 4096, system, messages }),
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("claude", errText.slice(0, 200), res.status);
-    throw new Error(`Claude ${res.status}: ${errText}`);
-  }
-  const d = await res.json();
-  return d.content?.[0]?.text ?? "";
+  return llmClaude(messages, system, key, model);
 }
 
 async function callOpenAI(model: string, system: string, messages: any[], key: string): Promise<string> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096 }),
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("openai", errText.slice(0, 200), res.status);
-    throw new Error(`OpenAI ${res.status}: ${errText}`);
-  }
-  const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
+  return llmOpenAI(messages, system, key, model);
 }
 
 async function callGrok(model: string, system: string, messages: any[], key: string): Promise<string> {
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 4096 }),
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    if (isUnfundedStatus(res.status, errText)) throw new ProviderUnavailableError("grok", errText.slice(0, 200), res.status);
-    throw new Error(`Grok ${res.status}: ${errText}`);
-  }
-  const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
+  return llmGrok(messages, system, key, model);
 }
 
 async function callLovableGateway(model: string, system: string, messages: any[], key: string): Promise<string> {
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Lovable-API-Key": key },
-    body: JSON.stringify({
-      model: mapToGatewayModel(model),
-      messages: [{ role: "system", content: system }, ...messages],
-    }),
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    if (res.status === 429) throw new Error("Lovable AI rate limit reached. Try again shortly.");
-    if (res.status === 402) throw new Error("Lovable AI credits exhausted. Add credits in workspace settings.");
-    throw new Error(`Lovable AI Gateway ${res.status}: ${errText}`);
-  }
-  const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
+  return llmLovable(messages, system, key, { model: mapToGatewayModel(model) });
 }
 
 // Cascade order:
@@ -228,7 +171,7 @@ async function callLLM(model: string, system: string, messages: any[], userText 
   // Tier 1 — Lovable Gemini Flash (free)
   if (lovableKey) {
     try {
-      return { content: await callLovableGateway("google/gemini-3.6-flash", system, messages, lovableKey), provider: "lovable-gateway" };
+      return { content: await callLovableGateway(LOVABLE_DEFAULT_MODEL, system, messages, lovableKey), provider: "lovable-gateway" };
     } catch (err: any) {
       note("lovable-gateway", err?.message ?? String(err));
     }

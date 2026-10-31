@@ -25,7 +25,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { reembedRow } from "../_shared/reembedRow.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
-import { hasCrudIntent } from "../_shared/providers.ts";
+import { hasCrudIntent, isProviderUnhealthy, markProviderUnhealthy } from "../_shared/providers.ts";
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
@@ -520,15 +520,19 @@ async function saveExchange(
 //          → explicit persona/council model → Claude Haiku → GPT-4o-mini
 // ─────────────────────────────────────────────────────────────
 
-// Circuit breaker — survives warm Deno isolate; prevents hammering degraded providers.
-const _llmUnhealthyUntil = new Map<string, number>();
-function _isUnhealthy(key: string): boolean {
-  const t = _llmUnhealthyUntil.get(key);
-  return t !== undefined && Date.now() < t;
-}
-function _markUnhealthy(key: string, ttlMs = 120_000): void {
-  _llmUnhealthyUntil.set(key, Date.now() + ttlMs);
-}
+// Circuit breaker — was a local Map here, duplicating _shared/providers.ts's
+// own isProviderUnhealthy/markProviderUnhealthy under different names, for no
+// reason beyond having been written independently. Reusing the shared
+// TTL-map functions instead of a second copy of the same 6 lines.
+//
+// NOTE: this file keys health by exact model id ("claude-sonnet-4-6",
+// "gemini-flash-latest", ...) while the rest of the app's cascade keys by
+// provider name ("claude", "gemini", ...) — different strings in the same
+// Map, so marking one unhealthy here does NOT yet protect mavis-chat/
+// mavis-agent/persona-router from re-hammering it, or vice versa. Aligning
+// the key scheme across every surface is follow-up work, not done here.
+const _isUnhealthy = isProviderUnhealthy;
+const _markUnhealthy = markProviderUnhealthy;
 
 function detectProvider(model: string): "anthropic" | "openai" | "gemini" | "xai" {
   if (model.startsWith("claude-")) return "anthropic";

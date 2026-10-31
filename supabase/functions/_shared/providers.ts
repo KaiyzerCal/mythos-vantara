@@ -299,12 +299,12 @@ export async function callClaude(messages: any[], system: string, key: string, m
   return blocks.filter((b: any) => b.type === "text").map((b: any) => b.text).join("") || "";
 }
 
-export async function callGrok(messages: any[], system: string, key: string): Promise<string> {
+export async function callGrok(messages: any[], system: string, key: string, model = "grok-3-mini"): Promise<string> {
   const res = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: "grok-3-mini",
+      model,
       messages: [{ role: "system", content: system }, ...messages],
       max_tokens: 8192,
       temperature: 0.7,
@@ -322,6 +322,14 @@ export async function callGrok(messages: any[], system: string, key: string): Pr
   return d.choices?.[0]?.message?.content ?? "";
 }
 
+// The rolling alias, not a dated/pinned model id — Google has retired every
+// pinned version tried here before (gemini-2.0-flash, then -flash-lite), each
+// time taking down every caller that had it hardcoded until someone noticed
+// the 404s. Exported so every caller (including mavis-agent's own
+// tool-calling cascade, which can't use callGemini directly) shares this one
+// definition instead of its own copy of the string.
+export const GEMINI_DEFAULT_MODEL = "gemini-flash-latest";
+
 export async function callGemini(messages: any[], system: string, key: string, opts: { model?: string; thinking?: boolean; grounding?: boolean; codeExec?: boolean } = {}): Promise<string> {
   const contents = messages.map((m: any) => ({
     role: m.role === "user" ? "user" : "model",
@@ -329,8 +337,8 @@ export async function callGemini(messages: any[], system: string, key: string, o
   }));
   // Use opts.model if provided; thinking requires the 2.5 preview model.
   const geminiModel = opts.thinking
-    ? "gemini-flash-latest"
-    : (opts.model ?? "gemini-flash-latest");
+    ? GEMINI_DEFAULT_MODEL
+    : (opts.model ?? GEMINI_DEFAULT_MODEL);
   const body: any = {
     systemInstruction: { parts: [{ text: system }] },
     contents,
@@ -798,7 +806,7 @@ export async function callGeminiStream(messages: any[], system: string, key: str
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetchStreamWithFailover(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:streamGenerateContent?key=${key}&alt=sse`, {
+  const res = await fetchStreamWithFailover(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_DEFAULT_MODEL}:streamGenerateContent?key=${key}&alt=sse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -811,11 +819,11 @@ export async function callGeminiStream(messages: any[], system: string, key: str
   return geminiSseToTextStream(res.body!, opts.thinking);
 }
 
-export async function callGrokStream(messages: any[], system: string, key: string): Promise<ReadableStream<string>> {
+export async function callGrokStream(messages: any[], system: string, key: string, model = "grok-3-mini"): Promise<ReadableStream<string>> {
   const res = await fetchStreamWithFailover("https://api.x.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model: "grok-3-mini", messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.7, stream: true }),
+    body: JSON.stringify({ model, messages: [{ role: "system", content: system }, ...messages], max_tokens: 8192, temperature: 0.7, stream: true }),
   });
   if (!res.ok) {
     const e = await res.text();
@@ -996,10 +1004,17 @@ function lovableHeaders(key: string) {
 }
 
 export async function callLovable(messages: any[], system: string, key: string, opts: LovableOpts = {}): Promise<string> {
+  // Every other adapter in this file bounds its request (OpenAI/Grok/Groq at
+  // 30s, Claude at 45-60s) specifically so a hung provider cascades to the
+  // next tier instead of stalling the whole call indefinitely. This one had
+  // no timeout at all — the true-last-resort tier (see callWithFallback's
+  // Tier 7 comment) could hang the entire request with nothing left to fall
+  // back to.
   const res = await fetch(LOVABLE_GATEWAY_URL, {
     method: "POST",
     headers: lovableHeaders(key),
     body: lovableBody(messages, system, opts, false),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -1011,7 +1026,10 @@ export async function callLovable(messages: any[], system: string, key: string, 
 }
 
 export async function callLovableStream(messages: any[], system: string, key: string, opts: LovableOpts = {}): Promise<ReadableStream<string>> {
-  const res = await fetch(LOVABLE_GATEWAY_URL, {
+  // See callLovable's comment — this streaming variant had the same missing
+  // timeout every other streaming adapter in this file already guards against
+  // via fetchStreamWithFailover.
+  const res = await fetchStreamWithFailover(LOVABLE_GATEWAY_URL, {
     method: "POST",
     headers: lovableHeaders(key),
     body: lovableBody(messages, system, opts, true),
