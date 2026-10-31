@@ -14,6 +14,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller } from "../_shared/auth.ts";
 
 const SB_URL   = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -283,6 +284,16 @@ async function runHeartbeatForUser(sb: any, userId: string): Promise<Record<stri
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // No auth check at all previously — config.toml sets verify_jwt = false
+  // for this function, so with no internal gate it was callable by anyone
+  // holding the project's public anon key, triggering this across-every-
+  // account proactive check-in (and its Telegram/task side effects) on
+  // demand. No real frontend caller exists for this one — only the hourly
+  // cron.
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
+  }
 
   try {
     const sb = createClient(SB_URL, SB_SRK, { auth: { persistSession: false } });
