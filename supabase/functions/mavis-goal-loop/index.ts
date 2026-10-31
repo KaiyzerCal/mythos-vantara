@@ -8,9 +8,10 @@ import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
+const SB_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase  = createClient(
   Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  SB_KEY,
 );
 
 const CORS = {
@@ -120,81 +121,139 @@ async function executeAction(
   }
 }
 
+interface LoopResult {
+  goal:         string;
+  steps:        LoopStep[];
+  final_result: string;
+  iterations:   number;
+}
+
+async function runGoalLoop(goal: string, context: string | undefined, maxIterations: number, userId: string): Promise<LoopResult> {
+  const steps: LoopStep[] = [];
+  let history = `GOAL: ${goal}\n${context ? `CONTEXT: ${context}\n` : ""}`;
+
+  for (let i = 1; i <= Math.min(maxIterations, 10); i++) {
+    const res = await anthropic.messages.create({
+      model:      "claude-sonnet-4-6",
+      max_tokens: 400,
+      system:     SYSTEM,
+      messages:   [{ role: "user", content: history }],
+    });
+
+    const raw = ((res.content[0] as any).text ?? "").trim();
+    let parsed: { thought: string; action: string; action_args: Record<string, unknown>; done: boolean };
+
+    try {
+      parsed = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```\s*$/, ""));
+    } catch {
+      steps.push({ iteration: i, thought: "Parse failed", action: "error", action_args: {}, result: raw, done: true });
+      break;
+    }
+
+    const actionResult = await executeAction(parsed.action, parsed.action_args ?? {}, userId);
+
+    steps.push({
+      iteration:   i,
+      thought:     parsed.thought,
+      action:      parsed.action,
+      action_args: parsed.action_args ?? {},
+      result:      actionResult,
+      done:        parsed.done ?? false,
+    });
+
+    history += `\n\nSTEP ${i}:\nThought: ${parsed.thought}\nAction: ${parsed.action}(${JSON.stringify(parsed.action_args)})\nResult: ${actionResult}`;
+
+    if (parsed.done || parsed.action === "done") break;
+  }
+
+  const finalStep = steps[steps.length - 1];
+  const finalResult = finalStep?.action === "done"
+    ? String(finalStep.action_args?.summary ?? finalStep.result)
+    : `Completed ${steps.length} steps. ${finalStep?.result ?? ""}`;
+
+  // Store the loop run as a memory
+  await supabase.from("memories").insert({
+    user_id:     userId,
+    title:       `Goal loop: ${goal.slice(0, 80)}`,
+    content:     `Completed in ${steps.length} steps.\n\n${finalResult}`,
+    memory_type: "auto",
+    tags:        ["goal_loop", "autonomous"],
+  }).then(undefined, () => {});
+
+  return { goal, steps, final_result: finalResult, iterations: steps.length };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
   try {
     const authHeader = req.headers.get("Authorization") ?? "";
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
+    const token = authHeader.replace("Bearer ", "");
+    const body = await req.json().catch(() => ({})) as {
+      goal?:            string;
+      max_iterations?:  number;
+      context?:         string;
+    };
+
+    // Cron mode — the "mavis-goal-loop" job fires every 2 hours with the
+    // service role key and an empty body. There was previously no path for
+    // that at all: auth.getUser() rejects a service-role token outright (it
+    // only accepts a real end-user session JWT), so this "autonomous task
+    // execution loop" has never actually run on its own — only ever when a
+    // signed-in operator explicitly supplied a goal from the UI. When the
+    // caller holds the service key and sent no goal, advance a small batch
+    // of the operator's own active /goals entries instead of requiring one.
+    if (token === SB_KEY && !body.goal) {
+      const { data: goals, error: goalsErr } = await supabase
+        .from("mavis_goals")
+        .select("id, user_id, objective, context")
+        .eq("status", "active")
+        .order("updated_at", { ascending: true })
+        .limit(3);
+      if (goalsErr) throw new Error(`Failed to list active goals: ${goalsErr.message}`);
+
+      const results: Array<{ goal_id: string; iterations: number; done: boolean }> = [];
+      for (const g of goals ?? []) {
+        try {
+          // Capped lower than the interactive default (5) — this runs every
+          // 2 hours, so a goal that needs more steps just keeps advancing a
+          // few at a time on the next tick rather than burning a large
+          // Claude budget on one goal in a single run.
+          const loop = await runGoalLoop(g.objective, g.context ?? undefined, 3, g.user_id);
+          const finished = loop.steps[loop.steps.length - 1]?.action === "done";
+          if (finished) {
+            await supabase.from("mavis_goals").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", g.id);
+          } else {
+            // Not done yet — bump updated_at so the ordering above cycles
+            // through every active goal in turn instead of always picking
+            // the same (oldest) one.
+            await supabase.from("mavis_goals").update({ updated_at: new Date().toISOString() }).eq("id", g.id);
+          }
+          results.push({ goal_id: g.id, iterations: loop.iterations, done: finished });
+        } catch (err) {
+          console.error(`[mavis-goal-loop] cron iteration failed for goal ${g.id}:`, err);
+        }
+      }
+      return new Response(
+        JSON.stringify({ mode: "cron", goals_processed: results.length, results }),
+        { headers: { "Content-Type": "application/json", ...CORS } },
+      );
+    }
+
+    // Interactive mode — an operator (or MAVIS on their behalf) explicitly
+    // asked to run a goal right now from the UI. Unchanged from before.
+    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
     if (authErr || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: CORS });
     }
 
-    const { goal, max_iterations = 5, context } = await req.json() as {
-      goal:            string;
-      max_iterations?: number;
-      context?:        string;
-    };
-
+    const { goal, max_iterations = 5, context } = body;
     if (!goal?.trim()) {
       return new Response(JSON.stringify({ error: "goal required" }), { status: 400, headers: CORS });
     }
 
-    const steps: LoopStep[] = [];
-    let history = `GOAL: ${goal}\n${context ? `CONTEXT: ${context}\n` : ""}`;
-
-    for (let i = 1; i <= Math.min(max_iterations, 10); i++) {
-      const res = await anthropic.messages.create({
-        model:      "claude-sonnet-4-6",
-        max_tokens: 400,
-        system:     SYSTEM,
-        messages:   [{ role: "user", content: history }],
-      });
-
-      const raw = ((res.content[0] as any).text ?? "").trim();
-      let parsed: { thought: string; action: string; action_args: Record<string, unknown>; done: boolean };
-
-      try {
-        parsed = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```\s*$/, ""));
-      } catch {
-        steps.push({ iteration: i, thought: "Parse failed", action: "error", action_args: {}, result: raw, done: true });
-        break;
-      }
-
-      const actionResult = await executeAction(parsed.action, parsed.action_args ?? {}, user.id);
-
-      steps.push({
-        iteration:   i,
-        thought:     parsed.thought,
-        action:      parsed.action,
-        action_args: parsed.action_args ?? {},
-        result:      actionResult,
-        done:        parsed.done ?? false,
-      });
-
-      history += `\n\nSTEP ${i}:\nThought: ${parsed.thought}\nAction: ${parsed.action}(${JSON.stringify(parsed.action_args)})\nResult: ${actionResult}`;
-
-      if (parsed.done || parsed.action === "done") break;
-    }
-
-    const finalStep = steps[steps.length - 1];
-    const finalResult = finalStep?.action === "done"
-      ? String(finalStep.action_args?.summary ?? finalStep.result)
-      : `Completed ${steps.length} steps. ${finalStep?.result ?? ""}`;
-
-    // Store the loop run as a memory
-    await supabase.from("memories").insert({
-      user_id:     user.id,
-      title:       `Goal loop: ${goal.slice(0, 80)}`,
-      content:     `Completed in ${steps.length} steps.\n\n${finalResult}`,
-      memory_type: "auto",
-      tags:        ["goal_loop", "autonomous"],
-    }).then(undefined, () => {});
-
-    return new Response(
-      JSON.stringify({ goal, steps, final_result: finalResult, iterations: steps.length }),
-      { headers: { "Content-Type": "application/json", ...CORS } },
-    );
+    const result = await runGoalLoop(goal, context, max_iterations, user.id);
+    return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json", ...CORS } });
   } catch (err) {
     console.error("[mavis-goal-loop]", err);
     return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: CORS });

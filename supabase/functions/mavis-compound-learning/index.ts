@@ -102,7 +102,13 @@ serve(async (req) => {
   try { if (req.method === "POST") body = await req.json().catch(() => ({})); } catch { /**/ }
 
   const action = body.action ?? "record";
-  const isCron = Boolean(body?.cron) || action === "consolidate_all";
+  // The actual "mavis-compound-learning-weekly" cron job sends body
+  // {"trigger":"cron"} — body.cron was never set and action was never
+  // "consolidate_all", so isCron was always false and every scheduled run
+  // fell through to the user-auth branch below, which rejects a service-role
+  // token outright. Weekly preference consolidation has been silently
+  // 401ing since this was written.
+  const isCron = Boolean(body?.cron) || action === "consolidate_all" || body?.trigger === "cron";
 
   if (isCron) {
     // Consolidate for all users

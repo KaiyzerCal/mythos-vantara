@@ -358,7 +358,16 @@ serve(async (req) => {
     // ── Action: analyze_traces ────────────────────────────────────────────────
     // This action is called by pg_cron with the service role key, so it bypasses
     // user-level auth and uses the service role client directly.
-    if (action === "analyze_traces") {
+    //
+    // The actual "mavis-self-improve-weekly" cron job sends body
+    // {"trigger":"cron"}, which never matched action === "analyze_traces" —
+    // so every scheduled run fell through to the user-auth branch below,
+    // which rejects a service-role token outright (auth.getUser() only
+    // accepts a real end-user session JWT). This function's entire weekly
+    // self-improvement pass has been silently 401ing since it was written.
+    // Recognizing body.trigger === "cron" too lets the cron-safe pipeline
+    // that already existed here actually run.
+    if (action === "analyze_traces" || body.trigger === "cron") {
       const sb = createClient(SB_URL, SB_KEY);
 
       // Determine which user IDs to process
