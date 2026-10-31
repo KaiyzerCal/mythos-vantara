@@ -6,6 +6,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,6 +34,18 @@ serve(async (req) => {
   const openaiKey   = Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 
   const sb = createClient(supabaseUrl, serviceKey);
+
+  // This had no auth check at all — config.toml sets verify_jwt = false for
+  // this function, so with no internal gate it was callable by anyone
+  // holding the project's public anon key (shipped in the frontend bundle),
+  // triggering a full LLM-driven review pass across every account's standing
+  // order templates on demand. The weekly cron and the "so-curator" chat
+  // skill (a real signed-in user's session, via supabase.functions.invoke)
+  // are the only legitimate callers.
+  const callerUid = await resolveAuthedUid(req, sb);
+  if (!callerUid) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
 
   // Get all active templates that are old enough to evaluate (created 7+ days ago)
   const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();

@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,6 +40,17 @@ serve(async (req) => {
       status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
+  // No auth check at all previously — config.toml sets verify_jwt = false
+  // for this function, so with no internal gate it was callable by anyone
+  // holding the project's public anon key, triggering scheduled-workflow
+  // dispatch and other autonomous actions across every account on demand.
+  // FactoryPage/SystemHealthPage only reference this function's name as a
+  // display label — neither actually calls it — so the only real caller is
+  // the every-5-minute cron.
+  if (!isServiceRoleCaller(req)) {
+    return json({ error: "Unauthorized" }, 401);
+  }
 
   try {
     const adminSb = createClient(SUPABASE_URL, SERVICE_KEY);

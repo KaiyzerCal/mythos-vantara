@@ -6,7 +6,7 @@
 //   - Sends Telegram progress report
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 import { aiComplete } from "../_shared/providers.ts";
 
 const supabase = createClient(
@@ -51,13 +51,16 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (!isServiceRoleCaller(req)) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-  }
-
   try {
-    const uid = resolveOperatorUid(req);
-    if (!uid) throw new Error("TELEGRAM_OPERATOR_USER_ID not set");
+    // Two legitimate callers: the weekly cron (service-role key → the
+    // operator's own uid) and the "goal-review" chat skill, which invokes
+    // this with the signed-in user's own session JWT via
+    // supabase.functions.invoke(). The old isServiceRoleCaller-only gate
+    // rejected the second case outright — the chat skill has 401'd on every
+    // real use since it was written, because a real user session is never
+    // the service-role key.
+    const uid = await resolveAuthedUid(req, supabase);
+    if (!uid) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
 

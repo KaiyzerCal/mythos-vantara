@@ -10,6 +10,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { isServiceRoleCaller } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -407,6 +408,17 @@ async function upsertLastChecked(userId: string, adminSb: ReturnType<typeof crea
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // No auth check at all previously — config.toml has no entry for this
+  // function (default verify_jwt = true just checks for ANY validly signed
+  // JWT, and the anon key qualifies), so anyone holding the project's
+  // public anon key could trigger this across-every-account email/calendar/
+  // task scan — including running mavis-agent with auto-tier actions — on
+  // demand. No real frontend caller exists for this one — only the every-
+  // 5-minute cron.
+  if (!isServiceRoleCaller(req)) {
+    return json({ error: "Unauthorized" }, 401);
+  }
 
   try {
     const adminSb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });

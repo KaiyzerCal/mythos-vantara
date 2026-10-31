@@ -3,6 +3,7 @@
 // and inserts mavis_tasks rows for the task executor to pick up.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,6 +41,20 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    // No auth check at all previously — config.toml has no entry for this
+    // function (default verify_jwt = true just checks for ANY validly
+    // signed JWT, and the anon key qualifies), so anyone holding the
+    // project's public anon key could force-advance every account's due
+    // standing orders. The every-15-minute cron and the "standing-orders"
+    // chat skill (a real signed-in user's session) are the only legitimate
+    // callers; this function still sweeps every user's due templates either
+    // way (it never scoped to body.user_id), so this gate closes the
+    // no-credentials-at-all hole without changing that existing behavior.
+    const callerUid = await resolveAuthedUid(req, supabase);
+    if (!callerUid) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const now = new Date().toISOString();
 
     // Pull all active/pinned templates that have a cron_expression and are due

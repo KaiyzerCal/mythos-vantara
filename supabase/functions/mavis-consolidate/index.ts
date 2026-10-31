@@ -8,6 +8,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
+import { isServiceRoleCaller } from "../_shared/auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -349,6 +350,15 @@ async function handleNightlyConsolidation(): Promise<Response> {
 Deno.serve(async (req) => {
   if (req.method !== "POST" && req.method !== "GET") {
     return new Response("Method not allowed", { status: 405 });
+  }
+
+  // No auth check at all previously — config.toml sets verify_jwt = false
+  // for this function, so with no internal gate it was callable by anyone
+  // holding the project's public anon key, triggering a full nightly memory
+  // consolidation pass (and its LLM spend) across every account on demand.
+  // No real frontend caller exists for this one — only the nightly cron.
+  if (!isServiceRoleCaller(req)) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
 
   try {
