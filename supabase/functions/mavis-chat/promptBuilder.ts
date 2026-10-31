@@ -402,6 +402,10 @@ BPM / PROFILE / XP:
 :::ACTION{"type":"log_bpm_session","params":{"bpm":120,"form":"Base","duration":15,"mood":"focused","notes":"..."}}:::
 :::ACTION{"type":"update_profile","params":{"arc_story":"...","current_form":"...","fatigue":0,"full_cowl_sync":95,"codex_integrity":97,"inscribed_name":"...","level":54,"rank":"S"}}:::
 :::ACTION{"type":"award_xp","params":{"amount":100}}:::
+GOALS (the /goals page — create_goal only logs/tracks; it does NOT make MAVIS act on it. For an objective the operator wants MAVIS to actually decompose and pursue autonomously, use orchestrator/plan_execute/crew_execute above instead):
+:::ACTION{"type":"create_goal","params":{"objective":"...","context":"...","status":"active"}}:::
+:::ACTION{"type":"update_goal","params":{"goal_id":"...","status":"completed"}}:::
+:::ACTION{"type":"delete_goal","params":{"goal_id":"..."}}:::
 PERSONAS (Persona Forge / Persona Tab):
 :::ACTION{"type":"forge_persona","params":{"description":"Full natural-language spec of the persona — name, role (girlfriend/friend/mentor/rival/companion/custom), tone, quirks, values, communication style, archetype, etc. Be vivid and specific."}}:::
 :::ACTION{"type":"delete_persona","params":{"persona_name":"..."}}:::

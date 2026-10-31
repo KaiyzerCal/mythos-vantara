@@ -442,16 +442,19 @@ const MAVIS_TOOLS = [
             "Council: create_council_member | update_council_member | delete_council_member. " +
             "Allies: create_ally | update_ally | delete_ally. " +
             "Inventory: create_inventory_item | update_inventory_item | delete_inventory_item. " +
-            "Energy: create_energy_system | update_energy. " +
-            "Transformations: create_transformation | update_transformation. " +
-            "Rankings: create_ranking | update_ranking. " +
-            "Rituals & BPM: create_ritual | complete_ritual | log_bpm_session. " +
+            "Energy: create_energy_system | update_energy | delete_energy. " +
+            "Transformations: create_transformation | update_transformation | delete_transformation. " +
+            "Rankings: create_ranking | update_ranking | delete_ranking. " +
+            "Rituals & BPM: create_ritual | update_ritual | delete_ritual | complete_ritual | log_bpm_session. " +
             "Profile & XP: update_profile | award_xp. " +
             "Personas: forge_persona | delete_persona. " +
             "Revenue: propose_product | nora_tweet. " +
             "Knowledge Graph: create_note | update_note | delete_note | link_notes | unlink_notes. " +
-            "Autonomous Goals: goal. " +
-            "Store: create_store_item.",
+            "Tracked Goals (the /goals page — logs a goal; does NOT run it autonomously): create_goal | update_goal | delete_goal. " +
+            "Autonomous Goals (sets a background objective MAVIS decomposes and pursues by itself, and ALSO logs it to the same /goals page — use this, not create_goal, whenever the operator wants MAVIS to actually work the goal rather than just track it): goal. " +
+            "Calendar: create_calendar_event | update_calendar_event | delete_calendar_event. " +
+            "Domain effects: create_domain_effect | update_domain_effect | delete_domain_effect (full field list above). " +
+            "Store: create_store_item | update_store_item | delete_store_item.",
         },
         params: {
           type: "object",
@@ -471,11 +474,26 @@ const MAVIS_TOOLS = [
             "update_note: { note_id, title, content, tags }. " +
             "log_bpm_session: { bpm, duration, form, mood, notes }. " +
             "award_xp: { amount, reason }. " +
-            "update_profile: { stat_str, stat_agi, stat_int, fatigue, full_cowl_sync, current_form, current_bpm, display_name }. " +
+            "update_profile: see the full accepted field list near the end of this description. " +
             "create_inventory_item: { name, description, type ('equipment'|'weapon'|'artifact'|'consumable'|'material'), rarity ('common'|'rare'|'epic'|'legendary'|'mythic'), quantity, slot, tier, effect (prose flavor text), " +
             "stat_effects (array of { label, value, unit } — EVERY numeric bonus the item's own effect/flavor text names, e.g. 'grants +30% VIT, +15% STR' becomes [{label:'VIT',value:30,unit:'%'},{label:'STR',value:15,unit:'%'}]; label isn't limited to the 7 core stats — a custom one like 'Network Efficiency' or 'Lethality Enhancement' is fine too, exactly as named in the text), is_equipped }. " +
             "update_inventory_item: { item_id, plus any create_inventory_item field to change }. " +
-            "The Character tab's Stat Modifiers section reads ONLY stat_effects, never the effect text — writing a rich prose effect description and leaving stat_effects empty means the item visibly does nothing there even though it reads like it should. Any time an item's effect/flavor text states a specific number (a %, a flat value), put that number in stat_effects too; only genuinely qualitative effects (an ability name, a passive with no number, a hidden unlock condition) stay prose-only in effect.",
+            "The Character tab's Stat Modifiers section reads ONLY stat_effects, never the effect text — writing a rich prose effect description and leaving stat_effects empty means the item visibly does nothing there even though it reads like it should. Any time an item's effect/flavor text states a specific number (a %, a flat value), put that number in stat_effects too; only genuinely qualitative effects (an ability name, a passive with no number, a hidden unlock condition) stay prose-only in effect. " +
+            "create_skill / create_subskill: { name, description, category, energy_type, tier (0 for a pathway root, 1-10 for its sequences — Sequence 9 is tier 1, Sequence 0 is tier 10, matching this account's existing Beyonder pathway data), proficiency, cost, prerequisites (string[] of skill ids — the previous lower sequence's id, or [] for Sequence 9 / a non-pathway skill), parent_skill_id (for a sequence: the pathway ROOT's id — every sequence points at the root, never at each other; for an ability: THAT sequence's own id) }. update_skill: { skill_id (or skill_name), ...any create_skill field to change }. delete_skill: { skill_id or skill_name }. " +
+            "create_journal: { title, content, tags (string[]), category, importance ('low'|'medium'|'high'), mood, xp_earned (number — awarded to the operator immediately on insert, default 10) }. update_journal / delete_journal: { entry_id or entry_title/title, ...fields to change }. " +
+            "create_vault: { title, content, category, importance, attachments (string[]) }. update_vault / delete_vault: { entry_id or entry_title/title, ...fields }. " +
+            "create_council_member: { name, role, specialty, class, notes, avatar }. update_council_member / delete_council_member: { member_id or member_name/name, ...fields }. " +
+            "create_ally: { name, relationship, level, specialty, affinity (numeric score, default 50), notes }. update_ally / delete_ally: { ally_id or ally_name/name, ...fields }. " +
+            "create_energy_system: { type or name (the system's own name, e.g. 'Qi'/'Mana'/'Focus Points'), current_value, max_value, color (hex), description, status }. update_energy / delete_energy: { energy_id or energy_name/type, ...fields to change — 'energy_type' also accepted here as an alias for type }. " +
+            "create_transformation: { name, tier, form_order (number — display order among the operator's forms), bpm_range (e.g. '65–75'), energy, jjk_grade, op_tier, description, category, unlocked (bool), active_buffs / passive_buffs (array of { label, value, unit }), abilities (string[]) }. update_transformation / delete_transformation: { transformation_id or transformation_name/name, ...fields }. " +
+            "create_ritual: { name, description, ritual_type (a short category label, e.g. 'meditation'|'habit'|'daily'; 'type' also accepted), category, xp_reward }. update_ritual / delete_ritual: { ritual_id or ritual_name/name, ...fields }. complete_ritual awards xp_reward the same way complete_quest awards a quest's xp_reward. " +
+            "create_store_item: { name, description, price, currency (default 'Codex Points'), rarity, category, effect (prose), req_level, req_rank }. update_store_item / delete_store_item: { item_id (or store_item_id), ...fields }. " +
+            "create_ranking / create_ranking_profile: { display_name (or name), role (default 'npc'), rank, level, jjk_grade, op_tier, gpr, pvp, influence, notes, is_self (bool — true only for the operator's own ranking row) }. update_ranking / delete_ranking: { ranking_id (or profile_id), ...fields }. " +
+            "delete_persona: { persona_id or persona_name/name } — archives it (is_active:false); does not hard-delete. " +
+            "delete_note: { note_id or note_title/title }. link_notes: { source_note_id/source_note, target_note_id/target_note, type (default 'relates_to'), description }. unlink_notes: { link_id, OR source_note_id/source_note + target_note_id/target_note }. " +
+            "create_goal: { objective (or title/goal), context, status (default 'active') } — only logs a row on the /goals page; MAVIS does not act on it by itself. update_goal / delete_goal: { goal_id (or objective/title), ...fields }. If the operator wants MAVIS to actually pursue the objective (decompose it and work it autonomously), use the 'goal' action instead of create_goal — { objective, context } — which logs the same /goals row AND starts autonomous execution. " +
+            "create_calendar_event: { title (or summary), description, location, start_at (or start/date), end_at (or end) }. update_calendar_event / delete_calendar_event: { event_id or event_title/title, ...fields }. " +
+            "update_profile accepts any of: inscribed_name, true_name, titles, species_lineage, aura, territory_class, territory_floors, arc_story, stat_str, stat_agi, stat_vit, stat_int, stat_wis, stat_cha, stat_lck, fatigue, full_cowl_sync, codex_integrity, current_form, current_bpm, current_floor, aura_power, display_name, operator_level, operator_xp, notification_settings, rank, level, xp, xp_to_next_level, pvp_rating, gpr, avatar_url.",
         },
       },
       required: ["type", "params"],
@@ -654,15 +672,18 @@ async function handleTool(
           "create_council_member", "update_council_member", "delete_council_member",
           "create_ally", "update_ally", "delete_ally",
           "create_inventory_item", "update_inventory_item", "delete_inventory_item",
-          "create_energy_system", "update_energy",
-          "create_transformation", "update_transformation",
-          "create_ranking", "update_ranking",
-          "create_ritual", "complete_ritual", "log_bpm_session",
+          "create_energy_system", "update_energy", "delete_energy",
+          "create_transformation", "update_transformation", "delete_transformation",
+          "create_ranking", "update_ranking", "delete_ranking",
+          "create_ritual", "update_ritual", "delete_ritual", "complete_ritual", "log_bpm_session",
           "update_profile", "award_xp",
           "forge_persona", "delete_persona",
           "create_note", "update_note", "delete_note", "link_notes", "unlink_notes",
           "propose_product", "nora_tweet",
-          "goal", "create_store_item",
+          "goal", "create_goal", "update_goal", "delete_goal",
+          "create_calendar_event", "update_calendar_event", "delete_calendar_event",
+          "create_domain_effect", "update_domain_effect", "delete_domain_effect",
+          "create_store_item", "update_store_item", "delete_store_item",
         ]);
         if (VANTARA_REDIRECT_TYPES.has(actionType)) {
           const redirectParams = (input.payload ?? {}) as Record<string, unknown>;
@@ -2702,6 +2723,11 @@ FORGE A PERSONA → codexos_action(type="forge_persona", params={description:"fu
 LOG BPM SESSION → codexos_action(type="log_bpm_session", params={bpm, duration, form, mood, notes})
 
 AWARD XP → codexos_action(type="award_xp", params={amount, reason})
+
+ADD A SKILL / BEYONDER PATHWAY → codexos_action(type="create_skill", params={name, description, category, energy_type, tier, parent_skill_id, prerequisites})
+  ⚠️ See the codexos_action tool's own params description for the exact tier/parent_skill_id/prerequisites convention this account's pathways already follow — a skill saved with the wrong tier or parent_skill_id looks broken in the Skills tab's tree even though the insert succeeds.
+
+TRACK A GOAL vs. HAVE MAVIS ACTUALLY WORK ONE → create_goal just logs a row on the /goals page; "goal" ALSO decomposes it and works it autonomously. Default to "goal" unless the operator specifically wants it tracked only, not acted on.
 
 ── ALL GOOGLE CLOUD APIs (use google_api tool) ──────────────────────────────
 
