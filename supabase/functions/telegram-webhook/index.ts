@@ -11,7 +11,10 @@
 // After deploying, register the webhook by calling /telegram-setup once.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { aiComplete, hasCrudIntent } from "../_shared/providers.ts";
+import {
+  aiComplete, hasCrudIntent, ProviderUnavailableError,
+  callClaude as llmClaude, callOpenAI as llmOpenAI, callGrok as llmGrok, callLovable as llmLovable,
+} from "../_shared/providers.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 
@@ -712,102 +715,13 @@ CONFIRM-gated (auto-queued to Inbox): deletes, award_xp ≥500, vault updates, c
 // Only burns paid credits when cheaper options are unavailable.
 // ─────────────────────────────────────────────────────────────
 
-class ProviderUnavailableError extends Error {
-  constructor(public providerName: string, public status: number) {
-    super(`${providerName} unavailable (${status})`);
-  }
-}
-
-function isQuotaError(status: number, body: string): boolean {
-  if ([401, 402, 403, 429].includes(status)) return true;
-  const b = body.toLowerCase();
-  return b.includes("credit") || b.includes("quota") || b.includes("billing") || b.includes("insufficient");
-}
-
-async function tryGeminiFlash(system: string, messages: { role: string; content: string }[]): Promise<string> {
-  if (!AI_KEYS.lovable) throw new ProviderUnavailableError("lovable", 0);
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Lovable-API-Key": AI_KEYS.lovable },
-    body: JSON.stringify({
-      model: "google/gemini-3.6-flash",
-      messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 4096,
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new ProviderUnavailableError("lovable", res.status);
-  }
-  const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
-}
-
-async function tryOpenAI(system: string, messages: { role: string; content: string }[]): Promise<string> {
-  if (!AI_KEYS.openai) throw new ProviderUnavailableError("openai", 0);
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${AI_KEYS.openai}` },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 4096,
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    if (isQuotaError(res.status, t)) throw new ProviderUnavailableError("openai", res.status);
-    throw new Error(`OpenAI ${res.status}: ${t}`);
-  }
-  const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
-}
-
-async function tryClaude(system: string, messages: { role: string; content: string }[], model = "claude-haiku-4-5-20251001"): Promise<string> {
-  if (!AI_KEYS.claude) throw new ProviderUnavailableError("claude", 0);
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": AI_KEYS.claude,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      system,
-      messages: messages.map(m => ({ role: m.role, content: m.content })),
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    if (isQuotaError(res.status, t)) throw new ProviderUnavailableError("claude", res.status);
-    throw new Error(`Claude ${res.status}: ${t}`);
-  }
-  const d = await res.json();
-  return d.content?.[0]?.text ?? "";
-}
-
-async function tryGrok(system: string, messages: { role: string; content: string }[]): Promise<string> {
-  if (!AI_KEYS.grok) throw new ProviderUnavailableError("grok", 0);
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${AI_KEYS.grok}` },
-    body: JSON.stringify({
-      model: "grok-3-mini",
-      messages: [{ role: "system", content: system }, ...messages],
-      max_tokens: 4096,
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    if (isQuotaError(res.status, t)) throw new ProviderUnavailableError("grok", res.status);
-    throw new Error(`Grok ${res.status}: ${t}`);
-  }
-  const d = await res.json();
-  return d.choices?.[0]?.message?.content ?? "";
-}
-
+// The provider adapters themselves (raw fetch + error classification) used to
+// be reimplemented locally here — duplicated with _shared/providers.ts's
+// callClaude/callOpenAI/callGrok/callLovable. That meant any fix to one (a
+// retired model id, a wrong auth header) had to be made twice, and twice more
+// again in mavis-telegram-bot and mavis-persona-router's own copies. Now this
+// file only owns its cascade ORDER (CRUD-first, then free, then paid tiers in
+// this specific sequence) — the actual HTTP calls are the shared ones.
 async function callClaude(
   systemPrompt: string,
   messages: { role: string; content: string }[],
@@ -818,7 +732,7 @@ async function callClaude(
   // for the real action-executor to fill in correctly.
   const userText = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   if (AI_KEYS.claude && hasCrudIntent(userText)) {
-    try { return await tryClaude(systemPrompt, messages, "claude-sonnet-4-6"); }
+    try { return await llmClaude(messages, systemPrompt, AI_KEYS.claude, "claude-sonnet-4-6"); }
     catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] CRUD-intent Claude Sonnet unavailable → usual cascade"); }
   }
 
@@ -829,23 +743,32 @@ async function callClaude(
   } catch (e) { console.warn("[MAVIS-TG] free cascade unavailable:", e instanceof Error ? e.message : e); }
 
   // Tier 1 — Lovable Gemini Flash (workspace credits)
-  try { return await tryGeminiFlash(systemPrompt, messages); }
-  catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Gemini Flash unavailable → OpenAI mini"); }
+  if (AI_KEYS.lovable) {
+    try { return await llmLovable(messages, systemPrompt, AI_KEYS.lovable); }
+    catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Gemini Flash unavailable → OpenAI mini"); }
+  }
 
   // Tier 2 — OpenAI gpt-4o-mini (cheap)
-  try { return await tryOpenAI(systemPrompt, messages); }
-  catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] OpenAI mini unavailable → Claude Haiku"); }
+  if (AI_KEYS.openai) {
+    try { return await llmOpenAI(messages, systemPrompt, AI_KEYS.openai); }
+    catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] OpenAI mini unavailable → Claude Haiku"); }
+  }
 
   // Tier 3 — Claude Haiku (cheap)
-  try { return await tryClaude(systemPrompt, messages, "claude-haiku-4-5-20251001"); }
-  catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Claude Haiku unavailable → Claude Sonnet"); }
+  if (AI_KEYS.claude) {
+    try { return await llmClaude(messages, systemPrompt, AI_KEYS.claude, "claude-haiku-4-5-20251001"); }
+    catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Claude Haiku unavailable → Claude Sonnet"); }
+  }
 
   // Tier 4 — Claude Sonnet (premium, last paid resort)
-  try { return await tryClaude(systemPrompt, messages, "claude-sonnet-4-6"); }
-  catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Claude Sonnet unavailable → Grok"); }
+  if (AI_KEYS.claude) {
+    try { return await llmClaude(messages, systemPrompt, AI_KEYS.claude, "claude-sonnet-4-6"); }
+    catch (e) { if (!(e instanceof ProviderUnavailableError)) throw e; console.warn("[MAVIS-TG] Claude Sonnet unavailable → Grok"); }
+  }
 
   // Tier 5 — Grok (final fallback)
-  return await tryGrok(systemPrompt, messages);
+  if (!AI_KEYS.grok) throw new ProviderUnavailableError("grok", "no key configured", 0);
+  return await llmGrok(messages, systemPrompt, AI_KEYS.grok);
 }
 
 // ─────────────────────────────────────────────────────────────
