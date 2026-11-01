@@ -7,6 +7,15 @@
 // Triggered by: pg_cron every 4 hours  OR  POST /functions/v1/mavis-council-heartbeat
 // (the /council Telegram command used to force-fire every member on demand;
 // it now sends a single synthesized consensus instead — see telegram-webhook)
+//
+// Default behavior is now DIGEST-ONLY: the cron no longer runs each member's
+// full autonomous heartbeat (one real LLM completion + possible real actions
+// per member, every tick). It loads cheap roster data for every
+// heartbeat-enabled member and asks MAVIS for ONE synthesized digest,
+// mirroring /council's consensus. No automatic action-taking, no automatic
+// karma growth. The legacy per-member path (real actions, karma, memory)
+// still exists but only runs when a caller explicitly POSTs
+// {"force_individual": true} — it is not used by the cron.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
@@ -666,12 +675,12 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, message: "No heartbeat-enabled council members" }));
     }
 
-    // Filter to members who are due for their next check-in
     let body: any = {};
     try { body = await req.json(); } catch { /* no body */ }
-    const forceAll = body.force === true;
 
-    // Karma decay mode — apply weekly decay to inactive members
+    // Karma decay mode — apply weekly decay to inactive members (unchanged
+    // by the digest-only redesign; this is the only automatic karma mover
+    // left now that the default path never calls executeActions).
     if (body.karma_decay === true) {
       const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
       const inactive = (allMembers as any[]).filter((m: any) =>
@@ -686,59 +695,99 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, decay_applied: inactive.length }), { headers: { "Content-Type": "application/json" } });
     }
 
-    // Cap how many members actually run per tick. Without this, every
-    // member sharing the same heartbeat_interval_hrs (4h default) becomes
-    // due on the exact same cron tick and all fire together — one full LLM
-    // completion each, several individual Telegram messages at once. That's
-    // the same token-spike pattern the /council command's own fix addressed
-    // for manual triggers, just happening automatically every 4 hours
-    // instead. Processing only the most-overdue members here and leaving
-    // the rest due for the next tick desynchronizes a herd of same-interval
-    // members over a few runs instead of bursting them all at once.
-    // Tunable without a redeploy via COUNCIL_HEARTBEAT_MAX_PER_RUN.
-    const MAX_PER_RUN = Number(Deno.env.get("COUNCIL_HEARTBEAT_MAX_PER_RUN") ?? 2);
+    // Legacy per-member path: real actions, karma, memory. Not used by the
+    // cron — only reachable with an explicit {"force_individual": true} body.
+    if (body.force_individual === true) {
+      const forceAll = body.force === true;
+      const dueMembers = forceAll
+        ? allMembers
+        : (allMembers as any[])
+            .filter((m: any) => {
+              if (!m.last_heartbeat_at) return true;
+              const intervalMs = (m.heartbeat_interval_hrs ?? 4) * 60 * 60 * 1000;
+              return now.getTime() - new Date(m.last_heartbeat_at).getTime() >= intervalMs;
+            })
+            .sort((a: any, b: any) => {
+              const aTime = a.last_heartbeat_at ? new Date(a.last_heartbeat_at).getTime() : -Infinity;
+              const bTime = b.last_heartbeat_at ? new Date(b.last_heartbeat_at).getTime() : -Infinity;
+              return aTime - bTime;
+            });
 
-    const dueMembers = forceAll
-      ? allMembers
-      : (allMembers as any[])
-          .filter((m: any) => {
-            if (!m.last_heartbeat_at) return true;
-            const intervalMs = (m.heartbeat_interval_hrs ?? 4) * 60 * 60 * 1000;
-            return now.getTime() - new Date(m.last_heartbeat_at).getTime() >= intervalMs;
-          })
-          // Never-run members have no last_heartbeat_at — treat them as the
-          // most overdue so a brand-new member isn't starved indefinitely by
-          // members that keep re-qualifying every cycle.
-          .sort((a: any, b: any) => {
-            const aTime = a.last_heartbeat_at ? new Date(a.last_heartbeat_at).getTime() : -Infinity;
-            const bTime = b.last_heartbeat_at ? new Date(b.last_heartbeat_at).getTime() : -Infinity;
-            return aTime - bTime;
-          })
-          .slice(0, MAX_PER_RUN);
+      if (!dueMembers.length) {
+        return new Response(JSON.stringify({ ok: true, message: "No members due for heartbeat", total: allMembers.length }));
+      }
 
-    if (!dueMembers.length) {
-      return new Response(JSON.stringify({ ok: true, message: "No members due for heartbeat", total: allMembers.length }));
+      const context = await loadContext(uid);
+      const results = await Promise.allSettled(
+        dueMembers.map((m: any) => runMemberHeartbeat(m, uid, context))
+      );
+      const summaries = results.map((r, i) =>
+        r.status === "fulfilled" ? r.value : `${dueMembers[i].name}: ERROR — ${(r as any).reason?.message ?? "unknown"}`
+      );
+      console.log("[council-heartbeat] force_individual run complete:", summaries);
+      return new Response(JSON.stringify({
+        ok: true,
+        mode: "force_individual",
+        ran: dueMembers.length,
+        results: summaries,
+      }), { headers: { "Content-Type": "application/json" } });
     }
 
-    // Load shared context once (all members share the same operator context)
+    // ── Digest-only path — what the cron actually calls ──────────────
+    // Cheap roster-level data only (no per-member LLM calls, no actions),
+    // one MAVIS synthesis, one Telegram message — same pattern as the
+    // already-shipped /council command in telegram-webhook.
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+    const [unreadRes, recentActivityRes] = await Promise.all([
+      supabase.from("mavis_council_messages").select("to_member_id").eq("user_id", uid).eq("read", false),
+      supabase.from("mavis_council_activity").select("council_member_id, actions_executed").eq("user_id", uid).gte("created_at", sevenDaysAgo),
+    ]);
+
+    const unreadByMember: Record<string, number> = {};
+    for (const m of (unreadRes.data ?? []) as any[]) {
+      unreadByMember[m.to_member_id] = (unreadByMember[m.to_member_id] ?? 0) + 1;
+    }
+    const actionsByMember: Record<string, number> = {};
+    for (const a of (recentActivityRes.data ?? []) as any[]) {
+      actionsByMember[a.council_member_id] = (actionsByMember[a.council_member_id] ?? 0) + Number(a.actions_executed ?? 0);
+    }
+
+    const memberBriefs = (allMembers as any[]).map((m: any) => {
+      const lastHours = m.last_heartbeat_at ? Math.floor((now.getTime() - new Date(m.last_heartbeat_at).getTime()) / 3600000) : null;
+      const lastStr = lastHours !== null ? `${lastHours}h ago` : "never";
+      const unread = unreadByMember[m.id] ?? 0;
+      const actions7d = actionsByMember[m.id] ?? 0;
+      return `- ${m.name} (${m.role}${m.specialty ? `, specialty: ${m.specialty}` : ""}): karma ${m.karma ?? 0}, last active ${lastStr}, ${actions7d} action(s) in the last 7 days, ${unread} unread message(s) waiting for them.`;
+    }).join("\n");
+
     const context = await loadContext(uid);
 
-    // Run all due members in parallel
-    const results = await Promise.allSettled(
-      dueMembers.map((m: any) => runMemberHeartbeat(m, uid, context))
-    );
+    const digestSystem = `You are MAVIS, writing Calvin's scheduled council digest — one consolidated check-in standing in for every advisor speaking individually. Based on the roster data and Calvin's current state below, cover: what's notable across the council right now (observations), how the council collectively reads Calvin's current state (assessment), and the single highest-priority thing worth his attention (analysis). Ground it in the real data given — karma, activity, unread backlogs, quests, tasks — never invent specifics not in the data. 120-180 words, plain text, no headers or bullet points.`;
 
-    const summaries = results.map((r, i) =>
-      r.status === "fulfilled" ? r.value : `${dueMembers[i].name}: ERROR — ${(r as any).reason?.message ?? "unknown"}`
-    );
+    let digest = "";
+    try {
+      digest = (await aiComplete({ system: digestSystem, user: `Council roster:\n${memberBriefs}\n\nCalvin's current state:\n${context}` })).content;
+    } catch (err) {
+      console.error("[council-heartbeat] digest synthesis failed:", err);
+    }
 
-    console.log("[council-heartbeat] Run complete:", summaries);
+    if (digest && BOT_TOKEN && CHAT_ID) {
+      await sendTelegram(`[MAVIS · Council Digest]\n${digest}`);
+    }
+
+    // Mark every heartbeat-enabled member checked-in so none pile up as
+    // "due". Karma is untouched here — it only grows via force_individual
+    // and decays via karma_decay.
+    await supabase.from("councils")
+      .update({ last_heartbeat_at: now.toISOString() })
+      .eq("user_id", uid)
+      .eq("heartbeat_enabled", true);
 
     return new Response(JSON.stringify({
       ok: true,
-      ran: dueMembers.length,
-      skipped: allMembers.length - dueMembers.length,
-      results: summaries,
+      mode: "digest",
+      members_covered: allMembers.length,
+      digest_sent: Boolean(digest),
     }), { headers: { "Content-Type": "application/json" } });
 
   } catch (err) {
