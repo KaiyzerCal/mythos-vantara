@@ -8,14 +8,19 @@
 // (the /council Telegram command used to force-fire every member on demand;
 // it now sends a single synthesized consensus instead — see telegram-webhook)
 //
-// Default behavior is now DIGEST-ONLY: the cron no longer runs each member's
-// full autonomous heartbeat (one real LLM completion + possible real actions
-// per member, every tick). It loads cheap roster data for every
-// heartbeat-enabled member and asks MAVIS for ONE synthesized digest,
-// mirroring /council's consensus. No automatic action-taking, no automatic
-// karma growth. The legacy per-member path (real actions, karma, memory)
-// still exists but only runs when a caller explicitly POSTs
-// {"force_individual": true} — it is not used by the cron.
+// Default behavior: the cron no longer runs each member's full autonomous
+// heartbeat (one real LLM completion + possible real actions per member,
+// every tick). Instead it loads cheap roster data for every
+// heartbeat-enabled member and makes ONE MAVIS-synthesized check-in call,
+// mirroring /council's consensus — but MAVIS herself can still take real
+// actions off that one call (create_quest, create_task, create_note,
+// award_xp, council_notify) when the roster data clearly warrants it.
+// Those actions are attributed to MAVIS, not to any individual member, and
+// are not karma-gated — individual council members' karma is untouched by
+// the scheduled path. The legacy per-member path (each member runs their
+// own full heartbeat, with karma gates and personal memory) still exists
+// but only runs when a caller explicitly POSTs {"force_individual": true}
+// — it is not used by the cron.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
@@ -587,6 +592,77 @@ async function logActivity(
 }
 
 // ─────────────────────────────────────────────────────────────
+// MAVIS DIGEST ACTION EXECUTOR
+// Actions MAVIS proposes directly off her one synthesis call, not tied
+// to any individual council member — no karma gate (this is MAVIS acting
+// as orchestrator, not a junior member proving herself), no
+// council_remember/council_message (those are per-member concepts).
+// Same dedup guard as the per-member executor so a 4-hourly digest can't
+// spam duplicate quests/tasks.
+// ─────────────────────────────────────────────────────────────
+
+const MAVIS_ACTION_TYPES = new Set(["create_quest", "create_task", "create_note", "award_xp", "council_notify"]);
+
+async function executeMavisActions(actions: any[], userId: string): Promise<{ executed: number; notified: boolean }> {
+  let executed = 0;
+  let notified = false;
+
+  for (const action of actions) {
+    const type = String(action.type ?? "");
+    if (!MAVIS_ACTION_TYPES.has(type)) continue;
+
+    if (type === "council_notify") {
+      const msg = action.params?.message ?? action.message ?? "";
+      if (msg && BOT_TOKEN && CHAT_ID) {
+        await sendTelegram(`[MAVIS]\n${msg}`);
+        notified = true;
+        executed++;
+      }
+      continue;
+    }
+
+    if (type === "award_xp") {
+      const params = action.params ?? {};
+      params.amount = Math.min(Number(params.amount ?? 50), 100);
+      action.params = params;
+    }
+
+    if (type === "create_quest" || type === "create_task") {
+      const table  = type === "create_quest" ? "quests" : "tasks";
+      const title  = String((action.params as any)?.title ?? "").trim().toLowerCase().slice(0, 40);
+      const cutoff = new Date(Date.now() - 14 * 86400000).toISOString();
+      if (title.length >= 4) {
+        const { data: existing } = await supabase
+          .from(table)
+          .select("id")
+          .eq("user_id", userId)
+          .gte("created_at", cutoff)
+          .ilike("title", `%${title.slice(0, 30)}%`)
+          .limit(1);
+        if (existing?.length) {
+          console.log(`[council-heartbeat] digest dedup: skipped ${type} "${(action.params as any)?.title}"`);
+          continue;
+        }
+      }
+    }
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mavis-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
+        body: JSON.stringify({ actions: [action], userId }),
+      });
+      if (res.ok) executed++;
+      else console.warn(`[council-heartbeat] digest action ${type} failed: ${res.status}`);
+    } catch (err) {
+      console.error(`[council-heartbeat] digest action ${type} error:`, err);
+    }
+  }
+
+  return { executed, notified };
+}
+
+// ─────────────────────────────────────────────────────────────
 // RUN A SINGLE MEMBER'S HEARTBEAT
 // ─────────────────────────────────────────────────────────────
 
@@ -733,10 +809,11 @@ Deno.serve(async (req) => {
       }), { headers: { "Content-Type": "application/json" } });
     }
 
-    // ── Digest-only path — what the cron actually calls ──────────────
-    // Cheap roster-level data only (no per-member LLM calls, no actions),
-    // one MAVIS synthesis, one Telegram message — same pattern as the
-    // already-shipped /council command in telegram-webhook.
+    // ── Digest path — what the cron actually calls ────────────────────
+    // Cheap roster-level data only (no per-member LLM calls), one MAVIS
+    // call, one Telegram message — same pattern as the already-shipped
+    // /council command — except this one call may also propose real
+    // actions, which get executed directly (see executeMavisActions).
     const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
     const [unreadRes, recentActivityRes] = await Promise.all([
       supabase.from("mavis_council_messages").select("to_member_id").eq("user_id", uid).eq("read", false),
@@ -762,22 +839,48 @@ Deno.serve(async (req) => {
 
     const context = await loadContext(uid);
 
-    const digestSystem = `You are MAVIS, writing Calvin's scheduled council digest — one consolidated check-in standing in for every advisor speaking individually. Based on the roster data and Calvin's current state below, cover: what's notable across the council right now (observations), how the council collectively reads Calvin's current state (assessment), and the single highest-priority thing worth his attention (analysis). Ground it in the real data given — karma, activity, unread backlogs, quests, tasks — never invent specifics not in the data. 120-180 words, plain text, no headers or bullet points.`;
+    const digestSystem = `You are MAVIS, running Calvin's scheduled council check-in — one consolidated voice standing in for every advisor speaking individually. Based on the roster data and Calvin's current state below, write 120-180 words covering: what's notable across the council right now (observations), how the council collectively reads Calvin's current state (assessment), and the single highest-priority thing worth his attention (analysis). Plain text, no headers or bullet points. Ground every claim in the real data given — karma, activity, unread backlogs, quests, tasks — never invent specifics not in the data.
 
-    let digest = "";
+You may ALSO take real action when the data clearly warrants it — this is a 4-hour check-in, not a hyperactive one, so default to zero or one action and never more than two. Use the exact :::ACTION{...}::: syntax, anywhere in your reply; params is always a nested object. Your prose above should stand on its own without the action blocks — they're parsed out before Calvin sees the digest, and he's told separately what you did.
+
+:::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"side|main|daily|epic","difficulty":"Easy|Normal|Hard|Extreme","xp_reward":100,"category":"..."}}:::
+:::ACTION{"type":"create_task","params":{"title":"...","description":"...","type":"task|habit","recurrence":"once|daily|weekly","xp_reward":25,"priority":"low|medium|high|critical"}}:::
+:::ACTION{"type":"create_note","params":{"title":"...","content":"Full markdown content...","tags":["tag1","tag2"]}}:::
+:::ACTION{"type":"award_xp","params":{"amount":50,"reason":"..."}}:::  (use sparingly, max 100, only when clearly earned)
+:::ACTION{"type":"council_notify","params":{"message":"Direct alert — 1-3 sentences max"}}:::  (only for something urgent enough to interrupt him separately from the digest itself)`;
+
+    let rawDigest = "";
     try {
-      digest = (await aiComplete({ system: digestSystem, user: `Council roster:\n${memberBriefs}\n\nCalvin's current state:\n${context}` })).content;
+      rawDigest = (await aiComplete({ system: digestSystem, user: `Council roster:\n${memberBriefs}\n\nCalvin's current state:\n${context}` })).content;
     } catch (err) {
       console.error("[council-heartbeat] digest synthesis failed:", err);
     }
 
+    const actions = rawDigest ? parseActions(rawDigest) : [];
+    const digest = rawDigest ? stripActions(rawDigest) : "";
+    const { executed, notified } = actions.length ? await executeMavisActions(actions, uid) : { executed: 0, notified: false };
+
     if (digest && BOT_TOKEN && CHAT_ID) {
-      await sendTelegram(`[MAVIS · Council Digest]\n${digest}`);
+      const suffix = executed > 0 && !notified ? `\n\n✓ ${executed} action${executed !== 1 ? "s" : ""} taken` : "";
+      await sendTelegram(`[MAVIS · Council Digest]\n${digest}${suffix}`);
+    }
+
+    if (rawDigest) {
+      await supabase.from("mavis_council_activity").insert({
+        user_id:           uid,
+        council_member_id: null,
+        member_name:       "MAVIS",
+        summary:           digest.slice(0, 1000),
+        actions_taken:     actions,
+        actions_executed:  executed,
+        karma_delta:       0,
+      });
     }
 
     // Mark every heartbeat-enabled member checked-in so none pile up as
-    // "due". Karma is untouched here — it only grows via force_individual
-    // and decays via karma_decay.
+    // "due". Individual member karma is untouched here — it only grows
+    // via force_individual and decays via karma_decay; MAVIS's own actions
+    // above aren't attributed to any one member's karma.
     await supabase.from("councils")
       .update({ last_heartbeat_at: now.toISOString() })
       .eq("user_id", uid)
@@ -788,6 +891,7 @@ Deno.serve(async (req) => {
       mode: "digest",
       members_covered: allMembers.length,
       digest_sent: Boolean(digest),
+      actions_executed: executed,
     }), { headers: { "Content-Type": "application/json" } });
 
   } catch (err) {
