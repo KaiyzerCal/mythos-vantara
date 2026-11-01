@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { vaultObjectPathOf, signVaultUrls } from "@/lib/vaultMedia";
 import { PageHeader } from "@/components/SharedUI";
 import { LoadingState } from "@/components/LoadingState";
 import { Loader2, Image, Music, Video, Globe, Download, ExternalLink, RefreshCw, Grid3X3, Wand2, Send, Sparkles, Film, Camera, Upload, Play, Trash2, Pencil, X, Maximize2, History } from "lucide-react";
@@ -51,46 +52,18 @@ function classify(fileType: string, url: string): MediaItem["type"] | null {
   return t === "" ? "image" : null;
 }
 
-// vault-media is a PRIVATE bucket (made private in 20260331225024), but
-// mavis-chat and mavis-actions both persist getPublicUrl() results into
-// file_url. Those URLs 400 for everyone, which is why generated media showed
-// up as broken tiles. Detect them and mint a signed URL at read time.
-const VAULT_PUBLIC_MARKER = "/storage/v1/object/public/vault-media/";
-
-function vaultObjectPath(url: string): string | null {
-  const idx = url.indexOf(VAULT_PUBLIC_MARKER);
-  if (idx === -1) return null;
-  return decodeURIComponent(url.slice(idx + VAULT_PUBLIC_MARKER.length).split("?")[0]);
-}
-
-// A re-signed URL looks like /storage/v1/object/sign/vault-media/<path>?token=…
-const VAULT_SIGNED_MARKER = "/storage/v1/object/sign/vault-media/";
-
-function signedVaultObjectPath(url: string): string | null {
-  const idx = url.indexOf(VAULT_SIGNED_MARKER);
-  if (idx === -1) return null;
-  return decodeURIComponent(url.slice(idx + VAULT_SIGNED_MARKER.length).split("?")[0]);
-}
-
-// Covers both stored forms: the dead public URL, and a previously-signed URL
-// whose token has since expired. Re-signing on every load keeps the gallery
-// self-healing instead of decaying into broken tiles.
-function vaultPathOf(url: string): string | null {
-  return vaultObjectPath(url) ?? signedVaultObjectPath(url);
-}
+// vault-media is a PRIVATE bucket; several server-side callers persist dead
+// getPublicUrl() results, and even a signed URL's token eventually expires.
+// vaultObjectPathOf/signVaultUrls (shared with VaultCodexPage, which has the
+// same issue) detect either stored shape and re-sign at read time.
+const vaultPathOf = vaultObjectPathOf;
 
 async function repairVaultUrls(items: MediaItem[]): Promise<MediaItem[]> {
-  const paths = items.map(i => vaultPathOf(i.url)).filter((p): p is string => !!p);
-  if (paths.length === 0) return items;
-  const { data, error } = await supabase.storage
-    .from("vault-media")
-    .createSignedUrls([...new Set(paths)], 60 * 60 * 24 * 7);
-  if (error || !data) return items;
-  const byPath = new Map(data.map(d => [d.path ?? "", d.signedUrl]));
+  const signed = await signVaultUrls(items.map(i => i.url));
+  if (signed.size === 0) return items;
   return items.map(i => {
-    const path = vaultPathOf(i.url);
-    const signed = path ? byPath.get(path) : undefined;
-    return signed ? { ...i, url: signed } : i;
+    const url = signed.get(i.url);
+    return url ? { ...i, url } : i;
   });
 }
 

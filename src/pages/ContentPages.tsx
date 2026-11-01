@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 import { recordAutoMemory } from "@/mavis/autoMemory";
+import { signVaultUrls, vaultObjectPathOf } from "@/lib/vaultMedia";
 
 // ─── Journal templates ─────────────────────────────────────
 const JOURNAL_TEMPLATES = [
@@ -354,27 +355,36 @@ export function VaultCodexPage() {
     setBacklinks(prev => ({ ...prev, [entryId]: links }));
   }, [session?.user?.id, backlinks]);
 
-  const categories = ["all", "legal", "business", "personal", "evidence", "achievement"];
+  const categories = ["all", "legal", "business", "personal", "evidence", "achievement", "media"];
   const filtered = vaultEntries.filter((e) => catFilter === "all" || e.category === catFilter);
   const importanceBorder: Record<string, string> = { critical: "border-red-700/50", high: "border-amber-700/50", medium: "border-border", low: "border-border/50" };
   const importanceColor: Record<string, string> = { critical: "text-red-400", high: "text-amber-400", medium: "text-blue-400", low: "text-muted-foreground" };
 
+  // Loads vault_media and groups it by entry (or "__unlinked" for standalone
+  // files). vault-media is a PRIVATE storage bucket, but the row's file_url
+  // was historically written as a public URL (or a signed one whose token
+  // has since expired) by several server-side callers — either one 400s on
+  // fetch. signVaultUrls re-signs on every load so media is self-healing
+  // instead of showing as broken tiles.
+  const loadVaultMedia = useCallback(async (userId: string) => {
+    const { data } = await supabase.from("vault_media").select("*").eq("user_id", userId).order("created_at", { ascending: false });
+    if (!data) return;
+    const signed = await signVaultUrls(data.map((m: any) => m.file_url));
+    const grouped: Record<string, any[]> = {};
+    data.forEach((m: any) => {
+      const row = { ...m, file_url: signed.get(m.file_url) ?? m.file_url };
+      const key = row.vault_entry_id || "__unlinked";
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(row);
+    });
+    setEntryMedia(grouped);
+  }, []);
+
   // Load media for all entries
   useEffect(() => {
     if (!session?.user?.id) return;
-    (async () => {
-      const { data } = await supabase.from("vault_media").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false });
-      if (data) {
-        const grouped: Record<string, any[]> = {};
-        data.forEach((m: any) => {
-          const key = m.vault_entry_id || "__unlinked";
-          if (!grouped[key]) grouped[key] = [];
-          grouped[key].push(m);
-        });
-        setEntryMedia(grouped);
-      }
-    })();
-  }, [session?.user?.id, vaultEntries.length]);
+    loadVaultMedia(session.user.id);
+  }, [session?.user?.id, vaultEntries.length, loadVaultMedia]);
 
   const resetForm = () => { setForm({ title: "", content: "", category: "personal", importance: "medium" }); setEditingId(null); setShowCreate(false); };
 
@@ -496,16 +506,7 @@ export function VaultCodexPage() {
       }
 
       // Reload media
-      const { data } = await supabase.from("vault_media").select("*").eq("user_id", userId).order("created_at", { ascending: false });
-      if (data) {
-        const grouped: Record<string, any[]> = {};
-        data.forEach((m: any) => {
-          const key = m.vault_entry_id || "__unlinked";
-          if (!grouped[key]) grouped[key] = [];
-          grouped[key].push(m);
-        });
-        setEntryMedia(grouped);
-      }
+      await loadVaultMedia(userId);
 
       toast.success(`${files.length} file(s) uploaded`);
     } catch (err) {
@@ -519,26 +520,19 @@ export function VaultCodexPage() {
 
   const deleteMedia = async (mediaId: string, filePath: string) => {
     try {
-      // Extract the storage path from the URL
-      const pathMatch = filePath.match(/vault-media\/(.+)$/);
-      if (pathMatch) {
-        await supabase.storage.from("vault-media").remove([pathMatch[1]]);
+      // Extract the storage path from the URL. filePath may now be a signed
+      // URL (…/sign/vault-media/<path>?token=…) since entryMedia rows carry
+      // re-signed URLs — a plain "everything after vault-media/" regex would
+      // capture the ?token=… query string too and silently fail to delete
+      // the underlying storage object. vaultObjectPathOf strips it.
+      const objectPath = vaultObjectPathOf(filePath);
+      if (objectPath) {
+        await supabase.storage.from("vault-media").remove([objectPath]);
       }
       await supabase.from("vault_media").delete().eq("id", mediaId);
-      
+
       // Refresh
-      if (session?.user?.id) {
-        const { data } = await supabase.from("vault_media").select("*").eq("user_id", session.user.id).order("created_at", { ascending: false });
-        if (data) {
-          const grouped: Record<string, any[]> = {};
-          data.forEach((m: any) => {
-            const key = m.vault_entry_id || "__unlinked";
-            if (!grouped[key]) grouped[key] = [];
-            grouped[key].push(m);
-          });
-          setEntryMedia(grouped);
-        }
-      }
+      if (session?.user?.id) await loadVaultMedia(session.user.id);
       toast.success("File deleted");
     } catch { toast.error("Delete failed"); }
   };
@@ -823,35 +817,44 @@ export function VaultCodexPage() {
         ))}
       </div>
 
-      {/* Standalone media gallery */}
-      {standaloneMedia.length > 0 && (
+      {/* Standalone media gallery — only takes up room when the "media"
+          category pill is selected, instead of always sitting above the
+          note entries pushing them down the page. */}
+      {catFilter === "media" && (
         <HudCard>
           <p className="text-xs font-mono text-primary uppercase tracking-widest mb-2">Vault Files ({standaloneMedia.length})</p>
-          <div className="grid grid-cols-2 gap-2">
-            {standaloneMedia.map((m: any) => (
-              <div key={m.id} className="relative group border border-border/50 rounded-lg overflow-hidden">
-                {m.file_type === "image" ? (
-                  <img src={m.file_url} alt={m.file_name} className="w-full h-20 object-cover" />
-                ) : (
-                  <div className="w-full h-20 flex flex-col items-center justify-center gap-1 bg-muted/20">
-                    {getFileIcon(m.file_type)}
-                    <span className="text-xs font-mono text-muted-foreground truncate max-w-[90%]">{m.file_name}</span>
+          {standaloneMedia.length === 0 ? (
+            <p className="text-xs font-mono text-muted-foreground text-center py-8">No standalone files yet — upload one with the Upload button above.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {standaloneMedia.map((m: any) => (
+                <div key={m.id} className="relative group border border-border/50 rounded-lg overflow-hidden">
+                  {m.file_type === "image" ? (
+                    <img src={m.file_url} alt={m.file_name} className="w-full h-20 object-cover" />
+                  ) : (
+                    <div className="w-full h-20 flex flex-col items-center justify-center gap-1 bg-muted/20">
+                      {getFileIcon(m.file_type)}
+                      <span className="text-xs font-mono text-muted-foreground truncate max-w-[90%]">{m.file_name}</span>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={12} className="text-primary" /></a>
+                    <button onClick={() => setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name })} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
                   </div>
-                )}
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <a href={m.file_url} target="_blank" rel="noopener noreferrer" className="p-1 bg-primary/20 rounded"><Eye size={12} className="text-primary" /></a>
-                  <button onClick={() => setConfirmDeleteMedia({ id: m.id, fileUrl: m.file_url, label: m.file_name })} className="p-1 bg-destructive/20 rounded"><Trash2 size={12} className="text-destructive" /></button>
+                  <div className="px-1.5 py-1 bg-card">
+                    <p className="text-xs font-mono truncate text-muted-foreground">{formatFileSize(m.file_size)}</p>
+                  </div>
                 </div>
-                <div className="px-1.5 py-1 bg-card">
-                  <p className="text-xs font-mono truncate text-muted-foreground">{formatFileSize(m.file_size)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </HudCard>
       )}
 
-      <div className="space-y-2">
+      {/* Note entries never carry category "media" — showing the (empty)
+          notes list and its "Vault empty" message under the Vault Files
+          card above would just be noise. */}
+      {catFilter !== "media" && <div className="space-y-2">
         {filtered.map((e) => {
           const isExpanded = expandedId === e.id;
           const media = entryMedia[e.id] || [];
@@ -984,7 +987,7 @@ export function VaultCodexPage() {
           );
         })}
         {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
-      </div>
+      </div>}
       </>}
       <ConfirmDialog
         open={confirmDeleteMedia !== null}
