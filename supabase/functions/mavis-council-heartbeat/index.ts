@@ -4,8 +4,9 @@
 // Calvin's current state through the lens of their specialty, and
 // takes meaningful actions — quests, tasks, notes, or direct alerts.
 //
-// Triggered by: pg_cron every 4 hours  OR  /council Telegram command
-//               OR POST /functions/v1/mavis-council-heartbeat
+// Triggered by: pg_cron every 4 hours  OR  POST /functions/v1/mavis-council-heartbeat
+// (the /council Telegram command used to force-fire every member on demand;
+// it now sends a single synthesized consensus instead — see telegram-webhook)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
@@ -685,13 +686,35 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, decay_applied: inactive.length }), { headers: { "Content-Type": "application/json" } });
     }
 
+    // Cap how many members actually run per tick. Without this, every
+    // member sharing the same heartbeat_interval_hrs (4h default) becomes
+    // due on the exact same cron tick and all fire together — one full LLM
+    // completion each, several individual Telegram messages at once. That's
+    // the same token-spike pattern the /council command's own fix addressed
+    // for manual triggers, just happening automatically every 4 hours
+    // instead. Processing only the most-overdue members here and leaving
+    // the rest due for the next tick desynchronizes a herd of same-interval
+    // members over a few runs instead of bursting them all at once.
+    // Tunable without a redeploy via COUNCIL_HEARTBEAT_MAX_PER_RUN.
+    const MAX_PER_RUN = Number(Deno.env.get("COUNCIL_HEARTBEAT_MAX_PER_RUN") ?? 2);
+
     const dueMembers = forceAll
       ? allMembers
-      : (allMembers as any[]).filter((m: any) => {
-          if (!m.last_heartbeat_at) return true;
-          const intervalMs = (m.heartbeat_interval_hrs ?? 4) * 60 * 60 * 1000;
-          return now.getTime() - new Date(m.last_heartbeat_at).getTime() >= intervalMs;
-        });
+      : (allMembers as any[])
+          .filter((m: any) => {
+            if (!m.last_heartbeat_at) return true;
+            const intervalMs = (m.heartbeat_interval_hrs ?? 4) * 60 * 60 * 1000;
+            return now.getTime() - new Date(m.last_heartbeat_at).getTime() >= intervalMs;
+          })
+          // Never-run members have no last_heartbeat_at — treat them as the
+          // most overdue so a brand-new member isn't starved indefinitely by
+          // members that keep re-qualifying every cycle.
+          .sort((a: any, b: any) => {
+            const aTime = a.last_heartbeat_at ? new Date(a.last_heartbeat_at).getTime() : -Infinity;
+            const bTime = b.last_heartbeat_at ? new Date(b.last_heartbeat_at).getTime() : -Infinity;
+            return aTime - bTime;
+          })
+          .slice(0, MAX_PER_RUN);
 
     if (!dueMembers.length) {
       return new Response(JSON.stringify({ ok: true, message: "No members due for heartbeat", total: allMembers.length }));
