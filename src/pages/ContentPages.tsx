@@ -577,7 +577,7 @@ export function VaultCodexPage() {
               onClick={() => setShowGallery(g => !g)}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded border transition-all ${showGallery ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted/30 border-border text-muted-foreground hover:text-primary hover:border-primary/30"}`}
             >
-              <LayoutGrid size={12} /> Gallery
+              {showGallery ? <><X size={12} /> Back to Vault</> : <><LayoutGrid size={12} /> Gallery</>}
             </button>
             <button
               onClick={() => { setShowUploadFor("__standalone"); setShowGallery(false); }}
@@ -676,6 +676,16 @@ export function VaultCodexPage() {
               exit={{ opacity: 0, y: -6 }}
               className="space-y-3"
             >
+              {/* Explicit close affordance — the header "Gallery" button
+                  toggling is easy to miss since its only other signal is a
+                  subtle active-state color change. */}
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-mono text-primary uppercase tracking-widest">Media Gallery ({allMedia.length})</p>
+                <button onClick={() => setShowGallery(false)} className="flex items-center gap-1 text-xs font-mono text-muted-foreground hover:text-foreground">
+                  <X size={14} /> Close
+                </button>
+              </div>
+
               {/* Tab pills */}
               <div className="flex gap-1.5 flex-wrap">
                 {TABS.map(t => (
