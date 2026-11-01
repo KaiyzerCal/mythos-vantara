@@ -1608,9 +1608,6 @@ async function handleCommand(command: string, chatId: string, fullText: string):
     }
 
     case "/council": {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
       // Load members + unread message counts in parallel
       const [membersRes, unreadRes, recentActivityRes] = await Promise.all([
         supabase
@@ -1642,24 +1639,43 @@ async function handleCommand(command: string, chatId: string, fullText: string):
         actionsByMember[a.council_member_id] = (actionsByMember[a.council_member_id] ?? 0) + Number(a.actions_executed ?? 0);
       }
 
-      // Trigger heartbeats (non-blocking)
-      fetch(`${supabaseUrl}/functions/v1/mavis-council-heartbeat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-        body: JSON.stringify({ force: true }),
-      }).catch(() => {});
-
-      const roster = (membersRes.data as any[]).map((m: any) => {
+      const memberStats = (membersRes.data as any[]).map((m: any) => {
         const lastHours = m.last_heartbeat_at
           ? Math.floor((Date.now() - new Date(m.last_heartbeat_at).getTime()) / 3600000)
           : null;
-        const lastStr    = lastHours !== null ? `${lastHours}h ago` : "never";
-        const unread     = unreadByMember[m.id] ? ` | ${unreadByMember[m.id]} unread msg` : "";
-        const actions7d  = actionsByMember[m.id] ? ` | ${actionsByMember[m.id]} actions/7d` : "";
-        return `• ${m.name} [${m.role}] | karma: ${m.karma ?? 0} | last: ${lastStr}${actions7d}${unread}`;
-      }).join("\n");
+        return {
+          m,
+          lastStr:   lastHours !== null ? `${lastHours}h ago` : "never",
+          unread:    unreadByMember[m.id] ?? 0,
+          actions7d: actionsByMember[m.id] ?? 0,
+        };
+      });
 
-      return `Council Status\n\n${roster}\n\nAwakening all members now — expect messages shortly.`;
+      const roster = memberStats.map(({ m, lastStr, unread, actions7d }) =>
+        `• ${m.name} [${m.role}] | karma: ${m.karma ?? 0} | last: ${lastStr}${actions7d ? ` | ${actions7d} actions/7d` : ""}${unread ? ` | ${unread} unread msg` : ""}`
+      ).join("\n");
+
+      // One MAVIS synthesis standing in for the whole council's take, instead
+      // of forcing every member through a full individual heartbeat (one
+      // real LLM completion PER member, every time this command ran — the
+      // token spend the operator flagged). The real autonomous per-member
+      // heartbeat (actual action execution, karma, memory) still runs on its
+      // own schedule via the mavis-council-heartbeat cron; this command just
+      // no longer force-triggers all of them at once for a manual check-in.
+      const memberBriefs = memberStats.map(({ m, lastStr, unread, actions7d }) =>
+        `- ${m.name} (${m.role}${m.specialty ? `, specialty: ${m.specialty}` : ""}): karma ${m.karma ?? 0}, last active ${lastStr}, ${actions7d} action(s) in the last 7 days, ${unread} unread message(s) waiting for them.`
+      ).join("\n");
+
+      const consensusSystem = `You are MAVIS, giving the operator ONE consolidated council check-in instead of letting each advisor speak individually. Based only on the roster data below, write a brief consensus covering: what's notable across the group right now (observations), how the council collectively reads the operator's current state (assessment), and the single highest-priority thing worth their attention (analysis). Ground it in the real numbers given — karma, activity, unread backlogs — never invent specifics about advisors or events not in the data. 120-180 words, plain text, no headers or bullet points.`;
+
+      let consensus = "";
+      try {
+        consensus = (await aiComplete({ system: consensusSystem, user: `Council roster:\n${memberBriefs}` })).content;
+      } catch (err) {
+        console.error("[Telegram/council] consensus synthesis failed:", err);
+      }
+
+      return `Council Check-In\n\n${roster}\n\n${consensus || "Consensus synthesis unavailable right now — roster above is still current."}`;
     }
 
     case "/preview": {
