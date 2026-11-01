@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+// @ts-ignore — web-push is CommonJS at runtime; @types/web-push has no default export
 import webpush from "https://esm.sh/web-push@3.6.7";
 
 const corsHeaders = {
