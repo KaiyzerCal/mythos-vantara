@@ -4,14 +4,16 @@
 // Calvin's current state through the lens of their specialty, and
 // takes meaningful actions — quests, tasks, notes, or direct alerts.
 //
-// Triggered by two separate pg_cron jobs (plus manual POSTs):
-//   - mavis-council-heartbeat-4h  (every 4h, plain body)         → digest path
-//   - mavis-council-individual-daily (once/day, {"force_individual":true,"force":true}) → per-member path
+// Triggered by three separate pg_cron jobs (plus manual POSTs):
+//   - mavis-council-heartbeat-4h     (every 4h,  plain body)                        → digest path
+//   - mavis-council-individual-daily (daily 13:00 UTC, {"force_individual":true,"force":true}) → per-member path
+//   - mavis-karma-decay-weekly       (Sun 23:00 UTC, {"karma_decay":true})          → decay path
 // (the /council Telegram command used to force-fire every member on demand;
 // it now sends a single synthesized consensus instead — see telegram-webhook)
 //
-// Two tiers, by design — Calvin wants real per-member autonomy, just at a
-// cheaper cadence than every 4 hours:
+// Two autonomy tiers, by design — Calvin wants real per-member autonomy,
+// just at a cheaper cadence than every 4 hours, plus decay so karma doesn't
+// only ever climb:
 //   1. Every 4h: cheap roster data for every heartbeat-enabled member, ONE
 //      MAVIS-synthesized check-in call, mirroring /council's consensus.
 //      MAVIS herself can take real actions off that one call (create_quest,
@@ -24,6 +26,9 @@
 //      automatic caller of it. "force": true alongside it (as the daily
 //      cron sends) bypasses each member's own due-check, since the 4h
 //      digest tick already touches last_heartbeat_at for everyone.
+//   3. Weekly: 5% karma decay for members inactive 7+ days ({"karma_decay":
+//      true}), the only thing that ever brings karma back down — see the
+//      karma_decay branch below.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
