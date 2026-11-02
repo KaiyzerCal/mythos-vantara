@@ -4,23 +4,26 @@
 // Calvin's current state through the lens of their specialty, and
 // takes meaningful actions — quests, tasks, notes, or direct alerts.
 //
-// Triggered by: pg_cron every 4 hours  OR  POST /functions/v1/mavis-council-heartbeat
+// Triggered by two separate pg_cron jobs (plus manual POSTs):
+//   - mavis-council-heartbeat-4h  (every 4h, plain body)         → digest path
+//   - mavis-council-individual-daily (once/day, {"force_individual":true,"force":true}) → per-member path
 // (the /council Telegram command used to force-fire every member on demand;
 // it now sends a single synthesized consensus instead — see telegram-webhook)
 //
-// Default behavior: the cron no longer runs each member's full autonomous
-// heartbeat (one real LLM completion + possible real actions per member,
-// every tick). Instead it loads cheap roster data for every
-// heartbeat-enabled member and makes ONE MAVIS-synthesized check-in call,
-// mirroring /council's consensus — but MAVIS herself can still take real
-// actions off that one call (create_quest, create_task, create_note,
-// award_xp, council_notify) when the roster data clearly warrants it.
-// Those actions are attributed to MAVIS, not to any individual member, and
-// are not karma-gated — individual council members' karma is untouched by
-// the scheduled path. The legacy per-member path (each member runs their
-// own full heartbeat, with karma gates and personal memory) still exists
-// but only runs when a caller explicitly POSTs {"force_individual": true}
-// — it is not used by the cron.
+// Two tiers, by design — Calvin wants real per-member autonomy, just at a
+// cheaper cadence than every 4 hours:
+//   1. Every 4h: cheap roster data for every heartbeat-enabled member, ONE
+//      MAVIS-synthesized check-in call, mirroring /council's consensus.
+//      MAVIS herself can take real actions off that one call (create_quest,
+//      create_task, create_note, award_xp, council_notify) when warranted —
+//      attributed to MAVIS, not any individual member, and not karma-gated.
+//   2. Once/day: the legacy per-member path — each member runs their own
+//      full heartbeat (one real LLM completion each, karma gates, personal
+//      memory, real actions). Only reachable via an explicit
+//      {"force_individual": true} POST; the daily cron is the only
+//      automatic caller of it. "force": true alongside it (as the daily
+//      cron sends) bypasses each member's own due-check, since the 4h
+//      digest tick already touches last_heartbeat_at for everyone.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
@@ -771,8 +774,10 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, decay_applied: inactive.length }), { headers: { "Content-Type": "application/json" } });
     }
 
-    // Legacy per-member path: real actions, karma, memory. Not used by the
-    // cron — only reachable with an explicit {"force_individual": true} body.
+    // Legacy per-member path: real actions, karma, memory. Only reachable
+    // with an explicit {"force_individual": true} body — the
+    // mavis-council-individual-daily cron is the sole automatic caller,
+    // once/day, and sends "force": true alongside it (see top-of-file note).
     if (body.force_individual === true) {
       const forceAll = body.force === true;
       const dueMembers = forceAll
