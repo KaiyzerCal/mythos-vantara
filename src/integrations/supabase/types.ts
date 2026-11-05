@@ -10617,6 +10617,7 @@ export type Database = {
           cost: number
           created_at: string
           description: string
+          embedding: string | null
           energy_type: string
           id: string
           name: string
@@ -10633,6 +10634,7 @@ export type Database = {
           cost?: number
           created_at?: string
           description?: string
+          embedding?: string | null
           energy_type?: string
           id?: string
           name: string
@@ -10649,6 +10651,7 @@ export type Database = {
           cost?: number
           created_at?: string
           description?: string
+          embedding?: string | null
           energy_type?: string
           id?: string
           name?: string
@@ -13101,6 +13104,18 @@ export type Database = {
           key: string
           similarity: number
           value: string
+        }[]
+      }
+      match_skills: {
+        Args: { p_count?: number; p_query: string; p_user_id: string }
+        Returns: {
+          category: string
+          description: string
+          id: string
+          name: string
+          parent_skill_id: string
+          similarity: number
+          tier: number
         }[]
       }
       mavis_dispatch_event: { Args: { payload: Json }; Returns: undefined }
