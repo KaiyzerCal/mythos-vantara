@@ -42,6 +42,9 @@ export const CreateQuestSchema = z.object({
   // When linked_skill_ids is empty, mavis-actions picks relevant skills
   // server-side (_shared/skillLinker.ts). false opts out.
   auto_link_skills: z.boolean().optional(),
+  // create_quest skips creating a copy when an identical title is already
+  // open (or was created in the last 10 minutes). true opts out.
+  allow_duplicate: z.boolean().optional(),
 });
 // Read-only: suggests skill links for a quest that doesn't exist yet.
 export const SuggestSkillLinksSchema = z.object({
