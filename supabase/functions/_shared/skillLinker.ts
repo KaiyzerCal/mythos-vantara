@@ -26,7 +26,7 @@
 // to the pathway's current sequence, since progress on a sequence you can't
 // reach yet doesn't move you forward.
 
-import { embedText } from "./embedding.ts";
+import { embedText, embeddingKey } from "./embedding.ts";
 import { aiComplete } from "./providers.ts";
 
 interface SkillRow {
@@ -91,6 +91,44 @@ function currentSequence(pathwayId: string, byParent: Map<string, SkillRow[]>): 
   if (seqs.length === 0) return null;
   const active = seqs.filter((s) => s.unlocked && Number(s.proficiency ?? 0) < 100);
   return active.length ? active[active.length - 1] : seqs[0];
+}
+
+// The rerank is a judgment call with strict rules ("errands train nothing",
+// "one Beyonder at most"), and the free-tier model the shared cascade reaches
+// first ignored them: three Beyonder sequences for a one-mile walk, a
+// "Mother > Planter" link for a car repair. So this asks gpt-4o-mini
+// directly — temperature 0 and JSON mode, neither of which the shared
+// callOpenAI offers (it hardcodes 0.85) — at roughly a tenth of a cent per
+// quest. Falls back to the free cascade if OpenAI is unavailable, so a quest
+// is never blocked on it.
+async function rerankCompletion(system: string, user: string): Promise<string> {
+  const key = embeddingKey();
+  if (key) {
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          max_tokens: 400,
+          response_format: { type: "json_object" },
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (res.ok) {
+        const content = (await res.json())?.choices?.[0]?.message?.content;
+        if (typeof content === "string" && content.trim()) return content;
+      } else {
+        // Status only: an error body can quote part of the key.
+        console.warn(`[skillLinker] gpt-4o-mini rerank HTTP ${res.status} — using free cascade`);
+      }
+    } catch (err) {
+      console.warn(`[skillLinker] gpt-4o-mini rerank failed (${(err as Error)?.name ?? "error"}) — using free cascade`);
+    }
+  }
+  return (await aiComplete({ system, user })).content;
 }
 
 export async function suggestSkillLinks(
@@ -245,7 +283,7 @@ Reply with ONLY a JSON object: {"ids":["<id>", ...],"why":"<one short sentence n
 
   let parsed: { ids?: unknown; why?: unknown } = {};
   try {
-    const { content } = await aiComplete({ system, user });
+    const content = await rerankCompletion(system, user);
     const json = content.match(/\{[\s\S]*\}/)?.[0];
     if (json) parsed = JSON.parse(json);
   } catch (err) {
