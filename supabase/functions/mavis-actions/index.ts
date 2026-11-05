@@ -363,6 +363,36 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // accepted alternate name for exactly that path. Same structural
       // issue as update_inventory_item's "type" field, fixed here since
       // the fallback name doesn't collide with anything.
+      // Idempotency. Every quest-creation path in the app funnels through
+      // here (chat, the mavis-agent tool loop, voice, Telegram, persona
+      // router, task executor, council digest, goal engine) and nothing
+      // below this point checked whether the quest already existed — so any
+      // caller that fired twice made two quests. Live data shows exactly
+      // that: identical batches replayed 8-10 seconds apart (the same two
+      // titles, same order), plus the same title recreated minutes apart,
+      // up to four copies. Treated as a duplicate when an identical title
+      // (case-insensitive, same parent) is either still open — active or
+      // locked — or was created in the last 10 minutes in any status. A
+      // *completed* quest of the same name older than that is NOT a
+      // duplicate: redoing a finished habit or arc is legitimate.
+      // allow_duplicate:true opts out.
+      if (p.allow_duplicate !== true && String(p.title || "").trim()) {
+        const wanted = String(p.title).trim();
+        const parentId = p.parent_quest_id ? String(p.parent_quest_id) : null;
+        const recentCutoff = Date.now() - 10 * 60 * 1000;
+        const { data: sameTitle } = await sb.from("quests")
+          .select("id, status, created_at, parent_quest_id")
+          .eq("user_id", userId)
+          .ilike("title", wanted.replace(/[\\%_]/g, (c) => `\\${c}`)) // escape LIKE wildcards: exact, case-insensitive match
+          .limit(25);
+        const dup = ((sameTitle ?? []) as Array<{ id: string; status: string; created_at: string; parent_quest_id: string | null }>)
+          .find((r) => (r.parent_quest_id ?? null) === parentId
+            && (r.status === "active" || r.status === "locked" || new Date(r.created_at).getTime() > recentCutoff));
+        if (dup) {
+          console.log(`[create_quest] dedup: "${wanted}" already exists (${dup.id}, ${dup.status}) — not creating a copy`);
+          return { quest_id: dup.id, deduped: true, linked_skill_ids: [], auto_linked: {} };
+        }
+      }
       let linkedSkillIds = await resolveLinkedSkillIds(sb, userId, asStringArray(p.linked_skill_ids));
       // Every quest-creation path lands here — chat, Telegram, the 12h
       // digest, council heartbeats, goal engine, meeting transcripts — and
