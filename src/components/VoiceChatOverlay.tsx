@@ -161,6 +161,10 @@ export function VoiceChatOverlay({
   const prevLoadingRef = useRef(effectiveLoading);
   const effectiveReplyRef = useRef(effectiveReply);
   useEffect(() => { effectiveReplyRef.current = effectiveReply; }, [effectiveReply]);
+  const effectiveLoadingRef = useRef(effectiveLoading);
+  useEffect(() => { effectiveLoadingRef.current = effectiveLoading; }, [effectiveLoading]);
+  // Bumped to re-run the thinking→speaking effect when the loading edge was missed.
+  const [recoverTick, setRecoverTick] = useState(0);
 
   // Pick an English voice once available (some browsers return [] until loaded)
   const pickVoice = useCallback((): SpeechSynthesisVoice | null => {
@@ -506,13 +510,15 @@ export function VoiceChatOverlay({
       }
     }
     prevLoadingRef.current = effectiveLoading;
-  }, [effectiveLoading, phase, externalAudio, defaultVoiceId, speakReply, speakWithElevenLabs]);
+  }, [effectiveLoading, phase, recoverTick, externalAudio, defaultVoiceId, speakReply, speakWithElevenLabs]);
 
   // Stable refs for dispatch fns so startListening doesn't change identity on
   // every parent render — that was cancelling the 1s auto-restart timer and
   // preventing subsequent voice turns from starting.
   const sendMessageRef = useRef(sendMessage);
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+
+
   const personaRef = useRef(persona);
   useEffect(() => { personaRef.current = persona; }, [persona]);
 
@@ -628,6 +634,33 @@ export function VoiceChatOverlay({
       if (!isStale()) setPersonaLoading(false);
     }
   }, [onExchange]);
+
+  // A turn must never be able to hang on "thinking". The thinking→speaking
+  // effect needs to see isLoading go true→false; if the parent's sendMessage
+  // returns without ever setting isLoading (it silently bails while a previous
+  // request is still marked loading), that edge never comes and the overlay
+  // spins forever. After dispatch settles, check and recover.
+  const phaseRef = useRef<Phase>("idle");
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  const dispatchTurn = useCallback((captured: string) => {
+    const replyAtSend = effectiveReplyRef.current;
+    const dispatch = personaRef.current ? sendPersonaMessage : sendMessageRef.current;
+    const settle = () => {
+      setTimeout(() => {
+        if (closingRef.current || phaseRef.current !== "thinking" || effectiveLoadingRef.current) return;
+        if (effectiveReplyRef.current && effectiveReplyRef.current !== replyAtSend) {
+          prevLoadingRef.current = true; // synthesize the missed edge
+          setRecoverTick((n) => n + 1);
+        } else {
+          setPhase("idle");
+          toast.error("MAVIS didn't answer that. Try again.");
+        }
+      }, 800);
+    };
+    Promise.resolve(dispatch?.(captured)).then(settle, () => {
+      if (!closingRef.current) setPhase("idle");
+    });
+  }, [sendPersonaMessage]);
 
 
   // ── Live Voice helpers ────────────────────────────────────────
@@ -852,10 +885,7 @@ export function VoiceChatOverlay({
         setPhase("thinking");
         setTranscript("");
         setInterimTranscript("");
-        const dispatch = personaRef.current ? sendPersonaMessage : sendMessageRef.current;
-        dispatch?.(captured).catch(() => {
-          if (!closingRef.current) setPhase("idle");
-        });
+        dispatchTurn(captured);
       } else {
         setPhase("idle");
       }
@@ -914,7 +944,7 @@ export function VoiceChatOverlay({
       await NativeSpeechRecognition.removeAllListeners().catch(() => {});
       if (!closingRef.current) setPhase("idle");
     }
-  }, [sendPersonaMessage]);
+  }, [dispatchTurn]);
 
   const startListening = useCallback(() => {
     if (Capacitor.isNativePlatform()) {
@@ -1065,10 +1095,7 @@ export function VoiceChatOverlay({
         setPhase("thinking");
         setTranscript("");
         setInterimTranscript("");
-        const dispatch = personaRef.current ? sendPersonaMessage : sendMessageRef.current;
-        dispatch?.(captured).catch(() => {
-          if (!closingRef.current) setPhase("idle");
-        });
+        dispatchTurn(captured);
       } else {
         setPhase("idle");
       }
@@ -1079,7 +1106,7 @@ export function VoiceChatOverlay({
     setInterimTranscript("");
     recognition.start();
     setPhase("listening");
-  }, [sendPersonaMessage, startListeningNative]);
+  }, [dispatchTurn, startListeningNative]);
 
   // Auto-restart after speaking finishes (skip in live mode — WS handles it)
   useEffect(() => {
