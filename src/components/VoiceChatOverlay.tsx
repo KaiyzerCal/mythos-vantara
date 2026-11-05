@@ -31,9 +31,16 @@ interface VoiceChatOverlayProps {
   persona?: VoicePersona;
   // When true, skip internal speechSynthesis (caller handles audio externally)
   externalAudio?: boolean;
+  // Voice for replies when there is no persona voice (plain MAVIS). An
+  // ElevenLabs id plays through mavis-tts; a "browser:*" id uses device speech.
+  defaultVoiceId?: string;
   // Called after each completed voice exchange so the parent can persist/display the turn
   onExchange?: (userText: string, replyText: string) => void;
 }
+
+// What the overlay falls back to when device speech can't run (the same
+// voice mavis-tts defaults to, confirmed working end to end).
+const RESCUE_ELEVEN_VOICE = "JBFqnCBsd6RMkjVDRZzb";
 
 type Phase = "idle" | "listening" | "thinking" | "speaking";
 
@@ -44,6 +51,7 @@ export function VoiceChatOverlay({
   isLoading = false,
   persona,
   externalAudio = false,
+  defaultVoiceId,
   onExchange,
 }: VoiceChatOverlayProps) {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -67,6 +75,13 @@ export function VoiceChatOverlay({
   const karaokeTickRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumeKeepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const speakWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set once a reply has been handed to the rescue voice, so a second failure
+  // for the same reply ends in a visible message instead of looping.
+  const rescueTriedRef = useRef<{ text: string; at: number } | null>(null);
+  // Filled in below, once speakWithElevenLabs exists (speakReply is defined
+  // first and the two call each other).
+  const rescueSpeechRef = useRef<(text: string, reason: string) => void>(() => {});
   const closingRef = useRef(false);
   const nativeTtsRangeListenerRef = useRef<{ remove: () => Promise<void> } | null>(null);
   const wakeLockRef = useRef<any>(null);
@@ -195,13 +210,16 @@ export function VoiceChatOverlay({
     if (!text || closingRef.current) return;
     if (Capacitor.isNativePlatform()) { speakReplyNative(text); return; }
     const synth = window.speechSynthesis;
-    if (!synth) { setPhase("idle"); return; }
+    // No speech engine at all (some embedded browsers/WebViews). This used to
+    // just reset to idle, so the reply was never spoken and nothing said why.
+    if (!synth) { rescueSpeechRef.current(text, "this browser has no speech engine"); return; }
 
     // Chrome bug: if synth is in a "paused" or stalled state, speak() fires no
     // sound. Resume, then cancel any queued utterance, then defer the new one
     // by a tick so Chrome actually plays it.
     try { synth.resume(); } catch { /* ignore */ }
     synth.cancel();
+    if (speakWatchdogRef.current) { clearTimeout(speakWatchdogRef.current); speakWatchdogRef.current = null; }
 
     setDisplayedReply(text);
     setSpokenUpTo(0);
@@ -223,7 +241,14 @@ export function VoiceChatOverlay({
         }
       };
 
+      const clearWatchdog = () => {
+        if (speakWatchdogRef.current) { clearTimeout(speakWatchdogRef.current); speakWatchdogRef.current = null; }
+      };
+
+      utterance.onstart = clearWatchdog;
+
       utterance.onend = () => {
+        clearWatchdog();
         setSpokenUpTo(text.length);
         utteranceRef.current = null;
         if (resumeKeepAliveRef.current) {
@@ -233,18 +258,39 @@ export function VoiceChatOverlay({
         if (!closingRef.current) setPhase("idle");
       };
 
-      utterance.onerror = () => {
+      utterance.onerror = (ev: SpeechSynthesisErrorEvent) => {
+        // A superseded utterance (replaced by a newer one, or cancelled by the
+        // watchdog/rescue below) reports "canceled" late; it must not touch
+        // state that now belongs to whatever replaced it.
+        if (utteranceRef.current !== utterance) return;
+        clearWatchdog();
         utteranceRef.current = null;
         if (resumeKeepAliveRef.current) {
           clearInterval(resumeKeepAliveRef.current);
           resumeKeepAliveRef.current = null;
         }
-        if (!closingRef.current) setPhase("idle");
+        if (closingRef.current) return;
+        // "interrupted"/"canceled" is what our own cancel() produces when a new
+        // reply replaces this one — not a failure.
+        if (ev?.error === "interrupted" || ev?.error === "canceled") { setPhase("idle"); return; }
+        rescueSpeechRef.current(text, `speech error: ${ev?.error ?? "unknown"}`);
       };
 
       utteranceRef.current = utterance;
       try { synth.resume(); } catch { /* ignore */ }
       synth.speak(utterance);
+
+      // speak() can be accepted and then simply never start (no installed
+      // voice, a blocked/suspended engine) — no error event, no audio, and the
+      // overlay sat in "speaking" or fell back to idle in silence. If nothing
+      // has started after 5s, treat it as failed.
+      speakWatchdogRef.current = setTimeout(() => {
+        speakWatchdogRef.current = null;
+        if (closingRef.current || utteranceRef.current !== utterance) return;
+        try { synth.cancel(); } catch { /* ignore */ }
+        utteranceRef.current = null;
+        rescueSpeechRef.current(text, "the speech engine never started");
+      }, 5000);
 
       // Chrome stops speech after ~15s of speaking. Calling resume() (without
       // pause) periodically keeps it going without truncating the utterance.
@@ -399,6 +445,25 @@ export function VoiceChatOverlay({
     }
   }, [speakReply]);
 
+  // Last resort when device speech can't produce sound: try the ElevenLabs
+  // voice once for this reply. If that fails too (speakWithElevenLabs falls
+  // back to speakReply, which lands back here) say so, rather than leaving a
+  // reply that was silently never spoken.
+  useEffect(() => {
+    rescueSpeechRef.current = (text: string, reason: string) => {
+      if (closingRef.current) return;
+      const tried = rescueTriedRef.current;
+      if (tried && tried.text === text && Date.now() - tried.at < 60_000) {
+        setPhase("idle");
+        toast.error(`Voice output isn't working (${reason}). The reply is shown on screen.`);
+        return;
+      }
+      rescueTriedRef.current = { text, at: Date.now() };
+      console.warn(`[VoiceChatOverlay] device speech failed (${reason}) — trying ElevenLabs voice`);
+      speakWithElevenLabs(text, RESCUE_ELEVEN_VOICE);
+    };
+  }, [speakWithElevenLabs]);
+
   // ── Transition: thinking → speaking when loading finishes ──
   useEffect(() => {
     if (prevLoadingRef.current && !effectiveLoading && phase === "thinking" && !closingRef.current) {
@@ -425,9 +490,14 @@ export function VoiceChatOverlay({
             karaokeTickRef.current = setTimeout(tick, 140);
           };
           karaokeTickRef.current = setTimeout(tick, 140);
-        } else if (personaRef.current?.voiceId) {
-          // Persona has an ElevenLabs voice — use it for dramatically better TTS
+        } else if (personaRef.current?.voiceId && !personaRef.current.voiceId.startsWith("browser:")) {
+          // Persona has an ElevenLabs voice — use it for dramatically better TTS.
+          // ("browser:*" ids name device voices; sending those to ElevenLabs
+          // always failed first, which is every council member's voice.)
           speakWithElevenLabs(msg, personaRef.current.voiceId);
+        } else if (!personaRef.current?.voiceId && defaultVoiceId && !defaultVoiceId.startsWith("browser:")) {
+          // No persona (plain MAVIS): use the voice the page has selected.
+          speakWithElevenLabs(msg, defaultVoiceId);
         } else {
           speakReply(msg);
         }
@@ -436,7 +506,7 @@ export function VoiceChatOverlay({
       }
     }
     prevLoadingRef.current = effectiveLoading;
-  }, [effectiveLoading, phase, externalAudio, speakReply, speakWithElevenLabs]);
+  }, [effectiveLoading, phase, externalAudio, defaultVoiceId, speakReply, speakWithElevenLabs]);
 
   // Stable refs for dispatch fns so startListening doesn't change identity on
   // every parent render — that was cancelling the 1s auto-restart timer and
@@ -1031,6 +1101,7 @@ export function VoiceChatOverlay({
     if (autoRestartTimerRef.current) clearTimeout(autoRestartTimerRef.current);
     if (karaokeTickRef.current) clearTimeout(karaokeTickRef.current);
     if (resumeKeepAliveRef.current) clearInterval(resumeKeepAliveRef.current);
+    if (speakWatchdogRef.current) { clearTimeout(speakWatchdogRef.current); speakWatchdogRef.current = null; }
     stopListening();
     disconnectLiveVoice();
     if (Capacitor.isNativePlatform()) {
