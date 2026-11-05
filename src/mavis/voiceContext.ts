@@ -37,11 +37,16 @@ export async function buildVoiceContext(userId: string): Promise<string> {
     })
     .join("\n");
 
-  return `SKILLS — use the exact [id] in brackets when linking or referencing a skill, never invent one:
-${[skillLines, beyonderBlock].filter(Boolean).join("\n") || "  None"}
-
-ACTIVE QUESTS — use the exact [id] in brackets when updating/completing/deleting a quest:
+  // Order matters: mavis-voice-session caps this context at 60k chars, and the
+  // Beyonder tree alone can exceed that on large accounts. Truncation drops the
+  // tail, so the quest list and the acting instructions go FIRST — losing them
+  // means voice quest actions have no ids to act on. The skill tree goes last,
+  // where a cut-off pathway is the least harmful thing to lose.
+  return `ACTIVE QUESTS — use the exact [id] in brackets when updating/completing/deleting a quest:
 ${activeQuests || "  None"}
 
-When the operator says "pathway" or "my X pathways/skills" they mean a root-level skill (no parent) in that category; "subskill" means anything nested under it. For "a quest for each of my X pathways", create one quest per matching root, linking a relevant subskill under it (not the root). When asked to create or link a quest, search the lists above by category, energy type, name, or description for the best match before asking the operator to clarify.`;
+When the operator says "pathway" or "my X pathways/skills" they mean a root-level skill (no parent) in that category; "subskill" means anything nested under it. For "a quest for each of my X pathways", create one quest per matching root, linking a relevant subskill under it (not the root). When asked to create or link a quest, search the lists above and below by category, energy type, name, or description for the best match before asking the operator to clarify.
+
+SKILLS — use the exact [id] in brackets when linking or referencing a skill, never invent one:
+${[skillLines, beyonderBlock].filter(Boolean).join("\n") || "  None"}`;
 }

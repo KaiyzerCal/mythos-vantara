@@ -101,8 +101,11 @@ export async function buildSharedTruth(
     safe<any>(sb.from("profiles").select("display_name, title, location, timezone, level, xp").eq("id", userId).maybeSingle(), null),
     safe<any>(sb.from("mavis_user_profile").select("profile_md, communication_style, key_context, preferences, topics_of_interest").eq("user_id", userId).maybeSingle(), null),
     safe<any[]>(sb.from("quests").select("title, type, deadline, status").eq("user_id", userId).eq("status", "active").order("deadline", { ascending: true, nullsFirst: false }).limit(8), []),
-    safe<any[]>(sb.from("tasks").select("title, priority, status").eq("user_id", userId).eq("status", "active").order("priority", { ascending: false }).limit(8), []),
-    safe<any[]>(sb.from("energy_systems").select("name, current, max").eq("user_id", userId).limit(6), []),
+    // tasks has no priority column; energy_systems stores type/current_value/max_value —
+    // querying non-existent columns makes PostgREST error the whole request and safe()
+    // silently swallows it, so MAVIS used to see neither tasks nor energy at all.
+    safe<any[]>(sb.from("tasks").select("title, status").eq("user_id", userId).eq("status", "active").order("created_at", { ascending: false }).limit(8), []),
+    safe<any[]>(sb.from("energy_systems").select("type, current_value, max_value").eq("user_id", userId).limit(6), []),
     safe<any[]>(sb.from("mavis_goals").select("objective, context").eq("user_id", userId).eq("status", "active").limit(5), []),
     safe<any[]>(sb.from("approvals").select("id, title, status").eq("user_id", userId).eq("status", "pending").limit(5), []),
     safe<any[]>(sb.from("mavis_action_queue").select("id, action_type, status").eq("user_id", userId).eq("status", "pending").limit(10), []),
@@ -170,15 +173,14 @@ function renderFromRaw(raw: Record<string, any>, opts: SharedTruthOptions): Shar
       `  • ${clip(q.title, 80)}${q.deadline ? ` (due ${String(q.deadline).slice(0, 10)})` : ""}`).join("\n"));
   }
   if (tasks?.length) {
-    const hi = tasks.filter((t: any) => t.priority === "high" || t.priority === "urgent");
-    snap.push(`ACTIVE TASKS (${tasks.length})${hi.length ? ` — high priority: ${hi.slice(0, 5).map((t: any) => clip(t.title, 50)).join(", ")}` : ""}`);
+    snap.push(`ACTIVE TASKS (${tasks.length}):\n` + tasks.slice(0, 6).map((t: any) => `  • ${clip(t.title, 60)}`).join("\n"));
   }
   if (goals?.length) {
     snap.push(`ACTIVE GOALS:\n` + goals.map((g: any) => `  • ${clip(g.objective, 90)}`).join("\n"));
   }
   if (energy?.length) {
-    const parts = energy.map((e: any) => `${e.name}: ${e.current}/${e.max}`);
-    const low = energy.filter((e: any) => e.max > 0 && e.current / e.max < 0.35).map((e: any) => e.name);
+    const parts = energy.map((e: any) => `${e.type}: ${e.current_value}/${e.max_value}`);
+    const low = energy.filter((e: any) => e.max_value > 0 && e.current_value / e.max_value < 0.35).map((e: any) => e.type);
     snap.push(`ENERGY: ${parts.join(" | ")}${low.length ? `  ⚠ LOW: ${low.join(", ")}` : ""}`);
   }
   const pending = (approvals?.length ?? 0) + (actionQueue?.length ?? 0);
