@@ -13,7 +13,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { embedText, embeddableText, embeddingKey } from "../_shared/embedding.ts";
+import { embedText, embeddableText, embeddingKey, lastEmbeddingFailure } from "../_shared/embedding.ts";
 import { EMBEDDABLE_TABLES } from "../_shared/embeddableTables.ts";
 
 const corsHeaders = {
@@ -164,7 +164,16 @@ serve(async (req) => {
     }
 
     const remaining = Object.values(report).reduce((n, r) => n + r.remaining, 0);
-    return json({ ok: true, batch, report, remaining, done: remaining === 0 });
+    const embedded = Object.values(report).reduce((n, r) => n + r.embedded, 0);
+    // Non-null only when this run attempted embeddings and its last attempt
+    // failed. Without it the response is "embedded 0, failed 100" with no
+    // cause — which is all anyone saw for six days when the OpenAI account
+    // ran out of credit. (A run that embedded some rows and then hit a
+    // failure still reports it: a partial outage is still an outage.)
+    const failureReason = embedded === 0 || Object.values(report).some((r) => r.failed > 0)
+      ? lastEmbeddingFailure()
+      : null;
+    return json({ ok: true, batch, report, remaining, done: remaining === 0, ...(failureReason ? { embedding_error: failureReason } : {}) });
   } catch (err) {
     return json({ error: (err as Error)?.message ?? String(err) }, 500);
   }

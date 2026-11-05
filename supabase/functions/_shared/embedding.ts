@@ -38,6 +38,32 @@ export function embeddingKey(): string {
   return Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "";
 }
 
+// Why the most recent embedText call returned null. embedText deliberately
+// degrades to null (callers fall back to keyword search), but that made every
+// cause look identical: when the OpenAI account ran out of credit on
+// 2026-10-30, the backfill reported "embedded 0, failed 100" every five
+// minutes for six days with nothing in the logs saying why. This keeps the
+// cause where a caller can report it, and the log line below puts it where
+// someone will read it.
+let lastFailure: { reason: string; at: number } | null = null;
+let lastLoggedAt = 0;
+const LOG_EVERY_MS = 60_000;
+
+function recordFailure(reason: string): void {
+  lastFailure = { reason, at: Date.now() };
+  // A backfill batch can fail 100 times in a row for one cause; one line a
+  // minute is enough to find it without drowning the log.
+  if (Date.now() - lastLoggedAt >= LOG_EVERY_MS) {
+    lastLoggedAt = Date.now();
+    console.error(`[embedding] embedText failing: ${reason}`);
+  }
+}
+
+/** The reason the latest embedText call failed, or null if it last succeeded. */
+export function lastEmbeddingFailure(): string | null {
+  return lastFailure?.reason ?? null;
+}
+
 /**
  * A query or document embedding, or null when one cannot be produced.
  *
@@ -48,7 +74,11 @@ export function embeddingKey(): string {
 export async function embedText(text: string, dims: number = EMBEDDING_DIMS): Promise<number[] | null> {
   const key = embeddingKey();
   const input = (text ?? "").trim();
-  if (!key || input.length === 0) return null;
+  if (input.length === 0) return null;
+  if (!key) {
+    recordFailure("no OpenAI key set (OPENAI_API / OPENAI_API_KEY)");
+    return null;
+  }
 
   try {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
@@ -63,19 +93,32 @@ export async function embedText(text: string, dims: number = EMBEDDING_DIMS): Pr
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Status + OpenAI's machine-readable code/type only. Never the error
+      // message: for invalid_api_key it quotes part of the key.
+      const err = await res.json().then((j) => j?.error).catch(() => null);
+      const detail = [err?.code, err?.type].filter(Boolean).join("/");
+      recordFailure(`OpenAI HTTP ${res.status}${detail ? ` ${detail}` : ""}`);
+      return null;
+    }
     const data = await res.json();
     const vec = data?.data?.[0]?.embedding;
-    if (!Array.isArray(vec)) return null;
+    if (!Array.isArray(vec)) {
+      recordFailure("OpenAI response had no embedding");
+      return null;
+    }
     // A wrong-length vector would be rejected by Postgres on write and match
     // nothing on read. Refusing it here turns a confusing failure into a
     // clean fall back to keyword search.
     if (vec.length !== dims) {
       console.warn(`[embedding] expected ${dims} dims, got ${vec.length} — ignoring`);
+      recordFailure(`dimension mismatch: expected ${dims}, got ${vec.length}`);
       return null;
     }
+    lastFailure = null;
     return vec as number[];
-  } catch {
+  } catch (err) {
+    recordFailure(`request failed: ${(err as Error)?.name ?? "error"}`);
     return null;
   }
 }
