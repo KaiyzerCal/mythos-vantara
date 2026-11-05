@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793922923187,
+      "tag": "0000_mavis_memory_tags_and_memory_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793922929790,
+      "tag": "0001_mavis_plans_add_step_columns",
+      "breakpoints": true
+    }
+  ]
+}
