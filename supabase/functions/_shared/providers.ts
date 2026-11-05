@@ -927,6 +927,7 @@ export async function callWithFallbackStream(
       const stream = await callClaudeStream(messages, system, keys.claude, "claude-sonnet-4-6", useThinking);
       return { stream, provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
     } catch (e: any) {
+      console.warn(`[stream-fallback] claude: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
       if (!(e instanceof ProviderUnavailableError)) throw e;
       markProviderUnhealthy("claude");
     }
@@ -934,6 +935,7 @@ export async function callWithFallbackStream(
   if (primary === "grok" && keys.grok && !isProviderUnhealthy("grok")) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
     catch (e: any) {
+      console.warn(`[stream-fallback] grok: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
       if (!(e instanceof ProviderUnavailableError)) throw e;
       markProviderUnhealthy("grok");
     }
@@ -941,6 +943,7 @@ export async function callWithFallbackStream(
   if (keys.openai && !isProviderUnhealthy("openai")) {
     try { return { stream: await callOpenAIStream(messages, system, keys.openai), provider: "openai-mini" }; }
     catch (e: any) {
+      console.warn(`[stream-fallback] openai: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
       if (!(e instanceof ProviderUnavailableError)) throw e;
       markProviderUnhealthy("openai");
     }
@@ -948,6 +951,7 @@ export async function callWithFallbackStream(
   if (keys.claude && !isProviderUnhealthy("claude")) {
     try { return { stream: await callClaudeStream(messages, system, keys.claude, "claude-haiku-4-5-20251001", false), provider: "claude-haiku" }; }
     catch (e: any) {
+      console.warn(`[stream-fallback] claude: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
       if (!(e instanceof ProviderUnavailableError)) throw e;
       markProviderUnhealthy("claude");
     }
@@ -955,6 +959,7 @@ export async function callWithFallbackStream(
   if (keys.grok && !isProviderUnhealthy("grok")) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
     catch (e: any) {
+      console.warn(`[stream-fallback] grok: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
       if (!(e instanceof ProviderUnavailableError)) throw e;
       markProviderUnhealthy("grok");
     }
@@ -968,6 +973,7 @@ export async function callWithFallbackStream(
       console.warn(`[stream-fallback] Lovable gateway: ${e.message}`);
     }
   }
+  console.error("[stream-fallback] every provider failed or was skipped as unhealthy");
   throw new Error("All AI providers unavailable for streaming (no funded keys).");
 }
 
