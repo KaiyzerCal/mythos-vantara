@@ -200,30 +200,45 @@ export async function suggestSkillLinks(
     for (const { s, score } of scored.slice(0, 15)) add(s, Math.min(0.9, 0.2 + score / 15));
   }
 
-  const shortlist = [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, 30);
+  // Two pools, not one mixed top-30. The operator has ~1,300 Beyonder rows
+  // against ~100 ordinary skills, and Beyonder ability text is written in
+  // rich, abstract language that sits weakly close to almost anything. In a
+  // single ranking it crowded ordinary skills (Endurance, Strength Training)
+  // out and handed the model a dozen near-identical mystical options even
+  // for errands like "Repair Kia". Calibrated on live data: genuine matches
+  // scored 0.34-0.52 and errands topped out at 0.27-0.30, so Beyonder
+  // candidates below the floor never reach the model. (A floor alone can't
+  // separate them — a few errands still reach ~0.38 — hence also the
+  // stricter rubric below.)
+  const BEYONDER_FLOOR = 0.30;
+  const ranked = [...candidates.values()].sort((a, b) => b.score - a.score);
+  const ordinary = ranked.filter((c) => !isBeyonder(c.skill)).slice(0, 15);
+  const beyonder = ranked.filter((c) => isBeyonder(c.skill) && c.score >= BEYONDER_FLOOR).slice(0, 10);
+  const shortlist = [...ordinary, ...beyonder];
   if (shortlist.length === 0) return empty;
 
   // 2. Rerank.
-  const lines = shortlist.map((c) => {
+  const fmt = (c: Candidate) => {
     const s = c.skill;
     const state = `${s.unlocked === false ? "locked" : "unlocked"}, ${Number(s.proficiency ?? 0)}%`;
     const desc = (s.description ?? "").replace(/\s+/g, " ").slice(0, 140);
     const ev = c.evidence.length ? ` | abilities matched: ${c.evidence.map((e) => `"${e}"`).join("; ")}` : "";
-    return `[${s.id}] ${c.path} (${s.category}, ${state})${desc ? ` — ${desc}` : ""}${ev}`;
-  });
+    return `[${s.id}] ${c.path} (${state}, match ${c.score.toFixed(2)})${desc ? ` — ${desc}` : ""}${ev}`;
+  };
 
   const system = `You link quests in a gamified real-life progression system (think Solo Leveling's System) to the skills they genuinely train. Completing a quest raises proficiency on every linked skill, so a link should mean "doing this quest in real life actually exercises this skill".
 
-Choose 0 to ${max} skills from the candidate list. Rules:
-- Only skills the quest would really exercise. A loosely related link is worse than no link — returning none is a normal outcome.
+Choose 0 to ${max} skills from the candidates. Rules:
+- Many quests train nothing: purchases, payments and transfers, phone calls, errands, repairs, scheduling and other admin. Return {"ids":[]} for those. Returning none is a normal, common outcome; a wrong link is worse than no link.
+- Prefer ordinary skills. They are real-world skills and usually the right answer for physical, technical, business and creative quests.
+- Beyonder entries are a fictional supernatural progression, grouped as sequences within a pathway. Link one ONLY when its "abilities matched" correspond directly and concretely to what doing this quest exercises. Never link one because its name or theme merely sounds related. At most one Beyonder sequence per quest, unless two each clearly apply on their own.
+- "match" is retrieval similarity, not proof. Under 0.35 it is weak evidence, so require an unmistakable fit.
 - Prefer the most specific fitting skill over a broad one.
-- Beyonder entries are sequences within a pathway; "abilities matched" shows which real-world abilities of that sequence fit. Judge by those abilities and the description, not by how mystical the name sounds.
-- A quest can legitimately train both a Beyonder sequence and an ordinary skill — include both when both genuinely apply.
 - Use ids exactly as written in brackets. Never invent one.
 
 Reply with ONLY a JSON object: {"ids":["<id>", ...],"why":"<one short sentence naming what each pick trains>"}`;
 
-  const user = `QUEST\nTitle: ${quest.title}${quest.description ? `\nDescription: ${quest.description}` : ""}${quest.category ? `\nCategory: ${quest.category}` : ""}\n\nCANDIDATE SKILLS\n${lines.join("\n")}`;
+  const user = `QUEST\nTitle: ${quest.title}${quest.description ? `\nDescription: ${quest.description}` : ""}${quest.category ? `\nCategory: ${quest.category}` : ""}\n\nORDINARY SKILLS\n${ordinary.map(fmt).join("\n") || "(none)"}\n\nBEYONDER SEQUENCES\n${beyonder.map(fmt).join("\n") || "(none)"}`;
 
   let parsed: { ids?: unknown; why?: unknown } = {};
   try {
