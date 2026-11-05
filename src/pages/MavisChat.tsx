@@ -656,7 +656,9 @@ export default function MavisChat() {
   const sessions = useMemo(() => groupMessagesIntoSessions(chatMessages), [chatMessages]);
   const initMessage = useMemo(() => chatMessages.find((m) => m.id === "init"), [chatMessages]);
   const lastBotMessage = useMemo(() => {
-    const last = chatMessages.filter((m) => m.role === "assistant").at(-1);
+    // Skip the empty/partial "streaming-*" placeholder: the voice overlay reads
+    // this when loading ends and must see the finished reply, not the shell.
+    const last = chatMessages.filter((m) => m.role === "assistant" && !m.id.startsWith("streaming-")).at(-1);
     if (!last) return "";
     if (typeof last.content === "string") return last.content;
     if (Array.isArray(last.content)) return (last.content as any[]).map((c) => (typeof c === "string" ? c : c?.text ?? "")).join("").trim();

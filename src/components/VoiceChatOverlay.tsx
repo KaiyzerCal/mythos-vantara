@@ -472,7 +472,10 @@ export function VoiceChatOverlay({
   useEffect(() => {
     if (prevLoadingRef.current && !effectiveLoading && phase === "thinking" && !closingRef.current) {
       const msg = effectiveReplyRef.current;
-      if (msg) {
+      if (!msg || msg === replyAtSendRef.current) {
+        // Reply not in yet (or unchanged): stay on "thinking"; the poll in
+        // dispatchTurn re-runs this effect when the new reply arrives.
+      } else if (msg) {
         if (externalAudio) {
           // Caller plays audio — just show karaoke text with a word-timing simulation
           setDisplayedReply(msg);
@@ -505,9 +508,8 @@ export function VoiceChatOverlay({
         } else {
           speakReply(msg);
         }
-      } else {
-        setPhase("idle");
       }
+      // Empty reply: stay on "thinking"; the poll in dispatchTurn recovers or times out.
     }
     prevLoadingRef.current = effectiveLoading;
   }, [effectiveLoading, phase, recoverTick, externalAudio, defaultVoiceId, speakReply, speakWithElevenLabs]);
@@ -641,21 +643,30 @@ export function VoiceChatOverlay({
   // request is still marked loading), that edge never comes and the overlay
   // spins forever. After dispatch settles, check and recover.
   const phaseRef = useRef<Phase>("idle");
+  const replyAtSendRef = useRef("");
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   const dispatchTurn = useCallback((captured: string) => {
     const replyAtSend = effectiveReplyRef.current;
+    replyAtSendRef.current = replyAtSend;
     const dispatch = personaRef.current ? sendPersonaMessage : sendMessageRef.current;
     const settle = () => {
-      setTimeout(() => {
-        if (closingRef.current || phaseRef.current !== "thinking" || effectiveLoadingRef.current) return;
-        if (effectiveReplyRef.current && effectiveReplyRef.current !== replyAtSend) {
+      // The reply can land a render after isLoading drops, so poll briefly
+      // instead of judging at one instant.
+      const started = Date.now();
+      const poll = () => {
+        if (closingRef.current || phaseRef.current !== "thinking") return;
+        const reply = effectiveReplyRef.current;
+        if (!effectiveLoadingRef.current && reply && reply !== replyAtSend) {
           prevLoadingRef.current = true; // synthesize the missed edge
           setRecoverTick((n) => n + 1);
-        } else {
+        } else if (Date.now() - started > 6000 && !effectiveLoadingRef.current) {
           setPhase("idle");
           toast.error("MAVIS didn't answer that. Try again.");
+        } else {
+          setTimeout(poll, 250);
         }
-      }, 800);
+      };
+      setTimeout(poll, 250);
     };
     Promise.resolve(dispatch?.(captured)).then(settle, () => {
       if (!closingRef.current) setPhase("idle");
