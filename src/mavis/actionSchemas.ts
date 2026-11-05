@@ -61,6 +61,8 @@ export const AutoLinkQuestSkillsSchema = z.object({
   all_unlinked: z.boolean().optional(),
   replace: z.boolean().optional(),
   limit: z.number().int().min(1).max(25).optional(),
+  // Skips quests a previous run found no match for — pass its next_offset.
+  offset: z.number().int().min(0).optional(),
 }).refine(
   (v) => v.quest_id || v.id || v.quest_name || v.all_unlinked,
   { message: "quest_id/quest_name, or all_unlinked:true, is required" },
