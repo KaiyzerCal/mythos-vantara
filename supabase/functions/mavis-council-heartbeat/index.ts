@@ -5,16 +5,16 @@
 // takes meaningful actions — quests, tasks, notes, or direct alerts.
 //
 // Triggered by three separate pg_cron jobs (plus manual POSTs):
-//   - mavis-council-heartbeat-4h     (every 4h,  plain body)                        → digest path
+//   - mavis-council-heartbeat-12h    (every 12h, plain body)                        → digest path
 //   - mavis-council-individual-daily (daily 13:00 UTC, {"force_individual":true,"force":true}) → per-member path
 //   - mavis-karma-decay-weekly       (Sun 23:00 UTC, {"karma_decay":true})          → decay path
 // (the /council Telegram command used to force-fire every member on demand;
 // it now sends a single synthesized consensus instead — see telegram-webhook)
 //
 // Two autonomy tiers, by design — Calvin wants real per-member autonomy,
-// just at a cheaper cadence than every 4 hours, plus decay so karma doesn't
+// just at a cheaper cadence than every 12 hours, plus decay so karma doesn't
 // only ever climb:
-//   1. Every 4h: cheap roster data for every heartbeat-enabled member, ONE
+//   1. Every 12h: cheap roster data for every heartbeat-enabled member, ONE
 //      MAVIS-synthesized check-in call, mirroring /council's consensus.
 //      MAVIS herself can take real actions off that one call (create_quest,
 //      create_task, create_note, award_xp, council_notify) when warranted —
@@ -24,7 +24,7 @@
 //      memory, real actions). Only reachable via an explicit
 //      {"force_individual": true} POST; the daily cron is the only
 //      automatic caller of it. "force": true alongside it (as the daily
-//      cron sends) bypasses each member's own due-check, since the 4h
+//      cron sends) bypasses each member's own due-check, since the 12h
 //      digest tick already touches last_heartbeat_at for everyone.
 //   3. Weekly: 5% karma decay for members inactive 7+ days ({"karma_decay":
 //      true}), the only thing that ever brings karma back down — see the
@@ -605,7 +605,7 @@ async function logActivity(
 // to any individual council member — no karma gate (this is MAVIS acting
 // as orchestrator, not a junior member proving herself), no
 // council_remember/council_message (those are per-member concepts).
-// Same dedup guard as the per-member executor so a 4-hourly digest can't
+// Same dedup guard as the per-member executor so a 12-hourly digest can't
 // spam duplicate quests/tasks.
 // ─────────────────────────────────────────────────────────────
 
@@ -851,7 +851,7 @@ Deno.serve(async (req) => {
 
     const digestSystem = `You are MAVIS, running Calvin's scheduled council check-in — one consolidated voice standing in for every advisor speaking individually. Based on the roster data and Calvin's current state below, write 120-180 words covering: what's notable across the council right now (observations), how the council collectively reads Calvin's current state (assessment), and the single highest-priority thing worth his attention (analysis). Plain text, no headers or bullet points. Ground every claim in the real data given — karma, activity, unread backlogs, quests, tasks — never invent specifics not in the data.
 
-You may ALSO take real action when the data clearly warrants it — this is a 4-hour check-in, not a hyperactive one, so default to zero or one action and never more than two. Use the exact :::ACTION{...}::: syntax, anywhere in your reply; params is always a nested object. Your prose above should stand on its own without the action blocks — they're parsed out before Calvin sees the digest, and he's told separately what you did.
+You may ALSO take real action when the data clearly warrants it — this is a 12-hour check-in, not a hyperactive one, so default to zero or one action and never more than two. Use the exact :::ACTION{...}::: syntax, anywhere in your reply; params is always a nested object. Your prose above should stand on its own without the action blocks — they're parsed out before Calvin sees the digest, and he's told separately what you did.
 
 :::ACTION{"type":"create_quest","params":{"title":"...","description":"...","type":"side|main|daily|epic","difficulty":"Easy|Normal|Hard|Extreme","xp_reward":100,"category":"..."}}:::
 :::ACTION{"type":"create_task","params":{"title":"...","description":"...","type":"task|habit","recurrence":"once|daily|weekly","xp_reward":25,"priority":"low|medium|high|critical"}}:::
