@@ -43,11 +43,11 @@ const energyProvider: ContextProvider = {
   priority: 2,
   ttlMs: 120_000,
   get: async (userId) => cached(`energy:${userId}`, 120_000, async () => {
-    const { data } = await supabase.from("energy_systems").select("name, current, max, type").eq("user_id", userId).limit(6);
+    const { data } = await supabase.from("energy_systems").select("type, current_value, max_value").eq("user_id", userId).limit(6);
     if (!data?.length) return null;
-    const low = data.filter((e: any) => e.max > 0 && (e.current / e.max) < 0.35);
-    const parts = data.map((e: any) => `${e.name}: ${e.current}/${e.max}`).join(" | ");
-    const warning = low.length > 0 ? ` ⚠ LOW: ${low.map((e: any) => e.name).join(", ")}` : "";
+    const low = data.filter((e: any) => e.max_value > 0 && (e.current_value / e.max_value) < 0.35);
+    const parts = data.map((e: any) => `${e.type}: ${e.current_value}/${e.max_value}`).join(" | ");
+    const warning = low.length > 0 ? ` ⚠ LOW: ${low.map((e: any) => e.type).join(", ")}` : "";
     return `ENERGY: ${parts}${warning}`;
   }),
 };

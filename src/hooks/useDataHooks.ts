@@ -84,8 +84,13 @@ function makeHook<T extends { id: string }>(
         }
         if (lastError) {
           console.error(`[useDataHooks] Error fetching ${tableName}:`, lastError);
+          // Keep whatever data we already had — replacing it with an empty or
+          // partial page on a transient failure blanks every list in the app,
+          // and the Skills page reads an empty list as "no skills yet" and
+          // re-seeds the entire default skill set as duplicates.
+        } else {
+          setData(rows as unknown as T[]);
         }
-        setData(rows as unknown as T[]);
         setLoading(false);
       })();
       inflight.current = run;

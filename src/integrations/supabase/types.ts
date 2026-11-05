@@ -5349,6 +5349,7 @@ export type Database = {
           last_reviewed_at: string | null
           role: string
           session_id: string
+          tags: string[]
           timestamp: number
           user_id: string
         }
@@ -5362,6 +5363,7 @@ export type Database = {
           last_reviewed_at?: string | null
           role: string
           session_id: string
+          tags?: string[]
           timestamp: number
           user_id: string
         }
@@ -5375,6 +5377,7 @@ export type Database = {
           last_reviewed_at?: string | null
           role?: string
           session_id?: string
+          tags?: string[]
           timestamp?: number
           user_id?: string
         }
@@ -5944,11 +5947,14 @@ export type Database = {
         Row: {
           context: Json | null
           created_at: string | null
+          current_step: number | null
           done_steps: number
           embedding: string | null
           goal: string
           id: string
+          last_session_summary: string | null
           status: string
+          steps: Json
           summary: string | null
           title: string
           total_steps: number
@@ -5958,11 +5964,14 @@ export type Database = {
         Insert: {
           context?: Json | null
           created_at?: string | null
+          current_step?: number | null
           done_steps?: number
           embedding?: string | null
           goal: string
           id?: string
+          last_session_summary?: string | null
           status?: string
+          steps?: Json
           summary?: string | null
           title: string
           total_steps?: number
@@ -5972,11 +5981,14 @@ export type Database = {
         Update: {
           context?: Json | null
           created_at?: string | null
+          current_step?: number | null
           done_steps?: number
           embedding?: string | null
           goal?: string
           id?: string
+          last_session_summary?: string | null
           status?: string
+          steps?: Json
           summary?: string | null
           title?: string
           total_steps?: number

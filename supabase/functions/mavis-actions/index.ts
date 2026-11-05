@@ -35,6 +35,20 @@ async function logActivity(sb: any, userId: string, eventType: string, descripti
   await sb.from("activity_log").insert({ user_id: userId, event_type: eventType, description, xp_amount: xpAmount });
 }
 
+// Mirrors src/types/rpg.ts getRankForLevel — keep the thresholds in sync.
+function rankForLevel(level: number): string {
+  if (level >= 100) return "Sovereign";
+  if (level >= 90) return "SSS";
+  if (level >= 80) return "SS";
+  if (level >= 70) return "S";
+  if (level >= 60) return "A";
+  if (level >= 50) return "B";
+  if (level >= 40) return "C";
+  if (level >= 30) return "D";
+  if (level >= 20) return "E";
+  return "F";
+}
+
 async function awardXP(sb: any, userId: string, amount: number) {
   const { data: profile } = await sb.from("profiles").select("xp, xp_to_next_level, level, operator_xp, operator_level").eq("id", userId).single();
   if (!profile) return;
@@ -43,15 +57,18 @@ async function awardXP(sb: any, userId: string, amount: number) {
   let level: number = Number(profile.level || 1);
   let threshold: number = Number(profile.xp_to_next_level || 500);
 
+  // Same formula as the client (calculateXPForLevel): the threshold stored
+  // after a level-up is the cost of the NEXT level, i.e. level + 1.
   while (xp >= threshold) {
     xp -= threshold;
     level++;
-    threshold = Math.floor(200 * Math.pow(level, 1.45));
+    threshold = Math.floor(200 * Math.pow(level + 1, 1.45));
   }
 
   await sb.from("profiles").update({
     xp,
     level,
+    rank: rankForLevel(level),
     xp_to_next_level: threshold,
     operator_xp: Number(profile.operator_xp || 0) + amount,
   }).eq("id", userId);
@@ -2663,16 +2680,31 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
       const restored: Array<{ table: string; name: string }> = [];
       for (let i = 0; i < count; i++) {
-        const { data: entry, error: findErr } = await sb.from("action_undo_log")
+        // Fetch a small window, not just the top row: deleting a quest with
+        // sub-quests logs the parent and every cascaded child in the same
+        // transaction, so they tie on deleted_at and sort by random id — a
+        // child can come first, its insert then fails the parent FK, and the
+        // un-undone entry wedges the whole stack. Pick the first candidate
+        // whose parent is gone from the pending set (or already restored).
+        const { data: candidates, error: findErr } = await sb.from("action_undo_log")
           .select("id, table_name, row_data")
           .eq("user_id", userId)
           .is("undone_at", null)
           .order("deleted_at", { ascending: false })
           .order("id", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .limit(20);
         if (findErr) throw findErr;
-        if (!entry) break; // stack exhausted — stop silently, return what we got
+        if (!candidates?.length) break; // stack exhausted — stop silently, return what we got
+
+        const pendingRowIds = new Set(
+          (candidates as any[]).map((c) => (c.row_data as any)?.id).filter(Boolean),
+        );
+        let entry: any = null;
+        for (const c of candidates as any[]) {
+          const parentId = (c.row_data as any)?.parent_quest_id;
+          if (!parentId || !pendingRowIds.has(parentId)) { entry = c; break; }
+        }
+        if (!entry) entry = (candidates as any[])[0]; // cycle or missing window — fall back to newest
 
         // embedding/fts are search-index artifacts, not part of the item itself —
         // vector/tsvector values don't round-trip reliably through jsonb, and
