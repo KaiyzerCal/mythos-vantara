@@ -207,10 +207,13 @@ export async function suggestSkillLinks(
   // out and handed the model a dozen near-identical mystical options even
   // for errands like "Repair Kia". Calibrated on live data: genuine matches
   // scored 0.34-0.52 and errands topped out at 0.27-0.30, so Beyonder
-  // candidates below the floor never reach the model. (A floor alone can't
-  // separate them — a few errands still reach ~0.38 — hence also the
-  // stricter rubric below.)
-  const BEYONDER_FLOOR = 0.30;
+  // candidates below the floor never reach the model. The floor sits just
+  // above the errand ceiling and gives up a few genuine 0.33-0.34 Beyonder
+  // matches: for a link that raises proficiency, precision matters more.
+  // (A floor alone can't separate them — a few errands still reach ~0.38 —
+  // hence also the rubric below, and the pick limits enforced in code after.)
+  const BEYONDER_FLOOR = 0.35;
+  const STRONG_MATCH = 0.45; // a second Beyonder pick must clear this
   const ranked = [...candidates.values()].sort((a, b) => b.score - a.score);
   const ordinary = ranked.filter((c) => !isBeyonder(c.skill)).slice(0, 15);
   const beyonder = ranked.filter((c) => isBeyonder(c.skill) && c.score >= BEYONDER_FLOOR).slice(0, 10);
@@ -254,6 +257,7 @@ Reply with ONLY a JSON object: {"ids":["<id>", ...],"why":"<one short sentence n
   const allowed = new Map(shortlist.map((c) => [c.skill.id, c]));
   const picked: string[] = [];
   const labels: Record<string, string> = {};
+  const scores: Record<string, number> = {};
   for (const raw of Array.isArray(parsed.ids) ? parsed.ids : []) {
     const c = allowed.get(String(raw));
     if (!c) continue;
@@ -272,8 +276,18 @@ Reply with ONLY a JSON object: {"ids":["<id>", ...],"why":"<one short sentence n
     if (picked.includes(target.id)) continue;
     picked.push(target.id);
     labels[target.id] = label;
+    scores[target.id] = c.score;
     if (picked.length >= max) break;
   }
 
-  return { ids: picked, labels, why: typeof parsed.why === "string" ? parsed.why.slice(0, 300) : "" };
+  // Enforced here rather than trusted to the prompt: the reranker is a
+  // free-tier model that returned three Beyonder sequences for a one-mile
+  // walk despite a rule saying at most one. Keep the best-matching Beyonder
+  // pick, plus a second only when it is itself a strong match.
+  const beyonderIds = picked.filter((id) => isBeyonder(byId.get(id)!)).sort((a, b) => scores[b] - scores[a]);
+  const keepBeyonder = new Set(beyonderIds.filter((_, i) => i === 0 || (i === 1 && scores[beyonderIds[1]] >= STRONG_MATCH)));
+  const finalIds = picked.filter((id) => !isBeyonder(byId.get(id)!) || keepBeyonder.has(id));
+  for (const id of picked) if (!finalIds.includes(id)) delete labels[id];
+
+  return { ids: finalIds, labels, why: typeof parsed.why === "string" ? parsed.why.slice(0, 300) : "" };
 }
