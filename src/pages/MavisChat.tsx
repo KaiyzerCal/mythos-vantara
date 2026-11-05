@@ -2814,7 +2814,12 @@ export default function MavisChat() {
           sendMessage={async (text) => { setInput(text); await sendMessage(text); }}
           lastBotMessage={lastBotMessage}
           isLoading={isLoading}
-          externalAudio={ttsEnabled}
+          // The overlay speaks for itself, in the voice picked on this page.
+          // This used to be externalAudio={ttsEnabled}, which told the overlay
+          // "the page plays the audio" — but speakText above returns early
+          // whenever the overlay is open (so the two don't both speak), so
+          // with voice output on, neither side spoke at all.
+          defaultVoiceId={voiceId}
         />
       )}
     </AnimatePresence>
