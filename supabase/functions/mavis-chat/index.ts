@@ -1804,6 +1804,7 @@ ${telosData
               _emitFiltered(value);
             }
             _flushFilter();
+            if (!accumulated.trim()) console.warn(`[stream-empty] provider ${streamProv} returned an empty stream (mode ${modeUpper})`);
             // ── ReAct loop: execute ACTION blocks, observe results, synthesize ──
             {
               const REACT_MAX_ITER    = 5;
