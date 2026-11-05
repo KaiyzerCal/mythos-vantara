@@ -494,8 +494,43 @@ export function useCurrencies() {
     return { ok: true, balance: nextAmount };
   }, [user]);
 
-  return { data, loading, create, setAmount, remove, spend, refetch: fetch };
+  // find-or-create + increment — the inverse of spend. Used by selling
+  // inventory for Codex Points so a first-ever sale doesn't require the
+  // operator to have manually added the "Codex Points" currency first via
+  // the Store's "Add currency" UI.
+  const earn = useCallback(async (name: string, amount: number, icon = "📜"): Promise<number> => {
+    if (!user || amount <= 0) return 0;
+    const { data: row } = await (supabase as any)
+      .from("currencies").select("id, amount").eq("user_id", user.id).ilike("name", name).maybeSingle();
+    if (row) {
+      const nextAmount = Number(row.amount || 0) + amount;
+      const { error } = await (supabase as any).from("currencies").update({ amount: nextAmount }).eq("id", row.id);
+      if (error) return Number(row.amount || 0);
+      setData((prev) => prev.map((c) => (c.id === row.id ? { ...c, amount: nextAmount } : c)));
+      return nextAmount;
+    }
+    const { data: created, error } = await (supabase as any)
+      .from("currencies").insert({ name, amount, icon, user_id: user.id }).select().single();
+    if (error || !created) return 0;
+    setData((prev) => [...prev, created as unknown as Currency].sort((a, b) => a.name.localeCompare(b.name)));
+    return amount;
+  }, [user]);
+
+  return { data, loading, create, setAmount, remove, spend, earn, refetch: fetch };
 }
+
+// Sell value of a looted/rewarded inventory item, by rarity — what the
+// Inventory page's "Sell" action credits in Codex Points. Deliberately
+// generous enough to feel worth doing, scaled so rarer drops (rarer
+// quests) pay out more, same shape as the XP/codex_points_reward
+// difficulty scaling elsewhere in the game-system economy.
+export const INVENTORY_SELL_VALUE: Record<string, number> = {
+  common: 5,
+  rare: 15,
+  epic: 40,
+  legendary: 100,
+  mythic: 250,
+};
 
 // ─── TRANSFORMATIONS (Forms) ──────────────────────────────
 export interface Transformation {

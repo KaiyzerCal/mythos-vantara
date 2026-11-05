@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { ScrollText, Zap, Shield, ShieldOff, Package, Star, Filter, Target, BookOpen, Archive, Users, Layers, Heart, Swords, Trophy, Trash2 } from "lucide-react";
+import { ScrollText, Zap, Shield, ShieldOff, Package, Star, Filter, Target, BookOpen, Archive, Users, Layers, Heart, Swords, Trophy, Trash2, Coins } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppData } from "@/contexts/AppDataContext";
@@ -44,6 +44,11 @@ const EVENT_CONFIG: Record<string, { icon: typeof Zap; color: string; label: str
   item_created:    { icon: Package,    color: "text-[hsl(var(--neon-cyan))]",     label: "Item Created"     },
   item_updated:    { icon: Package,    color: "text-muted-foreground",            label: "Item Updated"     },
   item_deleted:    { icon: Trash2,     color: "text-destructive",                 label: "Item Deleted"     },
+  item_sold:       { icon: Coins,      color: "text-amber-400",                   label: "Item Sold"        },
+  // codex_points is the real event_type logActivity() writes (quest reward
+  // credits, mavis-actions/index.ts) — "codex" above never matched it, so
+  // these entries were falling through to the generic Zap/raw-type default.
+  codex_points:    { icon: ScrollText, color: "text-[hsl(var(--neon-purple))]",   label: "Codex Points"     },
   // Other
   energy_created:  { icon: Layers,     color: "text-[hsl(var(--neon-gold))]",     label: "Energy System"    },
   profile_updated: { icon: Shield,     color: "text-muted-foreground",            label: "Profile Updated"  },
@@ -57,8 +62,8 @@ const FILTERS = [
   "skill_created", "skill_up", "stat_up",
   "journal_created", "vault_created",
   "council_added", "ally_added",
-  "item_created",
-  "buff", "debuff", "loot", "codex",
+  "item_created", "item_sold",
+  "buff", "debuff", "loot", "codex", "codex_points",
 ];
 
 const PAGE_SIZE = 50;

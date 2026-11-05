@@ -41,7 +41,11 @@ const DECLARED_UPDATE_FIELDS = {
   // in actionSchemas.ts for why it can't be represented in this action shape.
   update_inventory_item: ["name", "description", "rarity", "quantity", "effect", "slot", "tier", "is_equipped", "stat_effects"],
   // "type" deliberately excluded — see UpdateQuestSchema's quest_type comment.
-  update_quest: ["title", "description", "status", "difficulty", "xp_reward", "progress_current", "progress_target", "real_world_mapping", "category"],
+  // Was missing codex_points_reward/buff_effects/debuff_effects/loot_rewards
+  // (already real fields on both sides — this list had gone stale, not the
+  // code) plus completion_criteria/is_consequence/consequence_quest_id
+  // (newly wired on both sides in the same change as this fix).
+  update_quest: ["title", "description", "status", "difficulty", "xp_reward", "codex_points_reward", "progress_current", "progress_target", "real_world_mapping", "category", "buff_effects", "debuff_effects", "loot_rewards", "completion_criteria", "is_consequence", "consequence_quest_id"],
   // "type" deliberately excluded — see UpdateEnergySchema's energy_type comment.
   update_energy: ["current_value", "max_value", "status", "description", "color"],
 } as const;

@@ -4,10 +4,11 @@
 // ============================================================
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff, Swords, AlertTriangle, CheckCircle2, Waves, Search } from "lucide-react";
+import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edit2, Upload, FileText, Image, Film, Music, File, X, Eye, LayoutGrid, ChevronLeft, ChevronRight, Wand2, Mic, MicOff, Download, FileDown, LayoutTemplate, Link2, Shield, ShieldOff, Swords, AlertTriangle, CheckCircle2, Waves, Search, Coins } from "lucide-react";
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { INVENTORY_SELL_VALUE } from "@/hooks/useDataHooks";
 import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -1638,13 +1639,15 @@ export function SkillsPage() {
 
 // ─── InventoryPage ─────────────────────────────────────────
 export function InventoryPage() {
-  const { inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, refetchInventory } = useAppData();
+  const { inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, sellInventoryItem, refetchInventory } = useAppData();
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" });
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<{ id: string; label: string } | null>(null);
+  const [confirmSellItem, setConfirmSellItem] = useState<{ id: string; label: string; earned: number } | null>(null);
+  const [sellingId, setSellingId] = useState<string | null>(null);
 
   const parseStatEffects = (str: string): { label: string; value: number; unit: string }[] => {
     if (!str.trim()) return [];
@@ -1670,6 +1673,21 @@ export function InventoryPage() {
     const next = !item.is_equipped;
     await updateInventoryItem(item.id, { is_equipped: next });
     toast.success(next ? `${item.name} equipped` : `${item.name} unequipped`);
+  };
+
+  const sellValueFor = (item: any) => (INVENTORY_SELL_VALUE[item.rarity] ?? INVENTORY_SELL_VALUE.common) * Math.max(1, item.quantity);
+
+  const handleSell = async () => {
+    if (!confirmSellItem) return;
+    setSellingId(confirmSellItem.id);
+    try {
+      const result = await sellInventoryItem(confirmSellItem.id);
+      if (result.ok) toast.success(`Sold "${confirmSellItem.label}" for ${result.earned} Codex Points`);
+      else toast.error("Couldn't sell that item — try again.");
+    } finally {
+      setSellingId(null);
+      setConfirmSellItem(null);
+    }
   };
 
   const resetForm = () => { setForm({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" }); setEditingId(null); setShowCreate(false); };
@@ -1861,6 +1879,14 @@ export function InventoryPage() {
                       {item.is_equipped ? <ShieldOff size={12} /> : <Shield size={12} />}
                     </button>
                   )}
+                  <button
+                    onClick={() => setConfirmSellItem({ id: item.id, label: item.name, earned: sellValueFor(item) })}
+                    disabled={sellingId === item.id}
+                    className="p-1 text-muted-foreground hover:text-amber-400 transition-colors disabled:opacity-50"
+                    title={`Sell for ${sellValueFor(item)} Codex Points`}
+                  >
+                    {sellingId === item.id ? <Loader2 size={12} className="animate-spin" /> : <Coins size={12} />}
+                  </button>
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
                   <button onClick={() => setConfirmDeleteItem({ id: item.id, label: item.name })} className="p-1 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
                 </div>
@@ -1881,6 +1907,13 @@ export function InventoryPage() {
           setConfirmDeleteItem(null);
         }}
         onCancel={() => setConfirmDeleteItem(null)}
+      />
+      <ConfirmDialog
+        open={confirmSellItem !== null}
+        title={`Sell "${confirmSellItem?.label}"?`}
+        description={`You'll receive ${confirmSellItem?.earned} Codex Points. This action cannot be undone.`}
+        onConfirm={handleSell}
+        onCancel={() => setConfirmSellItem(null)}
       />
     </div>
   );
