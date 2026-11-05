@@ -5,6 +5,7 @@ import { buildTsQuery, extractTerms } from "../_shared/entrySearch.ts";
 import { searchAppData, resolveScope, SEARCHABLE_KEYS } from "../_shared/appSearch.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
 import { embedText } from "../_shared/embedding.ts";
+import { suggestSkillLinks } from "../_shared/skillLinker.ts";
 
 type MavisAction = {
   type: string;
@@ -362,7 +363,24 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // accepted alternate name for exactly that path. Same structural
       // issue as update_inventory_item's "type" field, fixed here since
       // the fallback name doesn't collide with anything.
-      const linkedSkillIds = await resolveLinkedSkillIds(sb, userId, asStringArray(p.linked_skill_ids));
+      let linkedSkillIds = await resolveLinkedSkillIds(sb, userId, asStringArray(p.linked_skill_ids));
+      // Every quest-creation path lands here — chat, Telegram, the 12h
+      // digest, council heartbeats, goal engine, meeting transcripts — and
+      // most of them never see the skill list. When the caller didn't link
+      // anything, pick the relevant skills from the operator's full set
+      // server-side (see _shared/skillLinker.ts). auto_link_skills:false
+      // opts out, for a quest the operator explicitly wants unlinked.
+      let autoLinked: Awaited<ReturnType<typeof suggestSkillLinks>> | null = null;
+      if (linkedSkillIds.length === 0 && p.auto_link_skills !== false) {
+        try {
+          autoLinked = await suggestSkillLinks(sb, userId, {
+            title: String(p.title || ""), description: p.description ? String(p.description) : null, category: p.category ? String(p.category) : null,
+          });
+          linkedSkillIds = autoLinked.ids;
+        } catch (err) {
+          console.warn("[create_quest] auto skill-link failed, creating unlinked:", err instanceof Error ? err.message : err);
+        }
+      }
       const { data: newQuest, error } = await sb.from("quests").insert({
         user_id: userId,
         title: String(p.title || "New Quest"),
@@ -399,8 +417,50 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       }).select("id").single();
       if (error) throw error;
       await logActivity(sb, userId, "quest_created", `Quest created: ${String(p.title || "New Quest")}`, 0);
+      if (autoLinked && autoLinked.ids.length > 0) {
+        await logActivity(sb, userId, "skill_link_auto", `"${String(p.title || "New Quest")}" auto-linked to ${Object.values(autoLinked.labels).join(", ")}${autoLinked.why ? ` — ${autoLinked.why}` : ""}`, 0);
+      }
       if (newQuest?.id) reembedRow(sb, "quests", String(newQuest.id), userId);
-      return;
+      return { quest_id: newQuest?.id ?? null, linked_skill_ids: linkedSkillIds, auto_linked: autoLinked?.labels ?? {} };
+    }
+
+    // Returns suggested skill links for a quest that doesn't exist yet —
+    // backs the quest form's "Suggest skills" button. Writes nothing.
+    case "suggest_skill_links": {
+      const result = await suggestSkillLinks(sb, userId, {
+        title: String(p.title || ""), description: p.description ? String(p.description) : null, category: p.category ? String(p.category) : null,
+      }, { max: Number(p.max || 3) });
+      return { ids: result.ids, labels: result.labels, why: result.why };
+    }
+
+    // (Re)links existing quests. quest_id for one; all_unlinked:true for
+    // every active quest with no links (capped per call — each one is an
+    // embedding plus a model call). replace:true relinks a quest that
+    // already has links instead of skipping it.
+    case "auto_link_quest_skills": {
+      let targets: Array<{ id: string; title: string; description: string | null; category: string | null; linked_skill_ids: string[] | null }> = [];
+      if (p.quest_id || p.id || p.quest_name || p.title) {
+        const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
+        const { data } = await sb.from("quests").select("id, title, description, category, linked_skill_ids").eq("id", questId).eq("user_id", userId).maybeSingle();
+        if (data) targets = [data];
+      } else if (p.all_unlinked) {
+        const { data } = await sb.from("quests").select("id, title, description, category, linked_skill_ids")
+          .eq("user_id", userId).eq("status", "active").order("created_at", { ascending: false }).limit(200);
+        targets = ((data ?? []) as typeof targets).filter((q) => !q.linked_skill_ids || q.linked_skill_ids.length === 0)
+          .slice(0, Math.min(25, Number(p.limit || 15)));
+      } else {
+        throw new Error("auto_link_quest_skills: pass quest_id (or quest_name), or all_unlinked:true");
+      }
+      const linked: Array<{ quest_id: string; title: string; skills: string[] }> = [];
+      for (const q of targets) {
+        if (!p.replace && q.linked_skill_ids && q.linked_skill_ids.length > 0) continue;
+        const r = await suggestSkillLinks(sb, userId, { title: q.title, description: q.description, category: q.category });
+        if (r.ids.length === 0) continue;
+        await sb.from("quests").update({ linked_skill_ids: r.ids, updated_at: new Date().toISOString() }).eq("id", q.id).eq("user_id", userId);
+        await logActivity(sb, userId, "skill_link_auto", `"${q.title}" auto-linked to ${Object.values(r.labels).join(", ")}`, 0);
+        linked.push({ quest_id: q.id, title: q.title, skills: Object.values(r.labels) });
+      }
+      return { checked: targets.length, linked_count: linked.length, linked };
     }
 
     case "update_quest": {
@@ -501,8 +561,11 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         const parentId = await resolveId(sb, userId, "skills", undefined, p.parent_skill_name as string);
         if (parentId) insertData.parent_skill_id = parentId;
       }
-      const { error } = await sb.from("skills").insert(insertData);
+      const { data: newSkill, error } = await sb.from("skills").insert(insertData).select("id").single();
       if (error) throw error;
+      // So the new skill is immediately findable by the quest auto-linker
+      // rather than waiting for the next embed-backfill run.
+      if (newSkill?.id) reembedRow(sb, "skills", String(newSkill.id), userId);
       const label = insertData.parent_skill_id ? "Subskill" : "Skill";
       await logActivity(sb, userId, "skill_created", `${label} unlocked: ${String(p.name || "New Skill")}`, 0);
       return;
@@ -518,6 +581,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const { data: updated, error } = await sb.from("skills").update(updates).eq("id", skillId).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!updated || updated.length === 0) throw new Error(`skills: update matched no row for id "${skillId}"`);
+      if (updates.name !== undefined || updates.description !== undefined) reembedRow(sb, "skills", skillId, userId);
       return;
     }
 

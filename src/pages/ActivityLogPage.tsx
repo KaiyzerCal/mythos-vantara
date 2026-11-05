@@ -32,6 +32,7 @@ const EVENT_CONFIG: Record<string, { icon: typeof Zap; color: string; label: str
   codex:           { icon: ScrollText, color: "text-[hsl(var(--neon-purple))]",   label: "Codex Points"     },
   skill_up:        { icon: Zap,        color: "text-[hsl(var(--neon-green))]",    label: "Skill Up"         },
   skill_created:   { icon: Swords,     color: "text-[hsl(var(--neon-green))]",    label: "Skill Unlocked"   },
+  skill_link_auto: { icon: Target,     color: "text-[hsl(var(--neon-green))]",    label: "Skills Linked"    },
   stat_up:         { icon: Trophy,     color: "text-[hsl(var(--neon-gold))]",     label: "Stat Up"          },
   // Content
   journal_created: { icon: BookOpen,   color: "text-[hsl(var(--neon-purple))]",   label: "Journal Entry"    },

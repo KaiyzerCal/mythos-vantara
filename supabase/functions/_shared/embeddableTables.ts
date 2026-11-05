@@ -41,6 +41,9 @@ export const EMBEDDABLE_TABLES: Record<string, Backfillable> = {
   quests:        { table: "quests",          titleCol: "title", bodyCol: "description" },
   meeting_notes: { table: "meeting_notes",   titleCol: "title", bodyCol: "summary" },
   notebooks:     { table: "notebooks",       titleCol: "title", bodyCol: "description" },
+  // Feeds match_skills, which _shared/skillLinker.ts uses to auto-link
+  // quests to relevant skills (20261105120000 migration).
+  skills:        { table: "skills",          titleCol: "name",  bodyCol: "description" },
 
   // The memory system. Older tables, built against different models, so their
   // vectors are narrower — see _shared/embedding.ts. mavis-memory-embed was
