@@ -39,7 +39,32 @@ export const CreateQuestSchema = z.object({
   completion_criteria: z.array(z.string()).optional(),
   is_consequence: z.boolean().optional(),
   consequence_quest_id: z.string().uuid().optional(),
+  // When linked_skill_ids is empty, mavis-actions picks relevant skills
+  // server-side (_shared/skillLinker.ts). false opts out.
+  auto_link_skills: z.boolean().optional(),
 });
+// Read-only: suggests skill links for a quest that doesn't exist yet.
+export const SuggestSkillLinksSchema = z.object({
+  type: z.literal("suggest_skill_links"),
+  title: TitleField,
+  description: DescField,
+  category: z.string().optional(),
+  max: z.number().int().min(1).max(5).optional(),
+});
+// (Re)links existing quests to relevant skills — one quest, or every
+// active unlinked quest.
+export const AutoLinkQuestSkillsSchema = z.object({
+  type: z.literal("auto_link_quest_skills"),
+  quest_id: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  quest_name: z.string().min(1).optional(),
+  all_unlinked: z.boolean().optional(),
+  replace: z.boolean().optional(),
+  limit: z.number().int().min(1).max(25).optional(),
+}).refine(
+  (v) => v.quest_id || v.id || v.quest_name || v.all_unlinked,
+  { message: "quest_id/quest_name, or all_unlinked:true, is required" },
+);
 // LOOKUP_BUG fixed: required a bare "id", but promptBuilder.ts documents
 // "quest_id" (never bare id), and update_task aliases to this same handler
 // with its own "task_id". Was ALSO missing type/difficulty/
@@ -1195,6 +1220,7 @@ export const ComposioActionSchema = z.object({
 // UNION — ALL SCHEMAS
 export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema, CompleteQuestSchema,
+  SuggestSkillLinksSchema, AutoLinkQuestSkillsSchema,
   CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema,
   CreateSkillSchema, UpdateSkillSchema, DeleteSkillSchema,
   CreateJournalSchema, UpdateJournalSchema, DeleteJournalSchema,

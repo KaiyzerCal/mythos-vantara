@@ -171,6 +171,35 @@ export function QuestsPage() {
     completion_criteria: [] as string[],
   });
   const [formErrors, setFormErrors] = useState<{ title?: string }>({});
+  const [suggestingSkills, setSuggestingSkills] = useState(false);
+
+  // Same picker MAVIS-created quests use server-side (_shared/skillLinker.ts):
+  // semantic search over every skill + Beyonder sequence, then a focused
+  // model pick. Merges into whatever's already selected; writes nothing.
+  const suggestSkills = async () => {
+    if (!form.title.trim()) { toast.error("Add a title first so there's something to match against."); return; }
+    setSuggestingSkills(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not signed in");
+      const { data, error } = await supabase.functions.invoke("mavis-actions", {
+        body: { actions: [{ type: "suggest_skill_links", params: { title: form.title, description: form.description } }] },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (error) throw error;
+      const result = data?.results?.[0];
+      if (!result?.success) throw new Error(result?.error || "Suggestion failed");
+      const ids: string[] = result.data?.ids ?? [];
+      const labels: Record<string, string> = result.data?.labels ?? {};
+      if (ids.length === 0) { toast("No clearly relevant skills found for this quest."); return; }
+      setForm((f) => ({ ...f, linked_skill_ids: [...new Set([...f.linked_skill_ids, ...ids])] }));
+      toast.success(`Linked: ${ids.map((id) => labels[id] ?? id).join(", ")}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't suggest skills");
+    } finally {
+      setSuggestingSkills(false);
+    }
+  };
   const [newBuff, setNewBuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
   const [newDebuff, setNewDebuff] = useState({ label: "", value: 0, unit: "%", duration: "" });
   const [newLoot, setNewLoot] = useState({ itemName: "", quantity: 1, rarity: "common" });
@@ -508,7 +537,20 @@ export function QuestsPage() {
               </div>
               {/* Linking: Skills */}
               <div>
-                <p className="text-xs font-mono text-muted-foreground uppercase mb-1">Link Skills (proficiency +2 to +15 on completion, scaled by difficulty)</p>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="text-xs font-mono text-muted-foreground uppercase">Link Skills (proficiency +2 to +15 on completion, scaled by difficulty)</p>
+                  {skills.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={suggestSkills}
+                      disabled={suggestingSkills}
+                      className="shrink-0 flex items-center gap-1 px-2 py-0.5 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 disabled:opacity-50"
+                      title="Pick the relevant skills and Beyonder sequences for this quest"
+                    >
+                      {suggestingSkills ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />} Suggest skills
+                    </button>
+                  )}
+                </div>
                 {skills.length === 0 ? (
                   <span className="text-xs font-mono text-muted-foreground">No skills — create skills first</span>
                 ) : (

@@ -108,6 +108,18 @@ export function useQuests() {
     const quest = data as unknown as Quest;
     setQuests((q) => [quest, ...q]);
     triggerEmbed(user.id, "quests");
+    // UI-created quests insert directly and skip mavis-actions' create_quest
+    // auto-link, so run it after the fact when nothing was picked. Fire-and-
+    // forget: the realtime channel above picks up the linked_skill_ids update.
+    if (!input.linked_skill_ids || input.linked_skill_ids.length === 0) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session?.access_token) return;
+        return supabase.functions.invoke("mavis-actions", {
+          body: { actions: [{ type: "auto_link_quest_skills", params: { quest_id: quest.id } }] },
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+      }).catch(() => {});
+    }
     return quest;
   }, [user]);
 

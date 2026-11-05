@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, X } from "lucide-react";
 
@@ -11,6 +11,8 @@ interface ConfirmDialogProps {
   onConfirm: () => void;
   onCancel: () => void;
   danger?: boolean;
+  /** Extra controls rendered above the buttons (e.g. a quantity picker). */
+  children?: ReactNode;
 }
 
 export function ConfirmDialog({
@@ -22,6 +24,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   danger = true,
+  children,
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
@@ -77,6 +80,8 @@ export function ConfirmDialog({
                 )}
               </div>
             </div>
+
+            {children && <div className="mb-4">{children}</div>}
 
             <div className="flex gap-2 justify-end">
               <button

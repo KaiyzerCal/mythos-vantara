@@ -1646,7 +1646,8 @@ export function InventoryPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" });
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<{ id: string; label: string } | null>(null);
-  const [confirmSellItem, setConfirmSellItem] = useState<{ id: string; label: string; earned: number } | null>(null);
+  const [confirmSellItem, setConfirmSellItem] = useState<{ id: string; label: string; owned: number; unitValue: number } | null>(null);
+  const [sellQty, setSellQty] = useState(1);
   const [sellingId, setSellingId] = useState<string | null>(null);
 
   const parseStatEffects = (str: string): { label: string; value: number; unit: string }[] => {
@@ -1675,14 +1676,19 @@ export function InventoryPage() {
     toast.success(next ? `${item.name} equipped` : `${item.name} unequipped`);
   };
 
-  const sellValueFor = (item: any) => (INVENTORY_SELL_VALUE[item.rarity] ?? INVENTORY_SELL_VALUE.common) * Math.max(1, item.quantity);
+  const unitSellValue = (item: any) => INVENTORY_SELL_VALUE[item.rarity] ?? INVENTORY_SELL_VALUE.common;
+
+  const openSell = (item: any) => {
+    setSellQty(1);
+    setConfirmSellItem({ id: item.id, label: item.name, owned: Math.max(1, item.quantity), unitValue: unitSellValue(item) });
+  };
 
   const handleSell = async () => {
     if (!confirmSellItem) return;
     setSellingId(confirmSellItem.id);
     try {
-      const result = await sellInventoryItem(confirmSellItem.id);
-      if (result.ok) toast.success(`Sold "${confirmSellItem.label}" for ${result.earned} Codex Points`);
+      const result = await sellInventoryItem(confirmSellItem.id, sellQty);
+      if (result.ok) toast.success(`Sold ${result.sold > 1 ? `${result.sold}× ` : ""}"${confirmSellItem.label}" for ${result.earned} Codex Points`);
       else toast.error("Couldn't sell that item — try again.");
     } finally {
       setSellingId(null);
@@ -1880,10 +1886,10 @@ export function InventoryPage() {
                     </button>
                   )}
                   <button
-                    onClick={() => setConfirmSellItem({ id: item.id, label: item.name, earned: sellValueFor(item) })}
+                    onClick={() => openSell(item)}
                     disabled={sellingId === item.id}
                     className="p-1 text-muted-foreground hover:text-amber-400 transition-colors disabled:opacity-50"
-                    title={`Sell for ${sellValueFor(item)} Codex Points`}
+                    title={`Sell — ${unitSellValue(item)} Codex Points each`}
                   >
                     {sellingId === item.id ? <Loader2 size={12} className="animate-spin" /> : <Coins size={12} />}
                   </button>
@@ -1911,10 +1917,42 @@ export function InventoryPage() {
       <ConfirmDialog
         open={confirmSellItem !== null}
         title={`Sell "${confirmSellItem?.label}"?`}
-        description={`You'll receive ${confirmSellItem?.earned} Codex Points. This action cannot be undone.`}
+        description={`${confirmSellItem?.unitValue} Codex Points each. Sold items can't be bought back.`}
+        confirmLabel={`Sell for ${(confirmSellItem?.unitValue ?? 0) * sellQty} CP`}
+        danger={false}
         onConfirm={handleSell}
         onCancel={() => setConfirmSellItem(null)}
-      />
+      >
+        {confirmSellItem && confirmSellItem.owned > 1 && (
+          <div className="flex items-center gap-2 text-xs font-mono">
+            <span className="text-muted-foreground">Quantity</span>
+            <button
+              type="button"
+              onClick={() => setSellQty((q) => Math.max(1, q - 1))}
+              className="w-6 h-6 rounded border border-border hover:border-primary/40"
+            >−</button>
+            <input
+              type="number"
+              min={1}
+              max={confirmSellItem.owned}
+              value={sellQty}
+              onChange={(e) => setSellQty(Math.min(confirmSellItem.owned, Math.max(1, Math.floor(Number(e.target.value) || 1))))}
+              className="w-14 bg-muted/30 border border-border rounded px-2 py-1 text-center focus:outline-none focus:border-primary/40"
+            />
+            <button
+              type="button"
+              onClick={() => setSellQty((q) => Math.min(confirmSellItem.owned, q + 1))}
+              className="w-6 h-6 rounded border border-border hover:border-primary/40"
+            >+</button>
+            <span className="text-muted-foreground">of {confirmSellItem.owned}</span>
+            <button
+              type="button"
+              onClick={() => setSellQty(confirmSellItem.owned)}
+              className="ml-auto text-primary hover:underline"
+            >All</button>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

@@ -94,9 +94,9 @@ interface AppDataContextType {
   updateInventoryItem: (id: string, input: any) => Promise<void>;
   deleteInventoryItem: (id: string) => Promise<void>;
   refetchInventory: () => Promise<void>;
-  // Sells an entire stack for Codex Points (rarity-based, see
-  // INVENTORY_SELL_VALUE) — the inverse of the Store's "Buy".
-  sellInventoryItem: (id: string) => Promise<{ ok: boolean; earned: number }>;
+  // Sells `quantity` units (default: the whole stack) for Codex Points,
+  // rarity-based via INVENTORY_SELL_VALUE — the inverse of the Store's "Buy".
+  sellInventoryItem: (id: string, quantity?: number) => Promise<{ ok: boolean; earned: number; sold: number }>;
 
   // Allies
   allies: Ally[];
@@ -221,22 +221,27 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { data: domainEffects, loading: domainEffectsLoading, create: createDomainEffect, update: updateDomainEffect, remove: deleteDomainEffect, refetch: refetchDomainEffects } = useDomainEffects();
   const { log: logActivity } = useActivityLog();
 
-  // Sells the whole stack (not partial quantity — keeps the UI a single
-  // confirm-and-done action) for Codex Points, rarity-scaled via
-  // INVENTORY_SELL_VALUE. The inverse of the Store's "Buy" flow in
-  // AlliesAndStore.tsx, same direct-Supabase-write shape (no mavis-actions
-  // hop — this is a UI-driven inventory/currency operation, not something
-  // MAVIS proposes via chat).
-  const sellInventoryItem = useCallback(async (id: string): Promise<{ ok: boolean; earned: number }> => {
+  // Sells `quantity` units of a stack (default and max: the whole stack) for
+  // Codex Points, rarity-scaled via INVENTORY_SELL_VALUE. Selling part of a
+  // stack decrements it; selling the rest removes the row. The inverse of
+  // the Store's "Buy" flow in AlliesAndStore.tsx, same direct-Supabase-write
+  // shape (no mavis-actions hop — a UI-driven inventory/currency operation).
+  const sellInventoryItem = useCallback(async (id: string, quantity?: number): Promise<{ ok: boolean; earned: number; sold: number }> => {
     const item = inventory.find((i) => i.id === id);
-    if (!item) return { ok: false, earned: 0 };
+    if (!item) return { ok: false, earned: 0, sold: 0 };
+    const owned = Math.max(1, item.quantity);
+    const sold = Math.min(owned, Math.max(1, Math.floor(quantity ?? owned)));
     const unitValue = INVENTORY_SELL_VALUE[item.rarity] ?? INVENTORY_SELL_VALUE.common;
-    const earned = unitValue * Math.max(1, item.quantity);
-    await deleteInventoryItem(id);
+    const earned = unitValue * sold;
+    if (sold >= owned) {
+      await deleteInventoryItem(id);
+    } else {
+      await updateInventoryItem(id, { quantity: owned - sold });
+    }
     await earnCurrency("Codex Points", earned);
-    await logActivity("item_sold", `Sold ${item.name}${item.quantity > 1 ? ` ×${item.quantity}` : ""} for ${earned} Codex Points`, 0);
-    return { ok: true, earned };
-  }, [inventory, deleteInventoryItem, earnCurrency, logActivity]);
+    await logActivity("item_sold", `Sold ${item.name}${sold > 1 ? ` ×${sold}` : ""} for ${earned} Codex Points`, 0);
+    return { ok: true, earned, sold };
+  }, [inventory, deleteInventoryItem, updateInventoryItem, earnCurrency, logActivity]);
 
   const refetchAll = useCallback(async () => {
     await Promise.all([
