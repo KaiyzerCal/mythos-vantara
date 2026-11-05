@@ -445,22 +445,42 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         if (data) targets = [data];
       } else if (p.all_unlinked) {
         const { data } = await sb.from("quests").select("id, title, description, category, linked_skill_ids")
-          .eq("user_id", userId).eq("status", "active").order("created_at", { ascending: false }).limit(200);
+          .eq("user_id", userId).eq("status", "active").order("created_at", { ascending: false }).limit(1000);
+        // A quest the linker finds nothing for stays unlinked, so it sits at
+        // the front of this list on every run and would eat each batch while
+        // the linkable ones behind it never get reached (the same
+        // dead-rows-first trap as the embed backfill). `offset` skips past
+        // them: linked quests drop out of this list, so the unlinkable ones
+        // are exactly what remains ahead — pass back the previous run's
+        // next_offset.
+        const offset = Math.max(0, Number(p.offset || 0));
         targets = ((data ?? []) as typeof targets).filter((q) => !q.linked_skill_ids || q.linked_skill_ids.length === 0)
-          .slice(0, Math.min(25, Number(p.limit || 15)));
+          .slice(offset, offset + Math.min(25, Number(p.limit || 15)));
       } else {
         throw new Error("auto_link_quest_skills: pass quest_id (or quest_name), or all_unlinked:true");
       }
       const linked: Array<{ quest_id: string; title: string; skills: string[] }> = [];
-      for (const q of targets) {
-        if (!p.replace && q.linked_skill_ids && q.linked_skill_ids.length > 0) continue;
-        const r = await suggestSkillLinks(sb, userId, { title: q.title, description: q.description, category: q.category });
-        if (r.ids.length === 0) continue;
-        await sb.from("quests").update({ linked_skill_ids: r.ids, updated_at: new Date().toISOString() }).eq("id", q.id).eq("user_id", userId);
-        await logActivity(sb, userId, "skill_link_auto", `"${q.title}" auto-linked to ${Object.values(r.labels).join(", ")}`, 0);
-        linked.push({ quest_id: q.id, title: q.title, skills: Object.values(r.labels) });
+      // Four at a time: each is an embedding plus a model call, and a batch
+      // of 25 one-by-one runs past the platform's 150s request limit.
+      const todo = targets.filter((q) => p.replace || !q.linked_skill_ids || q.linked_skill_ids.length === 0);
+      for (let i = 0; i < todo.length; i += 4) {
+        await Promise.all(todo.slice(i, i + 4).map(async (q) => {
+          try {
+            const r = await suggestSkillLinks(sb, userId, { title: q.title, description: q.description, category: q.category });
+            if (r.ids.length === 0) return;
+            await sb.from("quests").update({ linked_skill_ids: r.ids, updated_at: new Date().toISOString() }).eq("id", q.id).eq("user_id", userId);
+            await logActivity(sb, userId, "skill_link_auto", `"${q.title}" auto-linked to ${Object.values(r.labels).join(", ")}`, 0);
+            linked.push({ quest_id: q.id, title: q.title, skills: Object.values(r.labels) });
+          } catch (err) {
+            console.warn(`[auto_link_quest_skills] "${q.title}" failed:`, err instanceof Error ? err.message : err);
+          }
+        }));
       }
-      return { checked: targets.length, linked_count: linked.length, linked };
+      const noMatch = todo.length - linked.length;
+      return {
+        checked: todo.length, linked_count: linked.length, no_match: noMatch,
+        next_offset: Math.max(0, Number(p.offset || 0)) + noMatch, linked,
+      };
     }
 
     case "update_quest": {
