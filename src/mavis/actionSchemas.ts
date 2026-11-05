@@ -31,6 +31,14 @@ export const CreateQuestSchema = z.object({
   debuff_effects: z.array(z.unknown()).optional(),
   linked_skill_ids: z.array(z.string()).optional(),
   parent_quest_id: z.string().uuid().optional(),
+  // Real columns (quests.completion_criteria/is_consequence/
+  // consequence_quest_id) accepted by the handler's insert but missing here
+  // until now — same silently-dropped-field class as buff/debuff_effects
+  // above. completion_criteria is how a quest states concrete, checkable
+  // "done" conditions instead of leaving it to vibes.
+  completion_criteria: z.array(z.string()).optional(),
+  is_consequence: z.boolean().optional(),
+  consequence_quest_id: z.string().uuid().optional(),
 });
 // LOOKUP_BUG fixed: required a bare "id", but promptBuilder.ts documents
 // "quest_id" (never bare id), and update_task aliases to this same handler
@@ -62,6 +70,9 @@ export const UpdateQuestSchema = z.object({
   // an existing quest to a Beyonder pathway/sequence (or any skill)
   // afterward, or change which skills a quest advances.
   linked_skill_ids: z.array(z.string()).optional(),
+  completion_criteria: z.array(z.string()).optional(),
+  is_consequence: z.boolean().optional(),
+  consequence_quest_id: z.string().uuid().optional(),
 }).refine(
   (v) => v.quest_id || v.task_id || v.id,
   { message: "quest_id or task_id (or id) is required to identify the quest" },

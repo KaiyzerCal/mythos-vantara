@@ -56,6 +56,22 @@ async function awardXP(sb: any, userId: string, amount: number) {
   }).eq("id", userId);
 }
 
+// Credits a named wallet in the `currencies` table (find-or-create — a
+// first-ever Codex Points reward shouldn't require the operator to have
+// pre-created the currency row via the Store's "Add currency" UI first).
+// Mirrors useDataHooks.ts's client-side `spend`, but adding instead of
+// subtracting, and server-side so it also covers quest completions that
+// never touch the browser (chat/voice/Telegram/persona/cron).
+async function creditCurrency(sb: any, userId: string, name: string, amount: number, icon = "📜") {
+  if (amount <= 0) return;
+  const { data: row } = await sb.from("currencies").select("id, amount").eq("user_id", userId).ilike("name", name).maybeSingle();
+  if (row) {
+    await sb.from("currencies").update({ amount: Number(row.amount || 0) + amount }).eq("id", row.id);
+  } else {
+    await sb.from("currencies").insert({ user_id: userId, name, amount, icon });
+  }
+}
+
 // Same formula FeaturePages.tsx's handleComplete used to compute client-side
 // before quest completion moved server-side — restored here so harder
 // quests still teach skills faster, now from the one place that awards it.
@@ -135,11 +151,17 @@ async function applyQuestCompletionRewards(sb: any, userId: string, quest: Recor
     }
   }
 
+  // Was crediting profiles.codex_integrity — a capped 0-100 flavor stat
+  // (system sync/health), unrelated to the spendable "Codex Points" wallet
+  // the Store actually charges against (currencies table, see AlliesAndStore
+  // .tsx's StorePage). A quest's codex_points_reward silently did nothing
+  // useful: it nudged a stat most operators never look at, while the
+  // currency the Shop reads from never moved. Fixed to credit the real
+  // wallet instead, via the same creditCurrency() the Shop's own "Buy" flow
+  // and inventory sell-back are built on.
   const codexPoints = Number(quest.codex_points_reward || 0);
   if (codexPoints > 0) {
-    const { data: profile } = await sb.from("profiles").select("codex_integrity").eq("id", userId).maybeSingle();
-    const newCodex = Math.min(100, Number(profile?.codex_integrity || 0) + codexPoints);
-    await sb.from("profiles").update({ codex_integrity: newCodex }).eq("id", userId);
+    await creditCurrency(sb, userId, "Codex Points", codexPoints);
     await logActivity(sb, userId, "codex_points", `+${codexPoints} Codex Points from quest`, codexPoints);
   }
 
@@ -363,6 +385,17 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         debuff_effects: p.debuff_effects || [],
         linked_skill_ids: linkedSkillIds,
         parent_quest_id: p.parent_quest_id ? String(p.parent_quest_id) : null,
+        // Real columns (quests.completion_criteria/is_consequence/
+        // consequence_quest_id) that this insert silently dropped until now —
+        // completion_criteria is how MAVIS states concrete, checkable
+        // conditions instead of leaving "done" to vibes; is_consequence/
+        // consequence_quest_id are the GAME_MASTER mechanic documented in
+        // buildSystemPrompt.ts's GAME_MASTER section and read back by
+        // useQuests.ts's failQuest() — neither ever actually persisted from
+        // an AI-created quest before this.
+        completion_criteria: Array.isArray(p.completion_criteria) ? p.completion_criteria : [],
+        is_consequence: Boolean(p.is_consequence || false),
+        consequence_quest_id: p.consequence_quest_id ? String(p.consequence_quest_id) : null,
       }).select("id").single();
       if (error) throw error;
       await logActivity(sb, userId, "quest_created", `Quest created: ${String(p.title || "New Quest")}`, 0);
@@ -377,7 +410,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // task_id. Found via vantara-crud-update-fix-brief.md follow-up.
       const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.task_id || p.id) as string, (p.quest_name || p.title) as string, "title");
       const updates: Record<string, unknown> = {};
-      for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "codex_points_reward", "progress_current", "progress_target", "real_world_mapping", "category", "buff_effects", "debuff_effects", "loot_rewards"]) {
+      for (const key of ["title", "description", "type", "status", "difficulty", "xp_reward", "codex_points_reward", "progress_current", "progress_target", "real_world_mapping", "category", "buff_effects", "debuff_effects", "loot_rewards", "completion_criteria", "is_consequence", "consequence_quest_id"]) {
         if (p[key] !== undefined) updates[key] = p[key];
       }
       // quest_type is the flat-dispatch-safe alternate name for "type" —

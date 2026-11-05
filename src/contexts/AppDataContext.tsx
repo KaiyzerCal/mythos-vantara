@@ -9,6 +9,7 @@ import {
   useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useCurrencies, useTransformations, useRankings, useRituals, useDomainEffects,
   type Task, type JournalEntry, type VaultEntry,
   type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Currency, type Transformation, type RankingProfile, type Ritual, type DomainEffect,
+  INVENTORY_SELL_VALUE,
 } from "@/hooks/useDataHooks";
 
 export interface ChatMessage {
@@ -93,6 +94,9 @@ interface AppDataContextType {
   updateInventoryItem: (id: string, input: any) => Promise<void>;
   deleteInventoryItem: (id: string) => Promise<void>;
   refetchInventory: () => Promise<void>;
+  // Sells an entire stack for Codex Points (rarity-based, see
+  // INVENTORY_SELL_VALUE) — the inverse of the Store's "Buy".
+  sellInventoryItem: (id: string) => Promise<{ ok: boolean; earned: number }>;
 
   // Allies
   allies: Ally[];
@@ -211,11 +215,28 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const { data: allies, loading: alliesLoading, create: createAlly, update: updateAlly, remove: deleteAlly, refetch: refetchAllies } = useAllies();
   const { data: bpmSessions, loading: bpmLoading, create: logBpmSession, refetch: refetchBpm } = useBpmSessions();
   const { data: storeItems, loading: storeLoading, create: createStoreItem, update: updateStoreItem, remove: deleteStoreItem, refetch: refetchStore } = useStoreItems();
-  const { data: currencies, loading: currenciesLoading, create: createCurrency, setAmount: setCurrencyAmount, remove: deleteCurrency, spend: spendCurrency, refetch: refetchCurrencies } = useCurrencies();
+  const { data: currencies, loading: currenciesLoading, create: createCurrency, setAmount: setCurrencyAmount, remove: deleteCurrency, spend: spendCurrency, earn: earnCurrency, refetch: refetchCurrencies } = useCurrencies();
   const { data: transformations, loading: transformationsLoading, create: createTransformation, update: updateTransformation, remove: deleteTransformation, refetch: refetchTransformations } = useTransformations();
   const { data: rankings, loading: rankingsLoading, create: createRanking, update: updateRanking, remove: deleteRanking, refetch: refetchRankings } = useRankings();
   const { data: domainEffects, loading: domainEffectsLoading, create: createDomainEffect, update: updateDomainEffect, remove: deleteDomainEffect, refetch: refetchDomainEffects } = useDomainEffects();
   const { log: logActivity } = useActivityLog();
+
+  // Sells the whole stack (not partial quantity — keeps the UI a single
+  // confirm-and-done action) for Codex Points, rarity-scaled via
+  // INVENTORY_SELL_VALUE. The inverse of the Store's "Buy" flow in
+  // AlliesAndStore.tsx, same direct-Supabase-write shape (no mavis-actions
+  // hop — this is a UI-driven inventory/currency operation, not something
+  // MAVIS proposes via chat).
+  const sellInventoryItem = useCallback(async (id: string): Promise<{ ok: boolean; earned: number }> => {
+    const item = inventory.find((i) => i.id === id);
+    if (!item) return { ok: false, earned: 0 };
+    const unitValue = INVENTORY_SELL_VALUE[item.rarity] ?? INVENTORY_SELL_VALUE.common;
+    const earned = unitValue * Math.max(1, item.quantity);
+    await deleteInventoryItem(id);
+    await earnCurrency("Codex Points", earned);
+    await logActivity("item_sold", `Sold ${item.name}${item.quantity > 1 ? ` ×${item.quantity}` : ""} for ${earned} Codex Points`, 0);
+    return { ok: true, earned };
+  }, [inventory, deleteInventoryItem, earnCurrency, logActivity]);
 
   const refetchAll = useCallback(async () => {
     await Promise.all([
@@ -330,7 +351,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       councils, councilsLoading, createCouncilMember, updateCouncilMember, deleteCouncilMember,
       skills, skillsLoading, createSkill, updateSkill, deleteSkill,
       energySystems, energyLoading, updateEnergy, createEnergy, updateEnergyFull, deleteEnergy, seedDefaultEnergy,
-      inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, refetchInventory,
+      inventory, inventoryLoading, createInventoryItem, updateInventoryItem, deleteInventoryItem, refetchInventory, sellInventoryItem,
       allies, alliesLoading, createAlly, updateAlly, deleteAlly,
       bpmSessions, bpmLoading, logBpmSession,
       storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
