@@ -105,11 +105,25 @@ export async function suggestSkillLinks(
   const questText = [quest.title, quest.description ?? "", quest.category ?? ""].filter(Boolean).join("\n").trim();
   if (!questText) return empty;
 
-  const { data: rows } = await sb
-    .from("skills")
-    .select("id, name, category, description, parent_skill_id, tier, unlocked, proficiency")
-    .eq("user_id", userId);
-  const skills = (rows ?? []) as SkillRow[];
+  // PostgREST caps one response at 1,000 rows and this operator has ~1,400
+  // skills. A single unpaginated query silently dropped the rest — including
+  // parents — so abilities whose sequence was cut off looked like roots and
+  // got linked directly (labels like "Warrior — Ability 1 pathway"), and any
+  // skill past row 1,000 could never be a candidate. Page until a short
+  // page; order by id so pages don't overlap or skip.
+  const PAGE = 1000;
+  const skills: SkillRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data: page, error } = await sb
+      .from("skills")
+      .select("id, name, category, description, parent_skill_id, tier, unlocked, proficiency")
+      .eq("user_id", userId)
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    skills.push(...((page ?? []) as SkillRow[]));
+    if (!page || page.length < PAGE) break;
+  }
   if (skills.length === 0) return empty;
 
   const byId = new Map(skills.map((s) => [s.id, s]));
