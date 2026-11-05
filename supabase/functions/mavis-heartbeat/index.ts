@@ -14,7 +14,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { isServiceRoleCaller } from "../_shared/auth.ts";
+import { isServiceRoleCaller, resolveAuthedUid } from "../_shared/auth.ts";
 
 const SB_URL   = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -289,15 +289,13 @@ serve(async (req) => {
   // for this function, so with no internal gate it was callable by anyone
   // holding the project's public anon key, triggering this across-every-
   // account proactive check-in (and its Telegram/task side effects) on
-  // demand. No real frontend caller exists for this one — only the hourly
-  // cron.
-  if (!isServiceRoleCaller(req)) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
-  }
+  // demand. Two trusted callers: the hourly cron (service-role key → all
+  // active users) and the System Health page's manual "Run" button (a
+  // signed-in user's JWT → that user only).
+  const sb = createClient(SB_URL, SB_SRK, { auth: { persistSession: false } });
 
-  try {
-    const sb = createClient(SB_URL, SB_SRK, { auth: { persistSession: false } });
-
+  let userIds: string[];
+  if (isServiceRoleCaller(req)) {
     // Get all active users (those with recent activity in last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000).toISOString();
     const { data: activeUsers } = await sb
@@ -307,7 +305,16 @@ serve(async (req) => {
       .order("user_id");
 
     // Deduplicate user IDs
-    const userIds = [...new Set((activeUsers ?? []).map((r: any) => r.user_id as string))];
+    userIds = [...new Set((activeUsers ?? []).map((r: any) => r.user_id as string))];
+  } else {
+    const uid = await resolveAuthedUid(req, sb);
+    if (!uid) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
+    }
+    userIds = [uid];
+  }
+
+  try {
 
     const results: Record<string, unknown>[] = [];
     for (const userId of userIds.slice(0, 50)) { // cap at 50 users per run
