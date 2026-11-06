@@ -161,8 +161,12 @@ Deno.serve(async (req) => {
           }
         };
 
-        geminiWs.onclose = () => {
-          if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+        geminiWs.onclose = (ev) => {
+          console.warn(`[live-voice] Gemini Live closed ${ev.code}: ${String(ev.reason).slice(0, 200)}`);
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(JSON.stringify({ type: "error", fallback: true, message: `Live voice unavailable (${ev.code}${ev.reason ? `: ${String(ev.reason).slice(0, 120)}` : ""})` }));
+            clientWs.close();
+          }
         };
 
         return;
