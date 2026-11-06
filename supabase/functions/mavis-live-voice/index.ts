@@ -4,7 +4,7 @@
 // in config.toml; we validate the Supabase token ourselves after WS connect.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { toGeminiFunctionDeclarations } from "../_shared/voiceTools.ts";
+import { toGeminiFunctionDeclarations, toOpenAIRealtimeTools } from "../_shared/voiceTools.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +17,28 @@ const SERVICE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const GEMINI_LIVE_URL = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${GEMINI_KEY}`;
 
+const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+const OPENAI_REALTIME_MODEL = Deno.env.get("OPENAI_REALTIME_MODEL") ?? "gpt-4o-realtime-preview";
+
+// Client streams 16 kHz PCM16 (Gemini's rate); OpenAI Realtime wants 24 kHz.
+function upsample16to24(b64: string): string {
+  const bin = atob(b64);
+  const inBytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) inBytes[i] = bin.charCodeAt(i);
+  const inp = new Int16Array(inBytes.buffer, 0, Math.floor(inBytes.length / 2));
+  const outLen = Math.floor(inp.length * 3 / 2);
+  const out = new Int16Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * 2 / 3, j = Math.floor(pos), f = pos - j;
+    const a = inp[j] ?? 0, b = inp[j + 1] ?? a;
+    out[i] = a + (b - a) * f;
+  }
+  const ob = new Uint8Array(out.buffer);
+  let s = "";
+  for (let i = 0; i < ob.length; i += 0x8000) s += String.fromCharCode(...ob.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
 const VOICES = ["Aoede", "Charon", "Fenrir", "Kore", "Puck"] as const;
 
 Deno.serve(async (req) => {
@@ -28,6 +50,9 @@ Deno.serve(async (req) => {
   const url          = new URL(req.url);
   const systemPrompt = url.searchParams.get("system") ?? "You are MAVIS, a sovereign AI life OS.";
   const voiceName    = url.searchParams.get("voice") ?? "Aoede";
+  // Fallback chain is driven by the client: gemini first, then provider=openai.
+  const provider     = url.searchParams.get("provider") === "openai" ? "openai" : "gemini";
+  let openaiWs: WebSocket | null = null;
 
   let authenticated = false;
   let geminiWs: WebSocket | null = null;
@@ -69,8 +94,68 @@ Deno.serve(async (req) => {
         clearTimeout(authTimeout);
         authenticated = true;
 
+        if (provider === "openai") {
+          if (!OPENAI_KEY) {
+            clientWs.send(JSON.stringify({ type: "error", fallback: true, message: "OPENAI_API_KEY not configured" }));
+            clientWs.close();
+            return;
+          }
+          try {
+            openaiWs = new WebSocket(
+              `wss://api.openai.com/v1/realtime?model=${OPENAI_REALTIME_MODEL}`,
+              ["realtime", `openai-insecure-api-key.${OPENAI_KEY}`, "openai-beta.realtime-v1"],
+            );
+          } catch (e: any) {
+            clientWs.send(JSON.stringify({ type: "error", fallback: true, message: `OpenAI live voice failed: ${e.message}` }));
+            clientWs.close();
+            return;
+          }
+          const instructions = msg.context ? `${systemPrompt}\n\n${msg.context}` : systemPrompt;
+          openaiWs.onopen = () => {
+            openaiWs!.send(JSON.stringify({
+              type: "session.update",
+              session: {
+                modalities: ["audio", "text"],
+                instructions,
+                voice: "shimmer",
+                input_audio_format: "pcm16",
+                output_audio_format: "pcm16",
+                turn_detection: { type: "server_vad" },
+                tools: toOpenAIRealtimeTools(),
+              },
+            }));
+            clientWs.send(JSON.stringify({ type: "connected", provider: "openai-realtime" }));
+          };
+          openaiWs.onmessage = (oEvent) => {
+            try {
+              const m = JSON.parse(String(oEvent.data));
+              switch (m.type) {
+                case "session.updated": clientWs.send(JSON.stringify({ type: "ready", provider: "openai-realtime" })); break;
+                case "response.audio.delta": clientWs.send(JSON.stringify({ type: "audio", mimeType: "audio/pcm;rate=24000", data: m.delta })); break;
+                case "response.audio_transcript.delta": clientWs.send(JSON.stringify({ type: "text", content: m.delta })); break;
+                case "response.done": clientWs.send(JSON.stringify({ type: "turn_complete" })); break;
+                case "response.function_call_arguments.done": {
+                  let args = {};
+                  try { args = JSON.parse(m.arguments || "{}"); } catch { /* keep empty */ }
+                  clientWs.send(JSON.stringify({ type: "tool_call", calls: [{ id: m.call_id, name: m.name, args }] }));
+                  break;
+                }
+                case "error": console.warn(`[live-voice] OpenAI error: ${JSON.stringify(m.error).slice(0, 300)}`); break;
+              }
+            } catch { /* skip malformed */ }
+          };
+          openaiWs.onclose = (ev) => {
+            console.warn(`[live-voice] OpenAI Realtime closed ${ev.code}: ${String(ev.reason).slice(0, 200)}`);
+            if (clientWs.readyState === WebSocket.OPEN) {
+              clientWs.send(JSON.stringify({ type: "error", fallback: true, message: `OpenAI live voice unavailable (${ev.code})` }));
+              clientWs.close();
+            }
+          };
+          return;
+        }
+
         if (!GEMINI_KEY) {
-          clientWs.send(JSON.stringify({ type: "error", message: "GEMINI_API_KEY not configured on this server" }));
+          clientWs.send(JSON.stringify({ type: "error", fallback: true, message: "GEMINI_API_KEY not configured on this server" }));
           clientWs.close();
           return;
         }
@@ -79,7 +164,7 @@ Deno.serve(async (req) => {
         try {
           geminiWs = new WebSocket(GEMINI_LIVE_URL);
         } catch (e: any) {
-          clientWs.send(JSON.stringify({ type: "error", message: `Gemini Live connection failed: ${e.message}` }));
+          clientWs.send(JSON.stringify({ type: "error", fallback: true, message: `Gemini Live connection failed: ${e.message}` }));
           clientWs.close();
           return;
         }
@@ -163,7 +248,7 @@ Deno.serve(async (req) => {
 
         geminiWs.onerror = () => {
           if (clientWs.readyState === WebSocket.OPEN) {
-            clientWs.send(JSON.stringify({ type: "error", message: "Gemini Live stream error" }));
+            clientWs.send(JSON.stringify({ type: "error", fallback: true, message: "Gemini Live stream error" }));
           }
         };
 
@@ -175,6 +260,25 @@ Deno.serve(async (req) => {
           }
         };
 
+        return;
+      }
+
+      // ── Phase 2 (OpenAI): forward Client → OpenAI Realtime ────────────────
+      if (provider === "openai") {
+        if (!openaiWs || openaiWs.readyState !== WebSocket.OPEN) return;
+        if (msg.type === "audio_chunk" && msg.data) {
+          openaiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: upsample16to24(msg.data) }));
+        } else if (msg.type === "text" && msg.content) {
+          openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: msg.content }] } }));
+          openaiWs.send(JSON.stringify({ type: "response.create" }));
+        } else if (msg.type === "interrupt") {
+          openaiWs.send(JSON.stringify({ type: "response.cancel" }));
+        } else if (msg.type === "tool_result" && Array.isArray(msg.responses)) {
+          for (const r of msg.responses) {
+            openaiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: r.id, output: JSON.stringify(r.response ?? {}) } }));
+          }
+          openaiWs.send(JSON.stringify({ type: "response.create" }));
+        }
         return;
       }
 
@@ -210,6 +314,7 @@ Deno.serve(async (req) => {
   clientWs.onclose = () => {
     clearTimeout(authTimeout);
     if (geminiWs?.readyState === WebSocket.OPEN) geminiWs.close();
+    if (openaiWs?.readyState === WebSocket.OPEN) openaiWs.close();
   };
 
   return response;
