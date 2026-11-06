@@ -93,6 +93,9 @@ export function VoiceChatOverlay({
 
   // Live Voice state
   const [liveMode, setLiveMode] = useState(false);
+  // Which voice mode is serving: Gemini live, OpenAI live, or turn-by-turn fallback.
+  const [liveProvider, setLiveProvider] = useState<"gemini" | "openai" | "turns" | null>(null);
+  const liveUserStoppedRef = useRef(false);
   const liveWsRef = useRef<WebSocket | null>(null);
   // Two separate AudioContexts: output (24kHz TTS playback) and input (16kHz mic capture).
   // Output is pre-created synchronously during the user gesture so Chrome/Opera never
@@ -713,7 +716,9 @@ export function VoiceChatOverlay({
     }
   }, []);
 
-  const connectLiveVoice = useCallback(async () => {
+  const connectLiveVoice = useCallback(async (provider: "gemini" | "openai" = "gemini") => {
+    liveUserStoppedRef.current = false;
+    setLiveProvider(provider);
     // Pre-create the output AudioContext HERE — synchronously, before any await —
     // so Chrome/Opera see it created during the user gesture (button click).
     // After the first await the browser no longer considers this a gesture context,
@@ -742,7 +747,7 @@ export function VoiceChatOverlay({
 
     const systemParam = encodeURIComponent(personaRef.current?.systemPrompt ?? "You are MAVIS, a sovereign AI life OS.");
     const ws = new WebSocket(
-      `${wsUrl}/functions/v1/mavis-live-voice?system=${systemParam}`,
+      `${wsUrl}/functions/v1/mavis-live-voice?system=${systemParam}&provider=${provider}`,
     );
 
     // Attach bearer token via a sub-protocol trick isn't possible for Supabase edge
@@ -833,7 +838,7 @@ export function VoiceChatOverlay({
           setPhase("listening");
         }
         if (msg.type === "error" && msg.message) {
-          setDisplayedReply(`⚠ ${msg.message}. Switch off LIVE to use tap-to-speak.`);
+          setDisplayedReply(`⚠ ${msg.message}`);
         }
         if (msg.type === "tool_call" && Array.isArray(msg.calls)) {
           void handleLiveToolCalls(msg.calls);
@@ -843,12 +848,34 @@ export function VoiceChatOverlay({
 
     ws.onclose = () => {
       liveWsRef.current = null;
+      if (liveUserStoppedRef.current) {
+        setLiveMode(false);
+        setLiveProvider(null);
+        setPhase("idle");
+        return;
+      }
+      // Unplanned drop — walk the voice fallback chain.
+      liveScriptProcessorRef.current?.disconnect();
+      liveScriptProcessorRef.current = null;
+      liveMicStreamRef.current?.getTracks().forEach((t) => t.stop());
+      liveMicStreamRef.current = null;
+      if (provider === "gemini") {
+        setDisplayedReply("⚠ Gemini live voice dropped — switching to OpenAI live voice…");
+        void connectLiveVoiceRef.current?.("openai");
+        return;
+      }
+      setDisplayedReply("⚠ Live voice unavailable — switched to turn-by-turn voice.");
       setLiveMode(false);
+      setLiveProvider("turns");
       setPhase("idle");
     };
   }, [playNextAudioChunk, handleLiveToolCalls]);
+  const connectLiveVoiceRef = useRef<typeof connectLiveVoice | null>(null);
+  connectLiveVoiceRef.current = connectLiveVoice;
 
   const disconnectLiveVoice = useCallback(() => {
+    liveUserStoppedRef.current = true;
+    setLiveProvider(null);
     // Stop mic capture
     if (liveScriptProcessorRef.current) {
       liveScriptProcessorRef.current.disconnect();
@@ -1376,7 +1403,7 @@ export function VoiceChatOverlay({
               : "bg-white/5 border-white/10 text-white/30 hover:text-white/60"
           }`}
         >
-          {liveMode ? "● LIVE" : "LIVE"}
+          {liveMode ? `● LIVE${liveProvider === "openai" ? " · OPENAI" : liveProvider === "gemini" ? " · GEMINI" : ""}` : liveProvider === "turns" ? "TURN MODE" : "LIVE"}
         </button>
       </div>
 

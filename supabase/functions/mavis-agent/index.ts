@@ -2030,8 +2030,8 @@ type ProviderId = "gemini" | "groq" | "gateway" | "anthropic" | "openai" | "grok
 // them listed — spending Lovable credits on requests the operator's own free
 // Gemini key could have served for nothing.
 const PROVIDER_LANES: Record<string, ProviderId[]> = {
-  generation: ["anthropic", "openai", "groq", "grok", "gemini", "gateway"],
-  code:       ["anthropic", "openai", "groq", "grok", "gemini", "gateway"],
+  generation: ["anthropic", "groq", "gemini", "openai", "grok", "gateway"],
+  code:       ["anthropic", "groq", "gemini", "openai", "grok", "gateway"],
   // CRUD writes (quest/skill/journal/etc create, update, delete, link) need
   // to follow a field schema exactly (real ids, never invented) more than
   // they need to be fast -- same reasoning as "code"/"generation" above,
@@ -2039,12 +2039,12 @@ const PROVIDER_LANES: Record<string, ProviderId[]> = {
   // uses for mavis-chat. Without this lane these requests fell into
   // "default" and hit the free Gemini tier first, which is exactly the
   // provider that kept fabricating quest reward/skill fields.
-  crud:       ["anthropic", "openai", "groq", "grok", "gemini", "gateway"],
-  realtime:   ["grok", "groq", "anthropic", "openai", "gemini", "gateway"],
-  reasoning:  ["openai", "anthropic", "groq", "grok", "gemini", "gateway"],
-  // "gemini" leads default: free direct Gemini (GEMINI_API_KEY, OpenAI-compatible
-  // endpoint) — zero credits, same tier mavis-chat's callWithFallback tries first.
-  default:    ["gemini", "groq", "anthropic", "openai", "grok", "gateway"],
+  crud:       ["anthropic", "groq", "gemini", "openai", "grok", "gateway"],
+  realtime:   ["grok", "groq", "gemini", "anthropic", "openai", "gateway"],
+  reasoning:  ["openai", "groq", "gemini", "anthropic", "grok", "gateway"],
+  // Operator-set order (2026-11-06): Groq, Gemini, Claude, OpenAI, Grok, gateway last.
+  // Each lane keeps its intent-picked lead; the rest follow that order.
+  default:    ["groq", "gemini", "anthropic", "openai", "grok", "gateway"],
 };
 
 const GENERATION_INTENT = /\b(generate|draw|render|imagine|make|create)\b[\s\S]{0,60}\b(image|picture|photo|pic|art|artwork|video|animation|avatar|portrait|wallpaper)\b|\b(image|picture|photo|video)\s+of\b|\b(nsfw|hentai|furry|lewd|nude|naked|sexy|erotic|porn)\b/i;
