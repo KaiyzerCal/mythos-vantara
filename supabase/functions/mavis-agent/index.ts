@@ -3006,10 +3006,10 @@ Deno.serve(async (req) => {
       userId = bodyUserId;
     } else if (token) {
       try {
-        const userSb = createClient(SUPABASE_URL, token, {
-          auth: { persistSession: false },
-        });
-        const { data: { user } } = await userSb.auth.getUser();
+        // Validate the user's token explicitly — passing it as the client key
+        // with no stored session made getUser() fail, so every signed-in
+        // request got a 401 and agent mode silently fell back to plain chat.
+        const { data: { user } } = await supabase.auth.getUser(token);
         userId = user?.id ?? "";
       } catch {
         // invalid token — userId stays empty
