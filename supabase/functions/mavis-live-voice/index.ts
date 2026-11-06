@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
         geminiWs.onopen = () => {
           geminiWs!.send(JSON.stringify({
             setup: {
-              model: "models/gemini-2.0-flash-live-001",
+              model: `models/${Deno.env.get("GEMINI_LIVE_MODEL") ?? "gemini-2.5-flash-native-audio-preview-09-2025"}`,
               generation_config: {
                 response_modalities: ["AUDIO"],
                 speech_config: {
@@ -114,9 +114,15 @@ Deno.serve(async (req) => {
         };
 
         // ── Forward Gemini → Client ──────────────────────────────────────────
-        geminiWs.onmessage = (gEvent) => {
+        geminiWs.onmessage = async (gEvent) => {
           try {
-            const gMsg = JSON.parse(String(gEvent.data));
+            // Gemini Live sends binary frames; decode before parsing.
+            const raw = typeof gEvent.data === "string"
+              ? gEvent.data
+              : gEvent.data instanceof Blob
+                ? await gEvent.data.text()
+                : new TextDecoder().decode(gEvent.data as ArrayBuffer);
+            const gMsg = JSON.parse(raw);
 
             // Audio / text content
             const parts = gMsg?.serverContent?.modelTurn?.parts ?? [];
@@ -161,8 +167,12 @@ Deno.serve(async (req) => {
           }
         };
 
-        geminiWs.onclose = () => {
-          if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+        geminiWs.onclose = (ev) => {
+          console.warn(`[live-voice] Gemini Live closed ${ev.code}: ${String(ev.reason).slice(0, 200)}`);
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(JSON.stringify({ type: "error", fallback: true, message: `Live voice unavailable (${ev.code}${ev.reason ? `: ${String(ev.reason).slice(0, 120)}` : ""})` }));
+            clientWs.close();
+          }
         };
 
         return;

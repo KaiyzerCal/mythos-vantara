@@ -806,7 +806,19 @@ export function VoiceChatOverlay({
           if (!audioCtx) return;
           if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
           try {
-            const buffer = await audioCtx.decodeAudioData(audioData.buffer);
+            let buffer: AudioBuffer;
+            if (String(msg.mimeType ?? "").includes("pcm")) {
+              // Gemini Live sends raw 16-bit little-endian PCM, which
+              // decodeAudioData cannot read — build the buffer by hand.
+              const rate = Number(/rate=(\d+)/.exec(msg.mimeType)?.[1] ?? 24000);
+              const view = new DataView(audioData.buffer);
+              const samples = Math.floor(audioData.byteLength / 2);
+              buffer = audioCtx.createBuffer(1, samples, rate);
+              const ch = buffer.getChannelData(0);
+              for (let i = 0; i < samples; i++) ch[i] = view.getInt16(i * 2, true) / 0x8000;
+            } else {
+              buffer = await audioCtx.decodeAudioData(audioData.buffer);
+            }
             liveAudioQueueRef.current.push(buffer);
             if (!livePlayingRef.current) playNextAudioChunk();
           } catch { /* skip bad chunks */ }
@@ -819,6 +831,9 @@ export function VoiceChatOverlay({
         }
         if (msg.type === "ready") {
           setPhase("listening");
+        }
+        if (msg.type === "error" && msg.message) {
+          setDisplayedReply(`⚠ ${msg.message}. Switch off LIVE to use tap-to-speak.`);
         }
         if (msg.type === "tool_call" && Array.isArray(msg.calls)) {
           void handleLiveToolCalls(msg.calls);
