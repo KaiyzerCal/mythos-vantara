@@ -155,8 +155,8 @@ export default function AutonomyPage() {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast.success("Autonomous cycle triggered — engine running in background");
-      setTimeout(load, 3000);
+      toast.success(data?.message ?? "Cycle triggered");
+      await load();
     } catch (err) {
       toast.error(`Cycle failed: ${err instanceof Error ? err.message : "unknown"}`);
     } finally {
