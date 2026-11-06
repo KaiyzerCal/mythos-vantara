@@ -488,7 +488,7 @@ export async function callWithFallback(
       try {
         return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
       } catch (err: any) {
-        if (!(err instanceof ProviderUnavailableError)) throw err;
+        if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
         markProviderUnhealthy("claude");
         console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
       }
@@ -497,7 +497,7 @@ export async function callWithFallback(
       try {
         return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
       } catch (err: any) {
-        if (!(err instanceof ProviderUnavailableError)) throw err;
+        if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
         markProviderUnhealthy("grok");
         console.warn(`[fallback] grok unfunded (${err.status}) → cascading`);
       }
@@ -509,7 +509,7 @@ export async function callWithFallback(
     try {
       return { content: await callOpenAI(messages, system, keys.openai, "gpt-4o-mini"), provider: "openai-mini" };
     } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
+      if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
       markProviderUnhealthy("openai");
       console.warn(`[fallback] OpenAI unfunded (${err.status}) → trying Claude Haiku`);
     }
@@ -520,7 +520,7 @@ export async function callWithFallback(
     try {
       return { content: await callClaude(messages, system, keys.claude, "claude-haiku-4-5-20251001"), provider: "claude-haiku" };
     } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
+      if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
       markProviderUnhealthy("claude");
       console.warn(`[fallback] Claude Haiku unfunded (${err.status}) → trying Claude Sonnet`);
     }
@@ -531,7 +531,7 @@ export async function callWithFallback(
     try {
       return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6"), provider: "claude-sonnet" };
     } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
+      if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
       markProviderUnhealthy("claude-sonnet");
       console.warn(`[fallback] Claude Sonnet unfunded (${err.status}) → trying Grok`);
     }
@@ -542,7 +542,7 @@ export async function callWithFallback(
     try {
       return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
     } catch (err: any) {
-      if (!(err instanceof ProviderUnavailableError)) throw err;
+      if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
       markProviderUnhealthy("grok");
       console.warn(`[fallback] Grok unfunded (${err.status}) → trying Lovable gateway`);
     }
@@ -927,40 +927,40 @@ export async function callWithFallbackStream(
       const stream = await callClaudeStream(messages, system, keys.claude, "claude-sonnet-4-6", useThinking);
       return { stream, provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
     } catch (e: any) {
-      console.warn(`[stream-fallback] claude: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
-      if (!(e instanceof ProviderUnavailableError)) throw e;
+      console.warn(`[stream-fallback] claude: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
+      if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
       markProviderUnhealthy("claude");
     }
   }
   if (primary === "grok" && keys.grok && !isProviderUnhealthy("grok")) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
     catch (e: any) {
-      console.warn(`[stream-fallback] grok: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
-      if (!(e instanceof ProviderUnavailableError)) throw e;
+      console.warn(`[stream-fallback] grok: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
+      if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
       markProviderUnhealthy("grok");
     }
   }
   if (keys.openai && !isProviderUnhealthy("openai")) {
     try { return { stream: await callOpenAIStream(messages, system, keys.openai), provider: "openai-mini" }; }
     catch (e: any) {
-      console.warn(`[stream-fallback] openai: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
-      if (!(e instanceof ProviderUnavailableError)) throw e;
+      console.warn(`[stream-fallback] openai: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
+      if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
       markProviderUnhealthy("openai");
     }
   }
   if (keys.claude && !isProviderUnhealthy("claude")) {
     try { return { stream: await callClaudeStream(messages, system, keys.claude, "claude-haiku-4-5-20251001", false), provider: "claude-haiku" }; }
     catch (e: any) {
-      console.warn(`[stream-fallback] claude: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
-      if (!(e instanceof ProviderUnavailableError)) throw e;
+      console.warn(`[stream-fallback] claude: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
+      if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
       markProviderUnhealthy("claude");
     }
   }
   if (keys.grok && !isProviderUnhealthy("grok")) {
     try { return { stream: await callGrokStream(messages, system, keys.grok), provider: "grok" }; }
     catch (e: any) {
-      console.warn(`[stream-fallback] grok: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "THROWING"}`);
-      if (!(e instanceof ProviderUnavailableError)) throw e;
+      console.warn(`[stream-fallback] grok: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
+      if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
       markProviderUnhealthy("grok");
     }
   }
