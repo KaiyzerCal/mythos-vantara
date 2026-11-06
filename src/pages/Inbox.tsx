@@ -305,10 +305,15 @@ export default function Inbox() {
       }
 
       // 2) Execute via mavis-actions
-      const payload = (target.action_payload ?? {}) as { type?: string; params?: Record<string, unknown> };
+      const payload = (target.action_payload ?? {}) as { type?: string; params?: Record<string, unknown> } & Record<string, unknown>;
+      // Two payload shapes exist: {type, params:{...}} (in-app proposals) and flat
+      // params like {query:"…"} (Telegram/persona-queued actions). Reading only
+      // payload.params sent {} for the flat shape and every such action failed
+      // with "requires <field>".
+      const { type: _t, proposed_by: _pb, details: _d, params: nested, ...flat } = payload as Record<string, unknown>;
       const action = {
         type: String(payload.type ?? target.action_type),
-        params: (payload.params && typeof payload.params === "object") ? payload.params : {},
+        params: (nested && typeof nested === "object") ? nested as Record<string, unknown> : flat,
       };
       const { data: execData, error: execErr } = await supabase.functions.invoke("mavis-actions", {
         body: { actions: [action] },
