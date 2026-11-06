@@ -70,19 +70,31 @@ export function ApprovalQueue({ userId, onCountChange }: { userId: string; onCou
     return () => { (supabase as any).removeChannel(channel); };
   }, [load, userId]);
 
+  // Approving must EXECUTE, not just flip a status. The queue processor only
+  // looks at "pending" rows, so a row merely marked "approved" is never run
+  // (8 such rows were stranded). mavis-action-executor runs a pending or
+  // approved item and records executed/failed itself.
   async function decide(id: string, decision: "approved" | "rejected") {
     setActing(id);
-    const { error } = await (supabase as any)
-      .from("mavis_action_queue")
-      .update({ status: decision, approved_at: new Date().toISOString() })
-      .eq("id", id);
-    if (error) { toast.error("Failed to update action"); }
-    else {
-      toast.success(decision === "approved" ? "Approved — MAVIS will execute" : "Rejected");
-      setItems(prev => prev.filter(i => i.id !== id));
-      onCountChange?.(items.length - 1);
+    try {
+      const { data, error } = await supabase.functions.invoke("mavis-action-executor", {
+        body: { action: decision === "approved" ? "execute" : "reject", queue_item_id: id },
+      });
+      if (error || data?.ok === false) {
+        const msg = (data as any)?.error ?? error?.message ?? "unknown error";
+        toast.error(decision === "approved" ? `Approved, but it failed to run: ${String(msg).slice(0, 160)}` : `Failed to reject: ${String(msg).slice(0, 160)}`);
+        load(); // item may now be 'failed'; refresh the list either way
+      } else {
+        toast.success(decision === "approved" ? "Approved and executed" : "Rejected");
+        setItems(prev => {
+          const next = prev.filter(i => i.id !== id);
+          onCountChange?.(next.length);
+          return next;
+        });
+      }
+    } finally {
+      setActing(null);
     }
-    setActing(null);
   }
 
   if (loading) return (

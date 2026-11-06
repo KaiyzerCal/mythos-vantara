@@ -1669,13 +1669,14 @@ async function executeDirectAction(type: string, params: Record<string, any>, ui
       }
       default: {
         // Unrecognized type → queue to approvals for manual review
-        await Promise.resolve(sb.from("approvals").insert({
+        const { error: queueErr } = await sb.from("approvals").insert({
           user_id:        uid,
           action_type:    type,
           action_summary: `Action from persona/council: ${type}`.slice(0, 255),
           action_payload: params,
           status:         "pending",
-        })).catch(() => null);
+        });
+        if (queueErr) console.warn("[telegram-bot] approvals insert failed:", queueErr.message);
         return `Action "${type}" queued`;
       }
     }
@@ -1949,9 +1950,11 @@ async function parseAndHandleProposals(
       action_summary: `[${charName}] ${p.summary}`.slice(0, 255),
       action_payload: { ...p.payload, details: p.details, proposed_by: charName },
       status:         "pending",
-      proposed_by:    charName,
     }));
-    await Promise.resolve(sb.from("approvals").insert(rows)).catch(() => null);
+    // proposed_by lives in action_payload — the live approvals table has no such
+    // column, so including it made every insert fail and nothing reached the Inbox.
+    const { error: approvalsErr } = await sb.from("approvals").insert(rows);
+    if (approvalsErr) console.warn("[telegram-bot] approvals insert failed:", approvalsErr.message);
   }
 
   // Append action confirmations to the visible reply
