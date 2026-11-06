@@ -1,23 +1,18 @@
-# Show agent provider routing on every response
+# Fix MAVIS chat "unable to respond" and voice overlay
 
-## Confirmed current state
+## What the logs show so far
+- Your free AI providers are exhausted right now: Gemini says prepaid credits are depleted (402), Groq hit its daily limit (429). Earlier checks also showed Anthropic out of credit and Grok at its monthly limit.
+- The Lovable AI fallback (the last resort) hasn't been called since 13:00 UTC today, so replies aren't reaching it.
+- No MAVIS chat or voice requests appear in the backend logs in the last 3 hours, so the failure may happen before the request lands, or the cascade is giving up before the last resort.
 
-- Agent mode already records every provider attempt in backend logs, but the response only returns the final provider and lane.
-- The chat client receives that final provider in both streamed and non-streamed responses.
-- One agent-mode send path currently drops the provider before rendering, while the other can display only the final provider beside the mode.
-- Skipped and failed tiers are not returned to the chat, so the interface cannot show the actual cascade.
+Root cause is not confirmed yet — step 1 confirms it.
 
-## Implementation
+## Steps
+1. Send one signed-in test message to MAVIS chat and one to the voice functions, and read the exact response and logs (cheap, one request each).
+2. Fix whichever is confirmed:
+   - If the cascade stops before the Lovable AI fallback: make sure exhausted providers are skipped quickly and the fallback is always tried last, for chat and voice.
+   - If the request never reaches the backend (sign-in/token problem): fix how the chat page and voice overlay send the request.
+3. Redeploy only the affected functions and re-run the same test to confirm a real reply comes back, in chat and in voice.
 
-1. Collect a small routing trace during each agent loop: provider, outcome (`served`, `failed`, or `skipped`), and HTTP status when available.
-2. Return that trace with streamed and non-streamed agent responses, without exposing API keys or full provider error bodies.
-3. Carry the trace into the finalized assistant message in both agent-mode send paths.
-4. Add a compact label beneath each agent response showing the serving provider and the preceding skipped/failed tiers in cascade order, for example: `GEMINI served · GROQ skipped · ANTHROPIC skipped`.
-5. Preserve the label for the current in-memory thread; keep database schema and stored message content unchanged.
-6. Add focused tests for cascade ordering and safe response metadata, then deploy `mavis-agent` and verify a real agent response displays the provider path.
-
-## Technical scope
-
-- Change only `mavis-agent`, agent response parsing/types, the MAVIS chat response display, and focused tests.
-- Keep provider order, fallback behavior, models, keys, and credit usage unchanged.
-- Do not include raw error bodies in the visible label; status codes are sufficient for failed tiers.
+## Note for you
+Topping up Gemini or waiting for Groq's daily reset (midnight UTC) also restores the free tiers; until then replies will use Lovable AI credits.
