@@ -114,9 +114,15 @@ Deno.serve(async (req) => {
         };
 
         // ── Forward Gemini → Client ──────────────────────────────────────────
-        geminiWs.onmessage = (gEvent) => {
+        geminiWs.onmessage = async (gEvent) => {
           try {
-            const gMsg = JSON.parse(String(gEvent.data));
+            // Gemini Live sends binary frames; decode before parsing.
+            const raw = typeof gEvent.data === "string"
+              ? gEvent.data
+              : gEvent.data instanceof Blob
+                ? await gEvent.data.text()
+                : new TextDecoder().decode(gEvent.data as ArrayBuffer);
+            const gMsg = JSON.parse(raw);
 
             // Audio / text content
             const parts = gMsg?.serverContent?.modelTurn?.parts ?? [];
