@@ -2115,7 +2115,7 @@ ${telosData
                 user_id:            user.id,
                 provider:           streamProv ?? provider,
                 mode:               modeUpper,
-                latency_ms:         Date.now() - ts,
+                duration_ms:        Date.now() - ts,
                 estimated_cost_usd: _streamCost,
                 success:            true,
               })).catch(() => {});
@@ -2589,7 +2589,7 @@ Respond with ONLY a JSON array (may be empty []):
       user_id:            user.id,
       provider:           usedProvider,
       mode:               modeUpper,
-      latency_ms:         null,
+      duration_ms:        null,
       estimated_cost_usd: _nonStreamCost,
       success:            true,
     })).catch(() => {});

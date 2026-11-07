@@ -414,6 +414,10 @@ export async function callGemini(messages: any[], system: string, key: string, o
     generationConfig: { maxOutputTokens: opts.thinking ? 16384 : 4096 },
   };
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
+  // Normal requests: switch the default-on "thinking" off. It is billed as output tokens
+  // ($2.50/M) and adds seconds of latency before the first word. If this Gemini model
+  // rejects the field (400), the loop below drops it and retries once as before.
+  else body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
   // Retry Google's transient server errors before giving up on this tier.
@@ -451,8 +455,9 @@ export async function callGemini(messages: any[], system: string, key: string, o
     }
 
     const errText = await res.text();
-    if (res.status === 429) throw new ProviderUnavailableError("gemini", errText.slice(0, 200), res.status);
-    if (res.status === 403) throw new ProviderUnavailableError("gemini", errText.slice(0, 200), res.status);
+    // 402 = prepaid credit depleted. It used to fall through as a plain Error, which the
+    // cascade never marked unhealthy, so a dead Gemini was re-tried on every request.
+    if (res.status === 429 || res.status === 402 || res.status === 403) throw new ProviderUnavailableError("gemini", errText.slice(0, 200), res.status);
 
     lastErr = new Error(`Gemini API ${res.status}: ${errText}`);
     if (!TRANSIENT.has(res.status) || attempt >= BACKOFF_MS.length) throw lastErr;
@@ -460,6 +465,49 @@ export async function callGemini(messages: any[], system: string, key: string, o
     console.warn(`[gemini] ${res.status} (transient) — retrying in ${BACKOFF_MS[attempt]}ms`);
     await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
   }
+}
+
+// ── AI usage log ─────────────────────────────────────────────────────────────
+// One row per cascade call in mavis_ai_usage, so "what is spending my credits" is a
+// query instead of a guess. Tokens are estimated (chars/4) because the adapters return
+// plain text, not provider usage objects. `label` is the first line of the system
+// prompt, which identifies the job ("...stalled quest...", "...meeting prep...") without
+// touching ~120 call sites. Fire-and-forget; a logging failure never affects a request.
+const PRICE_PER_M: Array<[RegExp, number, number]> = [
+  [/gpt-?5|openai/i, 0.25, 2.0], [/openai-mini|gpt-4o-mini/i, 0.15, 0.6],
+  [/haiku/i, 1, 5], [/sonnet|claude/i, 3, 15],
+  [/gemini/i, 0.3, 2.5], [/grok/i, 0.3, 0.5],
+  [/groq|gpt-oss|llama/i, 0, 0], [/lovable|gateway/i, 0.3, 2.5],
+];
+function estimateCostUsd(provider: string, inTok: number, outTok: number): number {
+  const row = PRICE_PER_M.find(([re]) => re.test(provider));
+  return row ? (inTok * row[1] + outTok * row[2]) / 1_000_000 : 0;
+}
+export function logAiUsage(e: { lane: string; system?: string; provider: string; ms: number; inChars: number; outChars: number | null; ok: boolean; error?: string }): void {
+  try {
+    const url = Deno.env.get("SUPABASE_URL");
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!url || !key) return;
+    const inTok = Math.ceil(e.inChars / 4);
+    const outTok = e.outChars == null ? null : Math.ceil(e.outChars / 4);
+    const write = fetch(`${url}/rest/v1/mavis_ai_usage`, {
+      method: "POST",
+      headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({
+        lane: e.lane,
+        label: (e.system ?? "").replace(/\s+/g, " ").trim().slice(0, 90) || null,
+        provider: e.provider,
+        duration_ms: Math.round(e.ms),
+        est_in_tokens: inTok,
+        est_out_tokens: outTok,
+        est_cost_usd: Number(estimateCostUsd(e.provider, inTok, outTok ?? 0).toFixed(6)),
+        success: e.ok,
+        error: e.error ? e.error.replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 160) : null,
+      }),
+      signal: AbortSignal.timeout(3000),
+    }).catch(() => {});
+    (globalThis as any).EdgeRuntime?.waitUntil?.(write);
+  } catch { /* never let logging break a request */ }
 }
 
 // Cascade order (operator-set 2026-11-06):
@@ -470,7 +518,7 @@ export async function callGemini(messages: any[], system: string, key: string, o
 //   4. OpenAI gpt-4o-mini
 //   5. Grok
 //   6. Lovable AI Gateway (true last resort — spends workspace credits)
-export async function callWithFallback(
+async function callWithFallbackInner(
   primary: Provider,
   messages: any[],
   system: string,
@@ -887,16 +935,23 @@ export async function callGeminiStream(messages: any[], system: string, key: str
     generationConfig: { maxOutputTokens: opts.thinking ? 16384 : 4096 },
   };
   if (opts.thinking) body.generationConfig.thinkingConfig = { thinkingBudget: 8192 };
+  else body.generationConfig.thinkingConfig = { thinkingBudget: 0 }; // see callGemini: thinking is billed as output and slows the first word
   if (opts.grounding && !opts.thinking) body.tools = [{ googleSearch: {} }];
   else if (opts.codeExec && !opts.thinking) body.tools = [{ codeExecution: {} }];
-  const res = await fetchStreamWithFailover(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_DEFAULT_MODEL}:streamGenerateContent?key=${key}&alt=sse`, {
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_DEFAULT_MODEL}:streamGenerateContent?key=${key}&alt=sse`;
+  const geminiCall = () => fetchStreamWithFailover(geminiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  let res = await geminiCall();
+  if (res.status === 400 && body.generationConfig.thinkingConfig?.thinkingBudget === 0) {
+    const peek = await res.clone().text().catch(() => "");
+    if (/thinking/i.test(peek)) { delete body.generationConfig.thinkingConfig; res = await geminiCall(); }
+  }
   if (!res.ok) {
     const e = await res.text().catch(() => "");
-    if (res.status === 429 || res.status === 403) throw new ProviderUnavailableError("gemini", e.slice(0, 200), res.status);
+    if (res.status === 429 || res.status === 402 || res.status === 403) throw new ProviderUnavailableError("gemini", e.slice(0, 200), res.status);
     throw new Error(`Gemini stream ${res.status}: ${e.slice(0, 200)}`);
   }
   return geminiSseToTextStream(res.body!, opts.thinking);
@@ -967,7 +1022,7 @@ export async function callGroqStream(messages: any[], system: string, key: strin
   return oaiSseToTextStream(res.body!);
 }
 
-export async function callWithFallbackStream(
+async function callWithFallbackStreamInner(
   primary: Provider,
   messages: any[],
   system: string,
@@ -1059,6 +1114,48 @@ export async function callWithFallbackStream(
   }
   console.error("[stream-fallback] every provider failed or was skipped as unhealthy");
   throw new Error("All AI providers unavailable for streaming (no funded keys).");
+}
+
+export async function callWithFallback(
+  primary: Provider,
+  messages: any[],
+  system: string,
+  keys: { openai: string; claude: string; grok: string; gemini: string; groq: string; lovable?: string },
+  useThinking = false,
+  mode = "PRIME",
+  premiumFirst = false,
+): Promise<{ content: string; provider: string }> {
+  const t0 = Date.now();
+  const inChars = system.length + messages.reduce((n: number, m: any) => n + (typeof m.content === "string" ? m.content.length : JSON.stringify(m.content ?? "").length), 0);
+  try {
+    const r = await callWithFallbackInner(primary, messages, system, keys, useThinking, mode, premiumFirst);
+    logAiUsage({ lane: premiumFirst ? "interactive" : "background", system, provider: r.provider, ms: Date.now() - t0, inChars, outChars: r.content?.length ?? 0, ok: true });
+    return r;
+  } catch (err: any) {
+    logAiUsage({ lane: premiumFirst ? "interactive" : "background", system, provider: "none", ms: Date.now() - t0, inChars, outChars: 0, ok: false, error: String(err?.message ?? err) });
+    throw err;
+  }
+}
+
+export async function callWithFallbackStream(
+  primary: Provider,
+  messages: any[],
+  system: string,
+  keys: { openai: string; claude: string; grok: string; gemini: string; groq: string; lovable?: string },
+  useThinking = false,
+  mode = "PRIME",
+): Promise<{ stream: ReadableStream<string>; provider: string }> {
+  const t0 = Date.now();
+  const inChars = system.length + messages.reduce((n: number, m: any) => n + (typeof m.content === "string" ? m.content.length : JSON.stringify(m.content ?? "").length), 0);
+  try {
+    const r = await callWithFallbackStreamInner(primary, messages, system, keys, useThinking, mode);
+    // ms = time to the first usable stream (provider search included); output length is not known yet.
+    logAiUsage({ lane: "stream", system, provider: r.provider, ms: Date.now() - t0, inChars, outChars: null, ok: true });
+    return r;
+  } catch (err: any) {
+    logAiUsage({ lane: "stream", system, provider: "none", ms: Date.now() - t0, inChars, outChars: 0, ok: false, error: String(err?.message ?? err) });
+    throw err;
+  }
 }
 
 // ============================================================

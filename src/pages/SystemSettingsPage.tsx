@@ -1415,7 +1415,7 @@ function LlmAnalyticsTab() {
     const [llmRes, fbRes] = await Promise.all([
       (supabase as any)
         .from("mavis_llm_calls")
-        .select("id, provider, mode, latency_ms, cost_usd, success, created_at")
+        .select("id, provider, mode, latency_ms:duration_ms, cost_usd:estimated_cost_usd, success, created_at")
         .eq("user_id", user.id)
         .gte("created_at", since.toISOString())
         .order("created_at", { ascending: false }),

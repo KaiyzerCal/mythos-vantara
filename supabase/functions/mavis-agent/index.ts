@@ -5,7 +5,7 @@ import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
 import {
   hasCrudIntent, GEMINI_DEFAULT_MODEL, GROQ_MODEL, LOVABLE_DEFAULT_MODEL,
-  hydrateProviderHealth, isProviderUnhealthy, markProviderUnhealthy, unfundedCooldownMs,
+  hydrateProviderHealth, isProviderUnhealthy, markProviderUnhealthy, unfundedCooldownMs, logAiUsage,
 } from "../_shared/providers.ts";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
@@ -2526,6 +2526,12 @@ async function runAgentLoop(
           }
         }
         console.log(`[agent-cascade] ${candidate} served in ${Date.now() - attemptStart}ms`);
+        logAiUsage({
+          lane: "agent", system, provider: candidate === "anthropic" ? "claude" : candidate, ms: Date.now() - attemptStart,
+          inChars: system.length + JSON.stringify(messages).length,
+          outChars: content.reduce((n: number, b: any) => n + String(b?.text ?? "").length + (b?.input ? JSON.stringify(b.input).length : 0), 0),
+          ok: true,
+        });
         pinnedProvider = candidate;
         served = true;
         break;
