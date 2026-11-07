@@ -517,6 +517,21 @@ async function checkStalledQuests(
 
     for (const quest of stalledQuests as any[]) {
       try {
+        // Cool-down: a recovery plan already went out for this quest recently.
+        // Without this, the same 3 stalled quests were re-processed on EVERY 5-minute
+        // run — one AI call, one Telegram alert and 3 new tasks each, ~860 AI calls
+        // and ~2,600 junk tasks a day (190k pending rows since Aug 19). A quest stays
+        // "stalled" until it is updated, so nothing ever cleared the condition.
+        const { data: recentPlan } = await sb
+          .from("mavis_tasks")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("payload->>trigger", "stalled_quest_recovery")
+          .eq("payload->>quest_id", quest.id)
+          .gte("created_at", daysAgo(14))
+          .limit(1);
+        if (recentPlan && recentPlan.length > 0) continue;
+
         const daysSinceUpdate = Math.floor(
           (Date.now() - new Date(quest.updated_at).getTime()) / 86400000,
         );
