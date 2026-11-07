@@ -3,7 +3,7 @@
 // Two checks in one function (service-role only; called by pg_cron every 6 hours and by hand
 // after a deploy):
 //
-//  1. SMOKE TEST. Sends a CORS preflight (OPTIONS, no credentials) to every function listed in
+//  1. SMOKE TEST (rolling, 25 functions per run, ~2h per full cycle). Sends a CORS preflight (OPTIONS, no credentials) to every function listed in
 //     mavis_smoke_targets. OPTIONS boots the function but runs no job (and with no credentials a
 //     function that ignores the method still stops at its own auth check). Classifies each as
 //     ok | boot_error (503 BOOT_ERROR) | missing (404 NOT_FOUND) | timeout | error. A function that
@@ -59,27 +59,40 @@ async function probe(name: string): Promise<{ status: string; http: number | nul
       signal: AbortSignal.timeout(8000),
     });
     const body = (await res.text().catch(() => "")).slice(0, 160);
+    if (/rate limit exceeded/i.test(body)) return { status: "throttled", http: res.status, detail: body };
     if (res.status === 404 && /NOT_FOUND/i.test(body)) return { status: "missing", http: 404, detail: body };
     if (res.status === 503 || /BOOT_ERROR|failed to start/i.test(body)) return { status: "boot_error", http: res.status, detail: body };
     if (res.status >= 500) return { status: "error", http: res.status, detail: body };
     return { status: "ok", http: res.status, detail: "" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (/rate limit exceeded/i.test(msg)) return { status: "throttled", http: null, detail: msg.slice(0, 160) };
     return { status: /timeout|abort/i.test(msg) ? "timeout" : "error", http: null, detail: msg.slice(0, 160) };
   }
 }
 
-async function smokeTest(sb: Sb): Promise<{ problems: Problem[]; checked: number; counts: Record<string, number> }> {
-  const { data: targets } = await sb.from("mavis_smoke_targets").select("name").order("name");
-  const names = ((targets ?? []) as { name: string }[]).map((t) => t.name).filter((n) => n !== "mavis-watchdog");
-  const { data: prevRows } = await sb.from("mavis_smoke_results").select("name,status,last_ok_at");
-  const prev = new Map<string, { status: string; last_ok_at: string | null }>(
-    ((prevRows ?? []) as any[]).map((r) => [r.name, { status: r.status, last_ok_at: r.last_ok_at }]),
+// The platform allows ~30 outgoing calls per minute from one invocation ("Rate limit exceeded for
+// trace ..."), so a run checks a batch, not all 321: the least-recently-checked functions first.
+// A cron every 10 minutes cycles through everything in ~2 hours. After a deploy, pass `names`
+// to check specific functions immediately.
+const BATCH = 25;
+
+async function smokeTest(sb: Sb, only?: string[]): Promise<{ problems: Problem[]; checked: number; counts: Record<string, number>; targets: number; fresh: number }> {
+  const { data: targets } = await sb.from("mavis_smoke_targets").select("name");
+  const all = ((targets ?? []) as { name: string }[]).map((t) => t.name).filter((n) => n !== "mavis-watchdog");
+  const { data: prevRows } = await sb.from("mavis_smoke_results").select("name,status,last_ok_at,checked_at");
+  const prev = new Map<string, { status: string; last_ok_at: string | null; checked_at: string }>(
+    ((prevRows ?? []) as any[]).map((r) => [r.name, { status: r.status, last_ok_at: r.last_ok_at, checked_at: r.checked_at }]),
   );
+
+  const names = (only && only.length
+    ? only.filter((n) => all.includes(n))
+    : [...all].sort((a, b) => (prev.get(a)?.checked_at ?? "").localeCompare(prev.get(b)?.checked_at ?? "")).slice(0, BATCH)
+  ).slice(0, 30);
 
   const results = new Map<string, { status: string; http: number | null; detail: string }>();
   let i = 0;
-  await Promise.all(Array.from({ length: 12 }, async () => {
+  await Promise.all(Array.from({ length: 6 }, async () => {
     while (i < names.length) {
       const name = names[i++];
       results.set(name, await probe(name));
@@ -87,25 +100,23 @@ async function smokeTest(sb: Sb): Promise<{ problems: Problem[]; checked: number
   }));
 
   const now = new Date().toISOString();
-  const upserts = names.map((name) => {
-    const r = results.get(name)!;
-    const last_ok_at = r.status === "ok" ? now : (prev.get(name)?.last_ok_at ?? null);
-    return { name, status: r.status, http: r.http, detail: r.detail, checked_at: now, last_ok_at };
-  });
-  if (upserts.length) await sb.from("mavis_smoke_results").upsert(upserts, { onConflict: "name" });
-
-  const problems: Problem[] = [];
   const counts: Record<string, number> = {};
+  const upserts: Record<string, unknown>[] = [];
+  const problems: Problem[] = [];
   for (const [name, r] of results) {
     counts[r.status] = (counts[r.status] ?? 0) + 1;
+    if (r.status === "throttled") continue; // not a verdict: leave the old result and try again next run
     const wasOk = prev.get(name)?.last_ok_at != null;
+    upserts.push({ name, status: r.status, http: r.http, detail: r.detail, checked_at: now, last_ok_at: r.status === "ok" ? now : (prev.get(name)?.last_ok_at ?? null) });
     if (r.status === "boot_error") problems.push({ id: `boot:${name}`, kind: "function won't start", text: `${name} fails to start (${r.detail.slice(0, 80)})` });
     else if (r.status === "missing" && wasOk) problems.push({ id: `missing:${name}`, kind: "function missing", text: `${name} was deployed before but is now missing (404)` });
     else if ((r.status === "error" || r.status === "timeout") && wasOk && prev.get(name)?.status === "ok") {
       problems.push({ id: `err:${name}`, kind: "function erroring", text: `${name} now ${r.status}${r.http ? ` (HTTP ${r.http})` : ""}` });
     }
   }
-  return { problems, checked: names.length, counts };
+  if (upserts.length) await sb.from("mavis_smoke_results").upsert(upserts, { onConflict: "name" });
+  const fresh = [...prev.values()].filter((v) => Date.now() - new Date(v.checked_at).getTime() < 3 * 3600_000).length;
+  return { problems, checked: names.length, counts, targets: all.length, fresh };
 }
 
 // ── 2. Watchdog checks ───────────────────────────────────────────────────────
@@ -193,12 +204,12 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const mode = String(body.mode ?? "all"); // all | smoke | watchdog
     const problems: Problem[] = [];
-    let smoke: { checked: number; counts: Record<string, number> } | null = null;
+    let smoke: { checked: number; counts: Record<string, number>; targets: number; fresh: number } | null = null;
 
     if (mode === "all" || mode === "smoke") {
-      const s = await smokeTest(sb);
+      const s = await smokeTest(sb, Array.isArray(body.names) ? body.names.map(String) : undefined);
       problems.push(...s.problems);
-      smoke = { checked: s.checked, counts: s.counts };
+      smoke = { checked: s.checked, counts: s.counts, targets: s.targets, fresh: s.fresh };
     }
     if (mode === "all" || mode === "watchdog") {
       for (const check of [usageChecks, growthChecks, cronHttpChecks]) {
@@ -222,7 +233,8 @@ Deno.serve(async (req) => {
         );
       }
     }
-    await sb.from("mavis_watchdog_reports").insert({ problems, alert_key: alertKey || null, alerted });
+    // The rolling smoke test runs every 10 minutes; only record it when it found something.
+    if (mode !== "smoke" || problems.length > 0) await sb.from("mavis_watchdog_reports").insert({ problems, alert_key: alertKey || null, alerted });
 
     return json({ ok: true, mode, smoke, problems, alerted });
   } catch (err) {
