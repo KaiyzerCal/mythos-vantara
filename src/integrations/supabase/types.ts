@@ -6668,6 +6668,45 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_smoke_results: {
+        Row: {
+          checked_at: string
+          detail: string | null
+          http: number | null
+          last_ok_at: string | null
+          name: string
+          status: string
+        }
+        Insert: {
+          checked_at?: string
+          detail?: string | null
+          http?: number | null
+          last_ok_at?: string | null
+          name: string
+          status: string
+        }
+        Update: {
+          checked_at?: string
+          detail?: string | null
+          http?: number | null
+          last_ok_at?: string | null
+          name?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      mavis_smoke_targets: {
+        Row: {
+          name: string
+        }
+        Insert: {
+          name: string
+        }
+        Update: {
+          name?: string
+        }
+        Relationships: []
+      }
       mavis_sms_log: {
         Row: {
           channel: string | null
@@ -8082,6 +8121,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mavis_watchdog_reports: {
+        Row: {
+          alert_key: string | null
+          alerted: boolean
+          created_at: string
+          id: string
+          problems: Json
+        }
+        Insert: {
+          alert_key?: string | null
+          alerted?: boolean
+          created_at?: string
+          id?: string
+          problems: Json
+        }
+        Update: {
+          alert_key?: string | null
+          alerted?: boolean
+          created_at?: string
+          id?: string
+          problems?: Json
+        }
+        Relationships: []
+      }
+      mavis_watchdog_snapshots: {
+        Row: {
+          id: number
+          row_count: number
+          table_name: string
+          taken_at: string
+        }
+        Insert: {
+          id?: number
+          row_count: number
+          table_name: string
+          taken_at?: string
+        }
+        Update: {
+          id?: number
+          row_count?: number
+          table_name?: string
+          taken_at?: string
+        }
+        Relationships: []
       }
       mavis_workflow_executions: {
         Row: {
@@ -13194,6 +13278,14 @@ export type Database = {
           parent_skill_id: string
           similarity: number
           tier: number
+        }[]
+      }
+      mavis_cron_http_errors: {
+        Args: { hours?: number }
+        Returns: {
+          n: number
+          sample: string
+          status_code: number
         }[]
       }
       mavis_dispatch_event: { Args: { payload: Json }; Returns: undefined }
