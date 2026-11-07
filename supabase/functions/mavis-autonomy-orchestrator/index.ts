@@ -3,9 +3,14 @@
 // GET  -> returns recent plans, steps, queued actions, and runs for the calling user
 // POST -> creates a new plan from a goal, seeds initial steps, and kicks the engine
 
-import { corsHeaders } from "npm:@supabase/supabase-js@2.49.4/cors";
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
 import { aiComplete } from "../_shared/providers.ts";
+
+// Defined inline: supabase-js 2.49.4 has no "/cors" export, so importing it made this function fail to boot.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
