@@ -10,12 +10,81 @@
 // Module-level Map persists within a warm Deno isolate; prevents hammering a
 // degraded provider on repeated requests within the same isolate lifetime.
 const _providerUnhealthyUntil = new Map<string, number>();
+// Names whose current cool-down was written to mavis_provider_health (long ones only).
+const _persistedHealth = new Set<string>();
+const PERSIST_MIN_TTL_MS = 5 * 60_000;
+const HEALTH_REFRESH_MS = 30_000;
+let _healthLoadedAt = 0;
+
 export function isProviderUnhealthy(name: string): boolean {
   const until = _providerUnhealthyUntil.get(name);
   return until !== undefined && Date.now() < until;
 }
-export function markProviderUnhealthy(name: string, ttlMs = 120_000): void {
-  _providerUnhealthyUntil.set(name, Date.now() + ttlMs);
+
+/**
+ * Mark a provider as down for `ttlMs`. Short marks stay in this isolate's memory.
+ * Long ones (credit exhausted, daily cap) are also written to mavis_provider_health
+ * so EVERY isolate skips the provider at once — the in-memory Map alone reset on
+ * each cold start, so every new request re-tried Groq/Gemini/Claude and waited for
+ * three failures before OpenAI answered.
+ */
+export function markProviderUnhealthy(name: string, ttlMs = 120_000, reason = ""): void {
+  const until = Date.now() + ttlMs;
+  _providerUnhealthyUntil.set(name, until);
+  if (ttlMs < PERSIST_MIN_TTL_MS) return;
+  _persistedHealth.add(name);
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) return;
+  const write = fetch(`${url}/rest/v1/mavis_provider_health?on_conflict=provider`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ provider: name, unhealthy_until: new Date(until).toISOString(), reason: reason.replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 200) || null, updated_at: new Date().toISOString() }),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => {});
+  (globalThis as any).EdgeRuntime?.waitUntil?.(write);
+}
+
+/**
+ * Load cool-downs other isolates recorded. Cheap (one small REST read, at most once
+ * per 30s per isolate, 1.5s timeout, failures ignored). Call before consulting
+ * isProviderUnhealthy. Deleting a row from mavis_provider_health ("I topped up
+ * Gemini") clears that provider here within ~30s.
+ */
+export async function hydrateProviderHealth(): Promise<void> {
+  if (Date.now() - _healthLoadedAt < HEALTH_REFRESH_MS) return;
+  _healthLoadedAt = Date.now();
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) return;
+  try {
+    const res = await fetch(
+      `${url}/rest/v1/mavis_provider_health?select=provider,unhealthy_until&unhealthy_until=gt.${encodeURIComponent(new Date().toISOString())}`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(1500) },
+    );
+    if (!res.ok) return;
+    const rows = (await res.json()) as { provider: string; unhealthy_until: string }[];
+    const live = new Set<string>();
+    for (const r of rows) {
+      const t = Date.parse(r.unhealthy_until);
+      live.add(r.provider);
+      if (t > (_providerUnhealthyUntil.get(r.provider) ?? 0)) _providerUnhealthyUntil.set(r.provider, t);
+      _persistedHealth.add(r.provider);
+    }
+    for (const name of [..._persistedHealth]) {
+      if (!live.has(name)) { _providerUnhealthyUntil.delete(name); _persistedHealth.delete(name); }
+    }
+  } catch { /* health is an optimisation; never block a request on it */ }
+}
+
+/** Cool-down for a provider failure, from HTTP status + body. */
+export function unfundedCooldownMs(status: number | undefined, body: string): number {
+  const b = (body || "").toLowerCase();
+  if (/tokens per day|\btpd\b/.test(b)) return 6 * 60 * 60_000;      // daily cap: not before reset
+  if (status === 429) return 60_000;                                    // ordinary rate limit
+  if (status === 402 || status === 401 || status === 403) return 60 * 60_000; // no credit / bad key
+  if (/credit|balance|billing|quota|depleted|insufficient|payment/.test(b)) return 60 * 60_000;
+  return 120_000;
 }
 
 // A 429 from a per-minute/per-second rate limit clears on its own within the
@@ -423,14 +492,29 @@ export async function callWithFallback(
   premiumFirst = false,
 ): Promise<{ content: string; provider: string }> {
   const mU = mode.toUpperCase();
+  await hydrateProviderHealth();
 
   // Tier 0b — Groq (free tier, ~500 tok/s, no thinking overhead)
   if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-llama")) {
     try {
       return { content: await callGroq(messages, system, keys.groq), provider: GROQ_MODEL };
     } catch (err: any) {
-      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", rateLimitCooldownMs(err.reason));
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", unfundedCooldownMs(err.status, err.reason), err.reason);
       console.warn(`[fallback] Groq failed (${err.message}) → cascading`);
+    }
+  }
+
+  // Background lane. Callers that did not ask for premiumFirst are scheduled jobs and
+  // other work nobody reads as prose (~90 call sites). They take the cheapest paid
+  // model right after the free tier: gpt-4o-mini is ~$0.15/1M input and its cost does
+  // not hide thinking tokens, unlike Gemini's default-on thinking billed as output.
+  // Interactive callers (premiumFirst) keep the order below unchanged.
+  if (!premiumFirst && mU !== "DEEP" && keys.openai && !isProviderUnhealthy("openai")) {
+    try {
+      return { content: await callOpenAI(messages, system, keys.openai, "gpt-4o-mini"), provider: "openai-mini" };
+    } catch (err: any) {
+      markProviderUnhealthy("openai", unfundedCooldownMs((err as any)?.status, String((err as any)?.reason ?? (err as any)?.message ?? "")), String((err as any)?.message ?? "").slice(0, 120));
+      console.warn(`[fallback] OpenAI (background lane) failed (${String(err?.message ?? err).slice(0, 160)}) → cascading`);
     }
   }
 
@@ -464,7 +548,7 @@ export async function callWithFallback(
       };
       return { content: await callGemini(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-flash-latest" };
     } catch (err: any) {
-      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("gemini");
+      if (err instanceof ProviderUnavailableError) markProviderUnhealthy("gemini", unfundedCooldownMs((err as any)?.status, String((err as any)?.reason ?? (err as any)?.message ?? "")), String((err as any)?.message ?? "").slice(0, 120));
       console.warn(`[fallback] Gemini failed (${err.message}) → cascading`);
     }
   }
@@ -488,7 +572,7 @@ export async function callWithFallback(
         return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6", useThinking), provider: useThinking ? "claude-sonnet-thinking" : "claude-sonnet" };
       } catch (err: any) {
         if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
-        markProviderUnhealthy("claude");
+        markProviderUnhealthy("claude", unfundedCooldownMs((err as any)?.status, String((err as any)?.reason ?? (err as any)?.message ?? "")), String((err as any)?.message ?? "").slice(0, 120));
         console.warn(`[fallback] claude-sonnet unfunded (${err.status}) → cascading`);
       }
     }
@@ -497,7 +581,7 @@ export async function callWithFallback(
         return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
       } catch (err: any) {
         if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
-        markProviderUnhealthy("grok");
+        markProviderUnhealthy("grok", unfundedCooldownMs((err as any)?.status, String((err as any)?.reason ?? (err as any)?.message ?? "")), String((err as any)?.message ?? "").slice(0, 120));
         console.warn(`[fallback] grok unfunded (${err.status}) → cascading`);
       }
     }
@@ -509,7 +593,7 @@ export async function callWithFallback(
       return { content: await callClaude(messages, system, keys.claude, "claude-haiku-4-5-20251001"), provider: "claude-haiku" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
-      markProviderUnhealthy("claude");
+      markProviderUnhealthy("claude", unfundedCooldownMs((err as any)?.status, String((err as any)?.reason ?? (err as any)?.message ?? "")), String((err as any)?.message ?? "").slice(0, 120));
       console.warn(`[fallback] Claude Haiku unfunded (${err.status}) → trying Claude Sonnet`);
     }
   }
@@ -520,7 +604,7 @@ export async function callWithFallback(
       return { content: await callClaude(messages, system, keys.claude, "claude-sonnet-4-6"), provider: "claude-sonnet" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
-      markProviderUnhealthy("claude-sonnet");
+      markProviderUnhealthy("claude-sonnet", unfundedCooldownMs((err as any)?.status, String((err as any)?.reason ?? (err as any)?.message ?? "")), String((err as any)?.message ?? "").slice(0, 120));
       console.warn(`[fallback] Claude Sonnet unfunded (${err.status}) → trying OpenAI`);
     }
   }
@@ -531,7 +615,7 @@ export async function callWithFallback(
       return { content: await callOpenAI(messages, system, keys.openai, "gpt-4o-mini"), provider: "openai-mini" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
-      markProviderUnhealthy("openai");
+      markProviderUnhealthy("openai", unfundedCooldownMs((err as any)?.status, String((err as any)?.reason ?? (err as any)?.message ?? "")), String((err as any)?.message ?? "").slice(0, 120));
       console.warn(`[fallback] OpenAI unfunded (${err.status}) → trying Grok`);
     }
   }
@@ -542,7 +626,7 @@ export async function callWithFallback(
       return { content: await callGrok(messages, system, keys.grok), provider: "grok" };
     } catch (err: any) {
       if (!(err instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(err?.message ?? err).slice(0, 200)}`);
-      markProviderUnhealthy("grok");
+      markProviderUnhealthy("grok", unfundedCooldownMs((err as any)?.status, String((err as any)?.reason ?? (err as any)?.message ?? "")), String((err as any)?.message ?? "").slice(0, 120));
       console.warn(`[fallback] Grok unfunded (${err.status}) → trying Lovable gateway`);
     }
   }
@@ -892,6 +976,7 @@ export async function callWithFallbackStream(
   mode = "PRIME",
 ): Promise<{ stream: ReadableStream<string>; provider: string }> {
   const mU = mode.toUpperCase();
+  await hydrateProviderHealth();
   // Health-key names match callWithFallback's (non-streaming) so a provider
   // marked unhealthy by one path is also skipped by the other — previously
   // this cascade never consulted or updated provider health at all, so a
@@ -901,7 +986,7 @@ export async function callWithFallbackStream(
   if (keys.groq && mU !== "DEEP" && !isProviderUnhealthy("groq-llama")) {
     try { return { stream: await callGroqStream(messages, system, keys.groq), provider: GROQ_MODEL }; }
     catch (e: any) {
-      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", rateLimitCooldownMs(e.reason));
+      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("groq-llama", unfundedCooldownMs(e.status, e.reason), e.reason);
       console.warn(`[stream-fallback] Groq: ${e.message} → cascading`);
     }
   }
@@ -916,7 +1001,7 @@ export async function callWithFallbackStream(
       return { stream: await callGeminiStream(messages, system, keys.gemini, geminiOpts), provider: geminiOpts.thinking ? "gemini-2.5-thinking" : "gemini-flash-latest" };
     }
     catch (e: any) {
-      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("gemini", e.status === 429 ? 60_000 : 120_000);
+      if (e instanceof ProviderUnavailableError) markProviderUnhealthy("gemini", unfundedCooldownMs((e as any)?.status, String((e as any)?.reason ?? (e as any)?.message ?? "")), String((e as any)?.message ?? "").slice(0, 120));
       console.warn(`[stream-fallback] Gemini 2.5 Flash: ${e.message} → cascading`);
     }
   }
@@ -928,7 +1013,7 @@ export async function callWithFallbackStream(
     } catch (e: any) {
       console.warn(`[stream-fallback] claude: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
       if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
-      markProviderUnhealthy("claude");
+      markProviderUnhealthy("claude", unfundedCooldownMs((e as any)?.status, String((e as any)?.reason ?? (e as any)?.message ?? "")), String((e as any)?.message ?? "").slice(0, 120));
     }
   }
   if (primary === "grok" && keys.grok && !isProviderUnhealthy("grok")) {
@@ -936,7 +1021,7 @@ export async function callWithFallbackStream(
     catch (e: any) {
       console.warn(`[stream-fallback] grok: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
       if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
-      markProviderUnhealthy("grok");
+      markProviderUnhealthy("grok", unfundedCooldownMs((e as any)?.status, String((e as any)?.reason ?? (e as any)?.message ?? "")), String((e as any)?.message ?? "").slice(0, 120));
     }
   }
   if (keys.claude && !isProviderUnhealthy("claude")) {
@@ -944,7 +1029,7 @@ export async function callWithFallbackStream(
     catch (e: any) {
       console.warn(`[stream-fallback] claude: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
       if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
-      markProviderUnhealthy("claude");
+      markProviderUnhealthy("claude", unfundedCooldownMs((e as any)?.status, String((e as any)?.reason ?? (e as any)?.message ?? "")), String((e as any)?.message ?? "").slice(0, 120));
     }
   }
   if (keys.openai && !isProviderUnhealthy("openai")) {
@@ -952,7 +1037,7 @@ export async function callWithFallbackStream(
     catch (e: any) {
       console.warn(`[stream-fallback] openai: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
       if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
-      markProviderUnhealthy("openai");
+      markProviderUnhealthy("openai", unfundedCooldownMs((e as any)?.status, String((e as any)?.reason ?? (e as any)?.message ?? "")), String((e as any)?.message ?? "").slice(0, 120));
     }
   }
   if (keys.grok && !isProviderUnhealthy("grok")) {
@@ -960,7 +1045,7 @@ export async function callWithFallbackStream(
     catch (e: any) {
       console.warn(`[stream-fallback] grok: ${String(e?.message ?? e).replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 240)} → ${e instanceof ProviderUnavailableError ? "cascading" : "cascading (non-quota)"}`);
       if (!(e instanceof ProviderUnavailableError)) console.warn(`[fallback] non-quota error, still cascading toward gateway: ${String(e?.message ?? e).slice(0, 200)}`);
-      markProviderUnhealthy("grok");
+      markProviderUnhealthy("grok", unfundedCooldownMs((e as any)?.status, String((e as any)?.reason ?? (e as any)?.message ?? "")), String((e as any)?.message ?? "").slice(0, 120));
     }
   }
   // Lovable AI Gateway — true last resort, mirrors callWithFallback. See the
