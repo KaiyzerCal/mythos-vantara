@@ -412,6 +412,17 @@ async function checkDormantContacts(
 
     for (const contact of contacts as any[]) {
       try {
+        // Cool-down: one reconnect draft per contact per 30 days. Without it a dormant
+        // contact would be re-drafted (AI call + task + Telegram) on every 5-minute run.
+        const { data: recentDraft } = await sb
+          .from("mavis_outreach_drafts" as any)
+          .select("id")
+          .eq("user_id", userId)
+          .eq("contact_name", contact.contact_name)
+          .gte("created_at", daysAgo(30))
+          .limit(1);
+        if (recentDraft && recentDraft.length > 0) continue;
+
         const daysSince = Number(contact.days_since_contact) || 60;
         const historyNotes = contact.shared_history_notes || "No specific history recorded.";
 
@@ -629,6 +640,7 @@ async function checkOpportunityLinks(
       .select("id, title, description, opportunity_type, domains, potential_value, action_steps")
       .eq("user_id", userId)
       .eq("acted_on", false)
+      .is("announced_at", null) // each opportunity is announced once, not every 5 minutes
       .gte("created_at", sevenDaysAgo)
       .order("created_at", { ascending: false })
       .limit(2);
@@ -739,6 +751,7 @@ Why now: ${alignment.why_now}
 Next step: ${alignment.next_step}`;
 
         await sendTelegram(tgMessage);
+        await sb.from("mavis_opportunities").update({ announced_at: new Date().toISOString() }).eq("id", opp.id).eq("user_id", userId);
 
         result.issues++;
         result.actions++;
