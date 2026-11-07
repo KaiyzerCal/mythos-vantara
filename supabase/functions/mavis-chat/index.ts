@@ -450,7 +450,34 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
       .filter((q: any) => q.status !== "active")
       .sort((a: any, b: any) => new Date(b.last_reviewed_at ?? 0).getTime() - new Date(a.last_reviewed_at ?? 0).getTime())
       .slice(0, 10);
-    const fmtQuests = [...activeQuestsForPrompt, ...recentCompletedQuests].map((q: any) => {
+    // ── Prompt slimming: relevance helpers ────────────────────────────────────
+    // Every message used to carry ALL 84 quests in full and ALL 1,410 skills (~46k + ~10k
+    // tokens of a ~100k-token prompt). Now the quests/skills that relate to what the
+    // operator just said are shown in full and the rest compactly; the server-side
+    // skill search (auto-link / suggest_skill_links) covers everything else.
+    const _lastUserForPrompt = [...(messages || [])].reverse().find((m: any) => m.role === "user");
+    const _msgLower = (typeof _lastUserForPrompt?.content === "string"
+      ? _lastUserForPrompt.content
+      : Array.isArray(_lastUserForPrompt?.content) ? (_lastUserForPrompt.content as any[]).map((c: any) => c?.text ?? "").join(" ") : "").toLowerCase();
+    const _msgWords = new Set<string>(_msgLower.match(/[a-z0-9']{4,}/g) ?? []);
+    const _overlap = (text: string): number => {
+      let n = 0;
+      for (const w of new Set<string>(String(text ?? "").toLowerCase().match(/[a-z0-9']{4,}/g) ?? [])) if (_msgWords.has(w)) n++;
+      return n;
+    };
+    const _questPool = [...activeQuestsForPrompt, ...recentCompletedQuests];
+    const FULL_QUESTS = wants.quest ? 40 : 15; // asking about quests -> show more of them in full
+    const _tsOf = (q: any) => new Date(q.last_reviewed_at ?? q.updated_at ?? q.created_at ?? 0).getTime();
+    const fullQuestIds = new Set<string>(
+      [..._questPool]
+        .sort((a: any, b: any) => (_overlap(`${b.title} ${b.description ?? ""}`) - _overlap(`${a.title} ${a.description ?? ""}`)) || (_tsOf(b) - _tsOf(a)))
+        .slice(0, FULL_QUESTS)
+        .map((q: any) => q.id),
+    );
+    const fmtQuests = _questPool.map((q: any) => {
+      if (!fullQuestIds.has(q.id)) {
+        return `  · [${q.id}] "${q.title}" [${q.status}/${q.type}/${q.difficulty}] xp:${q.xp_reward} ${q.progress_current}/${q.progress_target} (compact)`;
+      }
       const freshness = freshGrade(q.last_reviewed_at, [7, 30, 90, 180, 365]);
       const isaLine = q.current_state || q.ideal_state
         ? `\n        ISA: ${q.current_state ? `now:"${String(q.current_state).slice(0, 80)}"` : ""} ${q.ideal_state ? `→ goal:"${String(q.ideal_state).slice(0, 80)}"` : ""}${q.effort_tier ? ` [${q.effort_tier}]` : ""}${q.phase ? ` phase:${q.phase}` : ""}`
@@ -479,8 +506,34 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     const fmtSkillsFlat = skillsNonBeyonder.map((s: any) =>
       `  • [${s.id}] ${s.name} (${s.category}, T${s.tier}, ${s.proficiency}%, ${s.energy_type}${s.unlocked ? "" : ", locked"})${s.parent_skill_id ? ` [sub-skill of: "${skillNameById[s.parent_skill_id] ?? s.parent_skill_id}"]` : " [root skill]"}${s.description ? ` — ${s.description.slice(0, 100)}` : ""}`
     ).join("\n");
+    // Beyonder: all pathway roots (with ids) always; sequences + abilities only for pathways
+    // the operator named, plus individual sequences whose text overlaps the message.
+    const _beyRoots = skillsBeyonder.filter((s: any) => !s.parent_skill_id);
+    const _escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const _pathwayHit = new Set<string>(
+      _beyRoots
+        .filter((r: any) => r.name && new RegExp(`\\b${_escRe(String(r.name).toLowerCase())}\\b`).test(_msgLower))
+        .slice(0, 3)
+        .map((r: any) => r.id),
+    );
+    const _seqScore = (sq: any) => _overlap(`${sq.name} ${sq.description ?? ""}`);
+    const _beySequences = skillsBeyonder.filter((s: any) => s.parent_skill_id && _beyRoots.some((r: any) => r.id === s.parent_skill_id));
+    const _matchedSeq = new Set<string>(
+      _beySequences
+        .filter((sq: any) => !_pathwayHit.has(sq.parent_skill_id) && _seqScore(sq) >= 2)
+        .sort((a: any, b: any) => _seqScore(b) - _seqScore(a))
+        .slice(0, 6)
+        .map((sq: any) => sq.id),
+    );
+    const _beyShown = skillsBeyonder.filter((s: any) => {
+      if (!s.parent_skill_id) return true; // every pathway root
+      if (_pathwayHit.has(s.parent_skill_id)) return true; // sequence of a named pathway
+      if (_matchedSeq.has(s.id) || _matchedSeq.has(s.parent_skill_id)) return true; // matched sequence / its abilities
+      const seqParent = _beySequences.find((sq: any) => sq.id === s.parent_skill_id);
+      return !!seqParent && _pathwayHit.has(seqParent.parent_skill_id); // ability of a named pathway
+    });
     const fmtSkillsBeyonder = skillsBeyonder.length
-      ? `\n  BEYONDER PATHWAYS (${skillsBeyonder.filter((s: any) => !s.parent_skill_id).length} pathways, Sequence 9 = least developed down to Sequence 0 = mastery, each sequence has 3 abilities):\n${formatBeyonderTree(skillsBeyonder).split("\n").map((l) => `  ${l}`).join("\n")}`
+      ? `\n  BEYONDER PATHWAYS (${_beyRoots.length} pathways; Sequence 9 = least developed down to Sequence 0 = mastery, each sequence has 3 abilities). All pathway roots are listed; sequences and abilities appear ONLY for pathways/sequences relevant to this message (${skillsBeyonder.length - _beyRoots.length} others exist). For any other, call suggest_skill_links or ask — never invent an id:\n${formatBeyonderTree(_beyShown).split("\n").map((l) => `  ${l}`).join("\n")}`
       : "";
     const fmtSkills = [fmtSkillsFlat, fmtSkillsBeyonder].filter(Boolean).join("\n") || "  None";
     const fmtCouncils = dbState.councils.map((c: any) =>
@@ -564,13 +617,13 @@ PROFILE: ${profile.inscribed_name} | Lv${profile.level}[${profile.rank}] | ${pro
 Stats: STR${profile.stat_str}/AGI${profile.stat_agi}/VIT${profile.stat_vit}/INT${profile.stat_int}/WIS${profile.stat_wis}/CHA${profile.stat_cha}/LCK${profile.stat_lck} | Aura:${profile.aura} | GPR:${profile.gpr} PvP:${profile.pvp_rating}
 Arc: ${profile.arc_story} | Currencies: ${fmtCurrencies}
 
-QUESTS (${activeQuestsForPrompt.length} active + ${recentCompletedQuests.length} recently completed, of ${dbState.quests.length} total):
+QUESTS (${activeQuestsForPrompt.length} active + ${recentCompletedQuests.length} recently completed, of ${dbState.quests.length} total; the ${fullQuestIds.size} most relevant are in full, the rest compact "·" lines — ask or search for detail on a compact one):
 ${fmtQuests}
 
 TASKS (${dbState.tasks.length}):
 ${fmtTasks}
 
-SKILLS (${dbState.skills.length}, full set — every id below is real, never invent one):
+SKILLS (${dbState.skills.length} total — non-Beyonder skills in full; Beyonder shown as pathway roots plus what is relevant to this message; every id below is real, never invent one):
 ${fmtSkills}
 
 JOURNAL (${dbState.journalEntries.length}${wants.journal ? ", FULL" : ", preview"}):
