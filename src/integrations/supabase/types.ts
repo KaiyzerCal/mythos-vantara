@@ -2402,6 +2402,48 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_ai_usage: {
+        Row: {
+          created_at: string
+          duration_ms: number | null
+          error: string | null
+          est_cost_usd: number | null
+          est_in_tokens: number | null
+          est_out_tokens: number | null
+          id: string
+          label: string | null
+          lane: string
+          provider: string
+          success: boolean
+        }
+        Insert: {
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          est_cost_usd?: number | null
+          est_in_tokens?: number | null
+          est_out_tokens?: number | null
+          id?: string
+          label?: string | null
+          lane: string
+          provider: string
+          success?: boolean
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number | null
+          error?: string | null
+          est_cost_usd?: number | null
+          est_in_tokens?: number | null
+          est_out_tokens?: number | null
+          id?: string
+          label?: string | null
+          lane?: string
+          provider?: string
+          success?: boolean
+        }
+        Relationships: []
+      }
       mavis_ambient_events: {
         Row: {
           actions_taken: number | null
@@ -5693,6 +5735,7 @@ export type Database = {
         Row: {
           acted_on: boolean
           action_steps: Json
+          announced_at: string | null
           confidence: number
           created_at: string
           description: string
@@ -5707,6 +5750,7 @@ export type Database = {
         Insert: {
           acted_on?: boolean
           action_steps?: Json
+          announced_at?: string | null
           confidence?: number
           created_at?: string
           description: string
@@ -5721,6 +5765,7 @@ export type Database = {
         Update: {
           acted_on?: boolean
           action_steps?: Json
+          announced_at?: string | null
           confidence?: number
           created_at?: string
           description?: string
