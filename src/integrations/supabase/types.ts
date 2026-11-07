@@ -6252,6 +6252,27 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_provider_health: {
+        Row: {
+          provider: string
+          reason: string | null
+          unhealthy_until: string
+          updated_at: string
+        }
+        Insert: {
+          provider: string
+          reason?: string | null
+          unhealthy_until: string
+          updated_at?: string
+        }
+        Update: {
+          provider?: string
+          reason?: string | null
+          unhealthy_until?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       mavis_relationship_health: {
         Row: {
           action_urgency: string
