@@ -3,7 +3,10 @@ import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
-import { hasCrudIntent, GEMINI_DEFAULT_MODEL, GROQ_MODEL, LOVABLE_DEFAULT_MODEL } from "../_shared/providers.ts";
+import {
+  hasCrudIntent, GEMINI_DEFAULT_MODEL, GROQ_MODEL, LOVABLE_DEFAULT_MODEL,
+  hydrateProviderHealth, isProviderUnhealthy, markProviderUnhealthy, unfundedCooldownMs,
+} from "../_shared/providers.ts";
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
@@ -2407,6 +2410,14 @@ async function runAgentLoop(
       : providerChain;
     let served = false;
     const providerErrors: string[] = [];
+    // Skip providers already known to be out of credit / rate-capped (shared across
+    // isolates). Without this every typed message re-tried each dead provider in turn
+    // and waited for three failures before one that works answered. If EVERY provider
+    // is on cool-down, try them all anyway rather than fail without an attempt.
+    await hydrateProviderHealth();
+    const HEALTH_NAME: Record<string, string> = { groq: "groq-llama", gemini: "gemini", anthropic: "claude", openai: "openai", grok: "grok", gateway: "lovable" };
+    const healthyOrder = order.filter((c) => !isProviderUnhealthy(HEALTH_NAME[c] ?? c));
+    const tryOrder = healthyOrder.length > 0 ? healthyOrder : order;
     // When true, text was already emitted incrementally via onEvent({t}) during
     // streaming, so the end_turn block below must NOT re-emit the full text.
     let streamedThisCall = false;
@@ -2423,7 +2434,7 @@ async function runAgentLoop(
     // boot/shutdown lines. Every skip, failure, and the eventual success now
     // logs candidate + elapsed ms, so the next report of this comes with
     // actual evidence instead of starting from zero again.
-    for (const candidate of order) {
+    for (const candidate of tryOrder) {
       const attemptStart = Date.now();
       try {
         if (candidate === "anthropic") {
@@ -2448,6 +2459,7 @@ async function runAgentLoop(
             const errBody = (await res.text()).slice(0, 200);
             console.warn(`[agent-cascade] anthropic failed (${res.status}) after ${Date.now() - attemptStart}ms: ${errBody}`);
             providerErrors.push(`anthropic ${res.status}: ${errBody}`);
+            { const ms = unfundedCooldownMs(res.status, errBody); if (ms !== 120_000) markProviderUnhealthy("claude", ms, `anthropic ${res.status}`); } // only clear-cut credit/rate failures, not 5xx or a one-off bad request
             continue;
           }
           if (useStreaming) {
@@ -2485,6 +2497,7 @@ async function runAgentLoop(
             const errBody = (await res.text()).slice(0, 200);
             console.warn(`[agent-cascade] ${candidate} failed (${res.status}) after ${Date.now() - attemptStart}ms: ${errBody}`);
             providerErrors.push(`${candidate} ${res.status}: ${errBody}`);
+            { const ms = unfundedCooldownMs(res.status, errBody); if (ms !== 120_000) markProviderUnhealthy(HEALTH_NAME[candidate] ?? candidate, ms, `${candidate} ${res.status}`); }
             continue;
           }
           if (useStreaming) {
