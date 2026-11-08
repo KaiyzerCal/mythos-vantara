@@ -358,6 +358,77 @@ function normalizeActionType(type: string): string {
 // until every other table needed the same hook and duplicating it per-table
 // stopped being the smaller diff.
 
+// ── Beyonder conventions ─────────────────────────────────────────────────────
+// Every pathway in the app has the same shape, and several features depend on it (the tree display
+// derives "Seq.N" from tier, quest-skill linking routes progress to the pathway's current sequence
+// using tier/unlocked, the audit in mavis-watchdog checks it):
+//   root          tier 0,    category "Beyonder", name without "Pathway"
+//   10 sequences  tier 1..10 = Seq.9..Seq.0, energy_type "Sequence N", ONLY Seq.9 unlocked
+//   3 abilities each, tier = their sequence's, energy_type "Sub-ability", locked
+// MAVIS used to create a pathway as 41 separate create_skill calls with invented tiers, which produced a
+// pathway with doubled levels, everything unlocked and no abilities.
+function parseSeqName(raw: string): { n: number; name: string } | null {
+  const m = String(raw).trim().match(/^seq(?:uence)?\.?\s*(\d)\s*[:\-\u2013\u2014]\s*(.+)$/i);
+  return m ? { n: Number(m[1]), name: m[2].trim() } : null;
+}
+
+async function createBeyonderPathway(sb: any, userId: string, p: Record<string, unknown>) {
+  const name = String(p.name ?? "").replace(/\s+pathway$/i, "").trim();
+  if (!name) throw new Error("create_beyonder_pathway requires a name");
+  const seqs = Array.isArray(p.sequences) ? (p.sequences as any[]) : [];
+  if (seqs.length !== 10) throw new Error(`create_beyonder_pathway needs exactly 10 sequences ordered Sequence 9 down to Sequence 0 (got ${seqs.length})`);
+  seqs.forEach((q, i) => {
+    const ab = Array.isArray(q?.abilities) ? q.abilities : [];
+    if (!String(q?.name ?? "").trim()) throw new Error(`sequence ${i + 1} (Sequence ${9 - i}) has no name`);
+    if (ab.length !== 3) throw new Error(`sequence "${q.name}" (Sequence ${9 - i}) needs exactly 3 abilities (got ${ab.length})`);
+  });
+  const { data: existing } = await sb.from("skills").select("id").eq("user_id", userId).eq("category", "Beyonder").is("parent_skill_id", null).ilike("name", name).limit(1);
+  if (existing && existing.length) throw new Error(`a Beyonder pathway named "${name}" already exists; add to it with create_skill instead`);
+
+  const created: string[] = [];
+  const cleanup = async () => { if (created.length) await sb.from("skills").delete().in("id", created).eq("user_id", userId); };
+  try {
+    const desc = String(p.description ?? "").trim();
+    const { data: root, error: e1 } = await sb.from("skills").insert({
+      user_id: userId, name, category: "Beyonder", tier: 0, unlocked: true, cost: 0, proficiency: 0, prerequisites: [],
+      energy_type: String(p.energy_type || "Spirituality"),
+      description: desc ? (/^pathway:/i.test(desc) ? desc : `Pathway: ${desc}`) : "Pathway",
+    }).select("id").single();
+    if (e1) throw e1;
+    created.push(root.id);
+
+    const seqRows = seqs.map((q, i) => ({
+      user_id: userId, parent_skill_id: root.id, name: String(q.name).replace(/^seq(?:uence)?\.?\s*\d\s*[:\-\u2013\u2014]\s*/i, "").trim(),
+      description: String(q.description ?? ""), category: "Beyonder", tier: i + 1, energy_type: `Sequence ${9 - i}`,
+      unlocked: i === 0, cost: 0, proficiency: 0, prerequisites: [],
+    }));
+    const { data: seqIns, error: e2 } = await sb.from("skills").insert(seqRows).select("id, tier, name");
+    if (e2) throw e2;
+    for (const r of seqIns) created.push(r.id);
+    const byTier = new Map<number, { id: string; name: string }>((seqIns as any[]).map((r) => [r.tier, { id: r.id, name: r.name }]));
+
+    const abilityRows = seqs.flatMap((q, i) => {
+      const parent = byTier.get(i + 1)!;
+      return (q.abilities as any[]).map((a, k) => ({
+        user_id: userId, parent_skill_id: parent.id, category: "Beyonder", tier: i + 1, energy_type: "Sub-ability",
+        unlocked: false, cost: 0, proficiency: 0, prerequisites: [],
+        name: String(a?.name ?? "").trim() || `${parent.name} — Ability ${k + 1}`,
+        description: String(a?.description ?? a ?? ""),
+      }));
+    });
+    const { data: abIns, error: e3 } = await sb.from("skills").insert(abilityRows).select("id");
+    if (e3) throw e3;
+    for (const r of abIns) created.push(r.id);
+    // Searchable right away rather than after the next 5-minute embed run.
+    reembedRow(sb, "skills", String(root.id), userId);
+    for (const r of seqIns) reembedRow(sb, "skills", String(r.id), userId);
+    return { pathway_id: root.id, sequences: seqIns.length, abilities: abIns.length };
+  } catch (err) {
+    await cleanup(); // never leave a half-built pathway behind
+    throw err;
+  }
+}
+
 async function executeAction(sb: any, userId: string, action: MavisAction) {
   // Support nested { type, params: {...} }, flat { type, title, ... }, and
   // double-encoded { type, params: "{\"description\":\"...\"}" } (GPT-4o-mini quirk).
@@ -628,6 +699,25 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         const parentId = await resolveId(sb, userId, "skills", undefined, p.parent_skill_name as string);
         if (parentId) insertData.parent_skill_id = parentId;
       }
+      // Beyonder rows must follow the pathway conventions (see createBeyonderPathway). Whatever tier /
+      // energy_type / unlocked the model guessed is overridden so a hand-built sequence or ability lands
+      // consistently with the rest of the system.
+      if (String(insertData.category).toLowerCase() === "beyonder") {
+        const seq = parseSeqName(String(insertData.name));
+        if (seq) {
+          insertData.name = seq.name; insertData.tier = 10 - seq.n;
+          insertData.energy_type = `Sequence ${seq.n}`; insertData.unlocked = seq.n === 9;
+        } else if (insertData.parent_skill_id) {
+          const { data: par } = await sb.from("skills").select("tier, energy_type").eq("id", insertData.parent_skill_id).eq("user_id", userId).maybeSingle();
+          if (par && /^sequence \d$/i.test(String(par.energy_type))) {
+            insertData.tier = par.tier; insertData.energy_type = "Sub-ability"; insertData.unlocked = false;
+          }
+        } else {
+          insertData.tier = 0;
+          insertData.name = String(insertData.name).replace(/\s+pathway$/i, "").trim();
+          if (!/^pathway/i.test(String(insertData.description))) insertData.description = `Pathway: ${insertData.description}`.trim();
+        }
+      }
       const { data: newSkill, error } = await sb.from("skills").insert(insertData).select("id").single();
       if (error) throw error;
       // So the new skill is immediately findable by the quest auto-linker
@@ -636,6 +726,13 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const label = insertData.parent_skill_id ? "Subskill" : "Skill";
       await logActivity(sb, userId, "skill_created", `${label} unlocked: ${String(p.name || "New Skill")}`, 0);
       return;
+    }
+
+    // One action builds a whole pathway in the standard shape (root + 10 sequences + 30 abilities), all or nothing.
+    case "create_beyonder_pathway": {
+      const out = await createBeyonderPathway(sb, userId, p);
+      await logActivity(sb, userId, "skill_created", `Beyonder pathway created: ${String(p.name ?? "").trim()}`, 0);
+      return out;
     }
 
     case "update_skill": {

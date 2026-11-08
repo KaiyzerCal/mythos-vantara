@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { aiComplete } from "../_shared/providers.ts";
+import { isServiceRoleCaller } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -74,58 +76,95 @@ function getDominantEmotion(scores: Record<string, number>): string {
   return topEntry?.[0] ?? "neutral";
 }
 
+const EMOTIONS = ["joy", "sadness", "anxiety", "determination", "excitement", "gratitude", "frustration", "pride", "tiredness", "focus"];
+
+// Scores through the shared provider cascade (Groq -> OpenAI -> ... -> gateway) instead of Gemini alone: Gemini
+// had been out of credit, so with no other path every entry stayed untagged (0 of 77 ever tagged).
+async function cascadeTextEmotion(text: string): Promise<Record<string, number>> {
+  const { content } = await aiComplete({
+    system: `You rate the emotional content of a journal entry. Fiction, worldbuilding and dark themes are the author's creative work: rate the emotion the writing expresses, do not refuse. Return ONLY JSON with these keys, each 0.0 to 1.0: ${EMOTIONS.join(", ")}.`,
+    user: text.slice(0, 1500),
+  });
+  const m = content.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error("no JSON in emotion reply");
+  const raw = JSON.parse(m[0]);
+  const scores: Record<string, number> = {};
+  for (const k of EMOTIONS) {
+    const v = Number(raw[k]);
+    scores[k] = Number.isFinite(v) ? Math.min(1, Math.max(0, Math.round(v * 1000) / 1000)) : 0;
+  }
+  return scores;
+}
+
+async function scoreText(content: string): Promise<{ scores: Record<string, number>; provider: string }> {
+  if (HUME_KEY) {
+    try { return { scores: await humeTextEmotion(content), provider: "hume" }; }
+    catch (e: any) { console.warn("Hume failed, falling back to the cascade:", e.message); }
+  }
+  try { return { scores: await cascadeTextEmotion(content), provider: "cascade" }; }
+  catch (e: any) { console.warn("cascade emotion failed:", e.message); }
+  if (GEMINI_KEY) {
+    try { return { scores: await geminiTextEmotion(content), provider: "gemini" }; }
+    catch (e: any) { console.warn("Gemini emotion failed:", e.message); }
+  }
+  return { scores: {}, provider: "none" };
+}
+
+const json = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+// Tags journal entries nothing has tagged. Entries written in the app never triggered tagging, and the
+// fire-and-forget call from mavis-actions can be cut off when the response returns, so this sweep (cron,
+// service-role only) is what actually keeps every entry tagged. A small batch per run keeps it cheap.
+async function backfill(limit: number, retryFailed: boolean) {
+  let q = sb.from("journal_entries").select("id,user_id,title,content").or("emotion_tagged.is.null,emotion_tagged.eq.false").order("created_at", { ascending: false }).limit(limit);
+  q = retryFailed ? q : q.is("emotion_scores", null);
+  const { data, error } = await q;
+  if (error) throw error;
+  let tagged = 0, failed = 0;
+  for (const row of (data ?? []) as { id: string; user_id: string; title: string; content: string }[]) {
+    const text = `${row.title ?? ""}\n${row.content ?? ""}`.trim();
+    if (!text) { await sb.from("journal_entries").update({ emotion_scores: { _skipped: "empty" } }).eq("id", row.id); continue; }
+    const { scores } = await scoreText(text);
+    if (!Object.keys(scores).length) {
+      // Mark it so the sweep does not retry the same entry forever; retry_failed:true re-runs these.
+      await sb.from("journal_entries").update({ emotion_scores: { _failed: true } }).eq("id", row.id);
+      failed++;
+      continue;
+    }
+    await sb.from("journal_entries").update({ emotion_scores: scores, emotion_tagged: true, dominant_emotion: getDominantEmotion(scores) }).eq("id", row.id);
+    tagged++;
+  }
+  const { count } = await sb.from("journal_entries").select("*", { count: "exact", head: true }).or("emotion_tagged.is.null,emotion_tagged.eq.false").is("emotion_scores", null);
+  return { tagged, failed, remaining: count ?? 0 };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { journal_entry_id, content, user_id } = await req.json();
-    if (!journal_entry_id || !content || !user_id) {
-      return new Response(JSON.stringify({ error: "journal_entry_id, content, user_id required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const body = await req.json().catch(() => ({}));
+
+    if (body.backfill === true) {
+      if (!isServiceRoleCaller(req)) return json({ error: "Forbidden: backfill requires the service-role key" }, 403);
+      return json({ ok: true, ...(await backfill(Math.min(Number(body.limit) || 8, 20), body.retry_failed === true)) });
     }
 
-    let scores: Record<string, number> = {};
-    let provider = "none";
+    const { journal_entry_id, content, user_id } = body;
+    if (!journal_entry_id || !content || !user_id) return json({ error: "journal_entry_id, content, user_id required" }, 400);
 
-    if (HUME_KEY) {
-      try {
-        scores = await humeTextEmotion(content);
-        provider = "hume";
-      } catch (e: any) {
-        console.warn("Hume failed, falling back to Gemini:", e.message);
-      }
-    }
-
-    if (!Object.keys(scores).length && GEMINI_KEY) {
-      try {
-        scores = await geminiTextEmotion(content);
-        provider = "gemini";
-      } catch (e: any) {
-        console.warn("Gemini emotion failed:", e.message);
-      }
-    }
-
-    if (!Object.keys(scores).length) {
-      return new Response(JSON.stringify({ tagged: false, reason: "no API keys available" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { scores, provider } = await scoreText(content);
+    if (!Object.keys(scores).length) return json({ tagged: false, reason: "no provider could score this entry" });
 
     const dominant = getDominantEmotion(scores);
-
     await sb.from("journal_entries")
       .update({ emotion_scores: scores, emotion_tagged: true, dominant_emotion: dominant })
       .eq("id", journal_entry_id)
       .eq("user_id", user_id);
 
-    return new Response(JSON.stringify({ tagged: true, provider, dominant, scores }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ tagged: true, provider, dominant, scores });
   } catch (err: any) {
     console.error("mavis-emotion-tag error:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return json({ error: err.message }, 500);
   }
 });

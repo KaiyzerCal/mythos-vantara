@@ -218,6 +218,20 @@ export const CreateSkillSchema = z.object({
   parent_skill_id: z.string().optional(),
   parent_skill_name: z.string().optional(),
 });
+// Builds a whole Beyonder pathway in the app's standard shape in one step: a root, exactly 10 sequences
+// (ordered Sequence 9 down to Sequence 0) and exactly 3 abilities under each. The server assigns levels,
+// "Sequence N" labels and lock state, so they are deliberately not fields here.
+export const CreateBeyonderPathwaySchema = z.object({
+  type: z.literal("create_beyonder_pathway"),
+  name: z.string().min(1, "name is required"),
+  description: z.string().optional(),
+  energy_type: z.string().optional(),
+  sequences: z.array(z.object({
+    name: z.string().min(1),
+    description: z.string().optional(),
+    abilities: z.array(z.object({ name: z.string().optional(), description: z.string().min(1) })).length(3),
+  })).length(10),
+});
 export const UpdateSkillSchema = z.object({
   type: z.literal("update_skill"),
   skill_id: z.string().min(1).optional(),
@@ -1227,7 +1241,7 @@ export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema, CompleteQuestSchema,
   SuggestSkillLinksSchema, AutoLinkQuestSkillsSchema,
   CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema,
-  CreateSkillSchema, UpdateSkillSchema, DeleteSkillSchema,
+  CreateSkillSchema, CreateBeyonderPathwaySchema, UpdateSkillSchema, DeleteSkillSchema,
   CreateJournalSchema, UpdateJournalSchema, DeleteJournalSchema,
   CreateVaultSchema, UpdateVaultSchema, DeleteVaultSchema,
   CreateCouncilMemberSchema, UpdateCouncilMemberSchema, DeleteCouncilMemberSchema,
