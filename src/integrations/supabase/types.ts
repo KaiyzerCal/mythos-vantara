@@ -13280,6 +13280,13 @@ export type Database = {
           tier: number
         }[]
       }
+      mavis_beyonder_audit: {
+        Args: never
+        Returns: {
+          pathway: string
+          problem: string
+        }[]
+      }
       mavis_cron_http_errors: {
         Args: { hours?: number }
         Returns: {
