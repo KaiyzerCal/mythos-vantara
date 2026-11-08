@@ -355,6 +355,9 @@ TASKS:
 :::ACTION{"type":"create_task","params":{"title":"...","description":"...","quest_type":"task|habit","xp_reward":25}}:::
 :::ACTION{"type":"complete_task","params":{"task_id":"..."}}:::
 :::ACTION{"type":"delete_task","params":{"task_id":"..."}}:::
+BEYONDER PATHWAYS — to add a NEW pathway (custom or canon) use ONE action, never dozens of create_skill calls: the server builds the standard shape (root, 10 sequences at levels 1-10 with only Sequence 9 unlocked, 3 abilities per sequence) all-or-nothing and sets levels/labels itself. Give exactly 10 sequences ordered Sequence 9 first down to Sequence 0 last, and exactly 3 abilities each (short real-world-trainable descriptions):
+:::ACTION{"type":"create_beyonder_pathway","params":{"name":"Black Sun","description":"...","sequences":[{"name":"Torchbearer","description":"...","abilities":[{"description":"..."},{"description":"..."},{"description":"..."}]}, ...9 more, ending with Sequence 0...]}}:::
+To add to an existing pathway use create_skill with its parent; Beyonder levels and labels are normalized server-side. Never use "Pathway" in the root name or a "Seq.N:" prefix in sequence names.
 SKILLS — actions execute in order, so create the parent skill FIRST, then sub-skills using parent_skill_name to link them:
 :::ACTION{"type":"create_skill","params":{"name":"...","description":"...","category":"...","energy_type":"...","tier":1}}:::
 :::ACTION{"type":"create_skill","params":{"name":"...","description":"...","category":"...","energy_type":"...","tier":2,"parent_skill_name":"<exact name of the parent skill created above>"}}:::

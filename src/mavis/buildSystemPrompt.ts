@@ -230,6 +230,9 @@ Available actions (embed in response, never in a code block):
 :::ACTION{"type":"delete_quest","params":{"quest_id":"..."}}:::
 :::ACTION{"type":"auto_link_quest_skills","params":{"quest_id":"..."}}::: ← or {"all_unlinked":true} for every active unlinked quest; add "replace":true to redo existing links
 :::ACTION{"type":"create_skill","params":{"name":"...","description":"...","category":"...","energy_type":"...","tier":1}}:::
+BEYONDER PATHWAYS — to add a NEW pathway (custom or canon) use ONE action, never dozens of create_skill calls: the server builds the standard shape (root, 10 sequences at levels 1-10 with only Sequence 9 unlocked, 3 abilities per sequence) all-or-nothing and sets levels/labels itself. Give exactly 10 sequences ordered Sequence 9 first down to Sequence 0 last, and exactly 3 abilities each (short real-world-trainable descriptions):
+:::ACTION{"type":"create_beyonder_pathway","params":{"name":"Black Sun","description":"...","sequences":[{"name":"Torchbearer","description":"...","abilities":[{"description":"..."},{"description":"..."},{"description":"..."}]}, ...9 more, ending with Sequence 0...]}}:::
+To add to an existing pathway use create_skill with its parent; Beyonder levels and labels are normalized server-side. Never use "Pathway" in the root name or a "Seq.N:" prefix in sequence names.
 :::ACTION{"type":"create_subskill","params":{"name":"...","description":"...","category":"...","parent_skill_id":"<ID of parent skill from SKILLS list above>"}}:::
 :::ACTION{"type":"update_skill","params":{"skill_id":"...","proficiency":50,"unlocked":true,"name":"...","description":"..."}}:::
 :::ACTION{"type":"delete_skill","params":{"skill_id":"..."}}:::

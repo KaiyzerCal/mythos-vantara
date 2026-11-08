@@ -440,7 +440,7 @@ const MAVIS_TOOLS = [
           description:
             "Action type. Quests: create_quest | update_quest | complete_quest | delete_quest. " +
             "Tasks: create_task | complete_task | update_task | delete_task. " +
-            "Skills: create_skill | create_subskill | update_skill | delete_skill. " +
+            "Skills: create_skill | create_subskill | update_skill | delete_skill | create_beyonder_pathway. " +
             "Journal: create_journal | update_journal | delete_journal. " +
             "Vault: create_vault | update_vault | delete_vault. " +
             "Council: create_council_member | update_council_member | delete_council_member. " +
@@ -483,6 +483,7 @@ const MAVIS_TOOLS = [
             "stat_effects (array of { label, value, unit } — EVERY numeric bonus the item's own effect/flavor text names, e.g. 'grants +30% VIT, +15% STR' becomes [{label:'VIT',value:30,unit:'%'},{label:'STR',value:15,unit:'%'}]; label isn't limited to the 7 core stats — a custom one like 'Network Efficiency' or 'Lethality Enhancement' is fine too, exactly as named in the text), is_equipped }. " +
             "update_inventory_item: { item_id, plus any create_inventory_item field to change }. " +
             "The Character tab's Stat Modifiers section reads ONLY stat_effects, never the effect text — writing a rich prose effect description and leaving stat_effects empty means the item visibly does nothing there even though it reads like it should. Any time an item's effect/flavor text states a specific number (a %, a flat value), put that number in stat_effects too; only genuinely qualitative effects (an ability name, a passive with no number, a hidden unlock condition) stay prose-only in effect. " +
+            "create_beyonder_pathway: { name (without the word Pathway), description, energy_type, sequences: [exactly 10, ordered Sequence 9 FIRST down to Sequence 0 LAST, each { name (no Seq.N prefix), description, abilities: [exactly 3 × { name?, description }] }] } — builds the root, 10 sequences (levels 1-10, only Sequence 9 unlocked) and 30 abilities in the app's standard shape, all-or-nothing; ALWAYS use this to add a new pathway instead of many create_skill calls. " +
             "create_skill / create_subskill: { name, description, category, energy_type, tier (0 for a pathway root, 1-10 for its sequences — Sequence 9 is tier 1, Sequence 0 is tier 10, matching this account's existing Beyonder pathway data), proficiency, cost, prerequisites (string[] of skill ids — the previous lower sequence's id, or [] for Sequence 9 / a non-pathway skill), parent_skill_id (for a sequence: the pathway ROOT's id — every sequence points at the root, never at each other; for an ability: THAT sequence's own id) }. update_skill: { skill_id (or skill_name), ...any create_skill field to change }. delete_skill: { skill_id or skill_name }. " +
             "create_journal: { title, content, tags (string[]), category, importance ('low'|'medium'|'high'), mood, xp_earned (number — awarded to the operator immediately on insert, default 10) }. update_journal / delete_journal: { entry_id or entry_title/title, ...fields to change }. " +
             "create_vault: { title, content, category, importance, attachments (string[]) }. update_vault / delete_vault: { entry_id or entry_title/title, ...fields }. " +
@@ -671,7 +672,7 @@ async function handleTool(
           "create_quest", "update_quest", "complete_quest", "delete_quest",
           "create_task", "update_task", "complete_task", "delete_task",
           "create_journal", "update_journal", "delete_journal",
-          "create_skill", "create_subskill", "update_skill", "delete_skill",
+          "create_skill", "create_subskill", "update_skill", "delete_skill", "create_beyonder_pathway",
           "create_vault", "update_vault", "delete_vault",
           "create_council_member", "update_council_member", "delete_council_member",
           "create_ally", "update_ally", "delete_ally",
@@ -2747,7 +2748,8 @@ LOG BPM SESSION → codexos_action(type="log_bpm_session", params={bpm, duration
 
 AWARD XP → codexos_action(type="award_xp", params={amount, reason})
 
-ADD A SKILL / BEYONDER PATHWAY → codexos_action(type="create_skill", params={name, description, category, energy_type, tier, parent_skill_id, prerequisites})
+ADD A NEW BEYONDER PATHWAY → ONE codexos_action(type="create_beyonder_pathway", params={name, description, sequences:[10 × {name, description, abilities:[3 × {description}]}]}) — the server sets levels, labels and lock state. Never build a pathway from many create_skill calls.
+ADD A SINGLE SKILL OR ADD TO A PATHWAY → codexos_action(type="create_skill", params={name, description, category, energy_type, tier, parent_skill_id, prerequisites})
   ⚠️ See the codexos_action tool's own params description for the exact tier/parent_skill_id/prerequisites convention this account's pathways already follow — a skill saved with the wrong tier or parent_skill_id looks broken in the Skills tab's tree even though the insert succeeds.
 
 TRACK A GOAL vs. HAVE MAVIS ACTUALLY WORK ONE → create_goal just logs a row on the /goals page; "goal" ALSO decomposes it and works it autonomously. Default to "goal" unless the operator specifically wants it tracked only, not acted on.

@@ -181,6 +181,25 @@ async function cronHttpChecks(sb: Sb): Promise<Problem[]> {
     .map((r) => ({ id: `http:${r.status_code}:${String(r.sample).slice(0, 40)}`, kind: "scheduled calls failing", text: `${r.n} scheduled calls in 6h returned HTTP ${r.status_code}: ${String(r.sample).slice(0, 80)}` }));
 }
 
+
+// Things MAVIS or the app added that should be fully integrated but are not: a malformed Beyonder pathway,
+// journal entries nothing has emotion-tagged, new skills that never got a search embedding.
+async function integrityChecks(sb: Sb): Promise<Problem[]> {
+  const problems: Problem[] = [];
+  const { data: bey } = await sb.rpc("mavis_beyonder_audit");
+  for (const r of (bey ?? []) as { pathway: string; problem: string }[]) {
+    problems.push({ id: `bey:${r.pathway}:${r.problem}`.slice(0, 90), kind: "pathway malformed", text: `${r.pathway}: ${r.problem}` });
+  }
+  const dayAgo = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const { count: untagged } = await sb.from("journal_entries").select("*", { count: "exact", head: true })
+    .or("emotion_tagged.is.null,emotion_tagged.eq.false").is("emotion_scores", null).lt("created_at", dayAgo);
+  if ((untagged ?? 0) > 5) problems.push({ id: "emotion:backlog", kind: "emotion tagging stalled", text: `${untagged} journal entries older than a day are still untagged` });
+  const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+  const { count: unembedded } = await sb.from("skills").select("*", { count: "exact", head: true }).is("embedding", null).lt("created_at", hourAgo);
+  if ((unembedded ?? 0) > 0) problems.push({ id: "embed:skills", kind: "skills not searchable", text: `${unembedded} skills older than an hour have no search embedding (quest auto-linking cannot find them)` });
+  return problems;
+}
+
 // ── Alerting ─────────────────────────────────────────────────────────────────
 async function sendTelegram(text: string): Promise<boolean> {
   if (!BOT_TOKEN || !CHAT_ID) return false;
@@ -212,7 +231,7 @@ Deno.serve(async (req) => {
       smoke = { checked: s.checked, counts: s.counts, targets: s.targets, fresh: s.fresh };
     }
     if (mode === "all" || mode === "watchdog") {
-      for (const check of [usageChecks, growthChecks, cronHttpChecks]) {
+      for (const check of [usageChecks, growthChecks, cronHttpChecks, integrityChecks]) {
         try { problems.push(...await check(sb)); } catch (err) { console.warn("[watchdog] check failed:", err instanceof Error ? err.message : err); }
       }
     }
