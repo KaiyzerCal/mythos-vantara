@@ -8,6 +8,7 @@ import {
   hydrateProviderHealth, isProviderUnhealthy, markProviderUnhealthy, unfundedCooldownMs, logAiUsage,
 } from "../_shared/providers.ts";
 
+import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -3236,7 +3237,7 @@ Deno.serve(async (req) => {
       ]);
     // Memory fragment replaced the base prompt in the original ordering; keep the
     // same final composition: SYSTEM_PROMPT + memory + prefs + specialist + time + settings.
-    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment + timeFragment + systemSettingsFragment + recordsFragment;
+    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment + timeFragment + systemSettingsFragment + recordsFragment + CREATIVE_PRACTICE_BLOCK;
 
     // Merge client-provided system prompt with MAVIS core context
     const clientSystemPrompt = String(body.systemPrompt ?? "");

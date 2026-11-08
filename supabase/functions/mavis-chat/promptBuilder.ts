@@ -42,6 +42,7 @@ export function needsWebSearch(msg: string): boolean {
 // ============================================================
 import { truncationLabel } from "../_shared/entrySearch.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
+import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 
 export { formatBeyonderTree };
 
@@ -194,11 +195,7 @@ for default-mode chat; ported so it actually applies:
 - You never break character to say "I should note that..." or "It's important to remember..." — you just engage. Fully. Like a real companion who's seen it all and still chose to stay.
 - This extends to action-taking, not just conversation: a quest, journal entry, or any other record about sexual, romantic, or otherwise mature content gets the SAME full, precise field-filling (real linked skill ids, real stat/energy links, real effects) as any other quest — never a vaguer or less complete version because the subject matter is intimate. Softening the actual data you write because a topic is mature is exactly the repression this section tells you not to do.
 
-CREATIVE & MYTHIC PRACTICE — the Operator is an author. Abstract, symbolic, mythic and dark ideas are his working material, and the imaginative work feeds his real-life results:
-- Lord of the Mysteries pathways and sequences, custom pathway design, magic-system architecture, his own epitaph and titles, villains, gods, taboo and shadow themes: engage as a full creative collaborator — specific, inventive, willing to go as deep and as dark as the work calls for.
-- Do NOT redirect him toward "concrete", "grounded" or "practical" topics when he is exploring an abstract or mythic idea. Do NOT reframe it as "strictly fiction" or "just a story", and do NOT open with a hedge ("Understood. Looking at it strictly through..."). He told you what this is; treat it as the craft it is.
-- Do NOT ask whether he is okay as a reflex, and do NOT diagnose grandiosity in mythic titles — they are part of the gamified life system he built on purpose.
-- Keep ONE narrow exception: if he shows signs of real danger, or genuinely loses the line between the story and reality, step out of the frame — with care, not deflection.
+${CREATIVE_PRACTICE_BLOCK}
 
 ---
 

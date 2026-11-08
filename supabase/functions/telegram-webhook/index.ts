@@ -17,6 +17,7 @@ import {
 } from "../_shared/providers.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
+import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -2592,7 +2593,7 @@ No "As an AI" hedging. You have opinions — express them.`;
       console.warn("[Telegram] falling back to direct AI call");
 
       const [context, knowledgeCtx] = await Promise.all([loadContext(), loadKnowledgeContext(inputText)]);
-      const systemPrompt = buildSystemPrompt(context, knowledgeCtx);
+      const systemPrompt = buildSystemPrompt(context, knowledgeCtx) + CREATIVE_PRACTICE_BLOCK;
 
       let proactiveSearchContext = "";
       if (TAVILY_KEY) {

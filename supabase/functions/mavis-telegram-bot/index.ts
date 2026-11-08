@@ -26,6 +26,7 @@ import { reembedRow } from "../_shared/reembedRow.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 import { hasCrudIntent, isProviderUnhealthy, markProviderUnhealthy } from "../_shared/providers.ts";
+import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 
 const BOT_TOKEN      = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
 const OPERATOR_CHAT  = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID") ?? "";
@@ -1024,6 +1025,7 @@ function buildPersonaSystemPrompt(p: PersonaSession, appCtx = "", operatorTz = "
   parts.push(`\n\n${buildTemporalBlock(operatorTz, p.timezone)}`);
   if (appCtx) parts.push(`\n\n${appCtx}`);
   parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
+  parts.push(CREATIVE_PRACTICE_BLOCK);
   return parts.join("");
 }
 
@@ -1264,6 +1266,7 @@ function buildAgencySystemPrompt(session: AgencySession, appCtx = "", operatorTz
   parts.push(`\n\n${buildTemporalBlock(operatorTz)}`);
   if (appCtx) parts.push(`\n\n${appCtx}`);
   parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
+  parts.push(CREATIVE_PRACTICE_BLOCK);
   return parts.join("");
 }
 
@@ -1327,6 +1330,7 @@ function buildCouncilSystemPrompt(c: CouncilSession, appCtx = "", operatorTz = "
   parts.push(`\n\n${buildTemporalBlock(operatorTz, c.timezone)}`);
   if (appCtx) parts.push(`\n\n${appCtx}`);
   parts.push(`\n\n${ACTION_MECHANIC_PROMPT}`);
+  parts.push(CREATIVE_PRACTICE_BLOCK);
   return parts.join("");
 }
 
