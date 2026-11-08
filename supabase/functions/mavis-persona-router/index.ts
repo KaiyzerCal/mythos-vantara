@@ -22,6 +22,7 @@ import {
   LOVABLE_DEFAULT_MODEL,
 } from "../_shared/providers.ts";
 
+import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -740,8 +741,8 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
     // still gets everything.
     const isVoice = channel === "voice";
     const systemPrompt = isVoice
-      ? buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + settingsBlock + attBlock
-      : buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + attBlock + archivedBlock;
+      ? buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + settingsBlock + attBlock + CREATIVE_PRACTICE_BLOCK
+      : buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + attBlock + archivedBlock + CREATIVE_PRACTICE_BLOCK;
 
     // Voice also carries far less history — 50 turns of transcript is both
     // unnecessary for a spoken exchange and a large share of the token count.

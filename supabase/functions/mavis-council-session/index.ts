@@ -5,6 +5,7 @@ import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { aiComplete } from "../_shared/providers.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -428,6 +429,7 @@ serve(async (req) => {
           } else {
             systemPrompt = buildGroupPrompt(member, allMembers, historyWithUser, contextSummary, sessionMode);
           }
+          systemPrompt += CREATIVE_PRACTICE_BLOCK;
           const response = await callGroupLLM(systemPrompt, `"${content}"`, maxTokens);
           return { member, response: response.trim() };
         }),
