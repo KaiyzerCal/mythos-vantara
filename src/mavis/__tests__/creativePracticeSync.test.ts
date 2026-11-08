@@ -25,4 +25,10 @@ describe("creative practice block", () => {
     expect(b).toMatch(/Are you OK to continue/);
     expect(b).toMatch(/believe him/);
   });
+  it("states the core premise and keeps real-world accuracy", () => {
+    const b = extract("supabase/functions/_shared/creativePractice.ts")!;
+    expect(b).toMatch(/Black Sun Monarch/);
+    expect(b).toMatch(/converting lived data into digital data/);
+    expect(b).toMatch(/Real stakes stay real/);
+  });
 });
