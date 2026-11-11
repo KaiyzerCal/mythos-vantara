@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     // Load active daily tasks with streaks at risk
     const { data: tasks } = await supabase
       .from("tasks")
-      .select("id, title, recurrence, streak, last_completed_at")
+      .select("id, title, recurrence, streak, last_completed")
       .eq("user_id", uid)
       .eq("status", "active")
       .eq("recurrence", "daily")
@@ -55,8 +55,8 @@ Deno.serve(async (req) => {
 
     // Find tasks not completed today
     const atRisk = (tasks as any[]).filter(t => {
-      if (!t.last_completed_at) return true;
-      return t.last_completed_at.slice(0, 10) < todayIso;
+      if (!t.last_completed) return true;
+      return t.last_completed.slice(0, 10) < todayIso;
     });
 
     if (!atRisk.length) {

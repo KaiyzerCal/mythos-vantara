@@ -5,11 +5,11 @@
 //   Stage 3 — MAVIS synthesis: integrates all perspectives into verdicts + actions
 // Persists the full transcript to mavis_council_discourse.
 
-import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { aiComplete } from "../_shared/providers.ts";
+import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 
-const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const supabase  = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -40,14 +40,12 @@ interface RoundEntry {
   stage:        "position" | "challenge" | "synthesis";
 }
 
-async function claude(system: string, user: string, maxTokens = 600): Promise<string> {
-  const res = await anthropic.messages.create({
-    model:      "claude-sonnet-4-6",
-    max_tokens: maxTokens,
-    system,
-    messages:   [{ role: "user", content: user }],
-  });
-  return ((res.content[0] as { text: string }).text ?? "").trim();
+// Was a direct Anthropic call, so the whole feature stopped when Claude credits ran out (the table has never
+// had a row). It goes through the shared free-first cascade now; interactive, so quality models come early.
+// maxTokens is kept for call-site compatibility — the cascade sizes its own output.
+async function claude(system: string, user: string, _maxTokens = 600): Promise<string> {
+  const r = await aiComplete({ system: system + CREATIVE_PRACTICE_BLOCK, user, premiumFirst: true });
+  return r.content.trim();
 }
 
 // ── Stage 1: Position prompt ──────────────────────────────────────────────
