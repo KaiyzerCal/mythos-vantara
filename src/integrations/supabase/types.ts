@@ -2732,6 +2732,33 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_beats: {
+        Row: {
+          announced: boolean
+          created_at: string
+          key: string
+          kind: string
+          text: string | null
+          user_id: string
+        }
+        Insert: {
+          announced?: boolean
+          created_at?: string
+          key: string
+          kind: string
+          text?: string | null
+          user_id: string
+        }
+        Update: {
+          announced?: boolean
+          created_at?: string
+          key?: string
+          kind?: string
+          text?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mavis_behavioral_patterns: {
         Row: {
           id: string
