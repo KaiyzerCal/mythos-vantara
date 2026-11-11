@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 import { scoreImportance, compressBlock, isHighStakesQuery, estimateLlmCost, detectFacets } from "./utils.ts";
-import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream } from "../_shared/providers.ts";
+import { trimToFit, routeToProvider, callClaude, callGemini, callWithFallback, callWithFallbackStream, logAiUsage } from "../_shared/providers.ts";
 import { parseActionBlocks, executeAgentAction, formatToolResults, hasActionIntent, hasResearchIntent, resolveActionsNative } from "./toolDispatch.ts";
 import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt, formatBeyonderTree } from "./promptBuilder.ts";
@@ -510,12 +510,17 @@ When relevant, acknowledge the user's companion network — the bonds they've bu
     // the operator named, plus individual sequences whose text overlaps the message.
     const _beyRoots = skillsBeyonder.filter((s: any) => !s.parent_skill_id);
     const _escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const _pathwayHit = new Set<string>(
-      _beyRoots
-        .filter((r: any) => r.name && new RegExp(`\\b${_escRe(String(r.name).toLowerCase())}\\b`).test(_msgLower))
-        .slice(0, 3)
-        .map((r: any) => r.id),
-    );
+    // Longest names first, and a matched name is blanked out, so "black sun" selects the Black Sun
+    // pathway without also dragging in the separate Sun pathway.
+    const _pathwayHit = new Set<string>();
+    {
+      let remaining = _msgLower;
+      for (const r of [..._beyRoots].sort((a: any, b: any) => String(b.name ?? "").length - String(a.name ?? "").length)) {
+        if (_pathwayHit.size >= 3 || !r.name) continue;
+        const re = new RegExp(`\\b${_escRe(String(r.name).toLowerCase())}\\b`);
+        if (re.test(remaining)) { _pathwayHit.add(r.id); remaining = remaining.replace(re, " "); }
+      }
+    }
     const _seqScore = (sq: any) => _overlap(`${sq.name} ${sq.description ?? ""}`);
     const _beySequences = skillsBeyonder.filter((s: any) => s.parent_skill_id && _beyRoots.some((r: any) => r.id === s.parent_skill_id));
     const _matchedSeq = new Set<string>(
@@ -1733,6 +1738,25 @@ ${telosData
     ].filter(Boolean).join("\n\n");
 
     let callMessages = [...(messages || [])];
+
+    // Where the prompt's size comes from, per message (characters). One tiny row in mavis_ai_usage
+    // (lane "prompt-breakdown", no cost) so the next round of trimming is driven by data: persona
+    // chats measured ~115k tokens and nothing recorded which block was responsible.
+    try {
+      const _len = (v: unknown) => (typeof v === "string" ? v.length : 0);
+      logAiUsage({
+        lane: "prompt-breakdown", system: systemWithPersonaMemory, provider: "n/a", ms: 0, ok: true,
+        inChars: fullPrompt.length + JSON.stringify(callMessages).length, outChars: null,
+        meta: {
+          system: _len(systemWithPersonaMemory), agent_config: isCouncilMode ? 0 : _len(agentConfigBlock), agent_folders: _len(agentFoldersBlock),
+          skill_injection: isCouncilMode ? 0 : _len(skillInjection), live_state: _len(authoritativeContext), relevant_records: _len(relevantRecordsBlock),
+          user_model: _len(userModelBlock), tacit: _len(tacitBlock), world_model: _len(worldModelBlock), navi: _len(naviBlock), knowledge: _len(knowledgeBlock),
+          world_intel: _len(worldIntelBlock), cross_relationship: _len(crossRelationshipBlock), targeted_persona: _len(targetedPersonaBlock), a2a: _len(a2aBlock),
+          semantic_memory: _len(semanticMemoryBlock), attachments: _len(attachmentsBlock), proactive: _len(proactiveBlock), plans: _len(plansBlock),
+          url_content: _len(urlContent), web_search: _len(webSearchResults), history: JSON.stringify(callMessages).length, total_prompt: fullPrompt.length,
+        },
+      });
+    } catch { /* measurement only */ }
 
     // ── Tool output pruning (token saving pre-pass) ─────────
     // Replace content of old tool-role messages (outside last 4) with a stub.

@@ -23,6 +23,7 @@ const { fromMock, queueChain } = vi.hoisted(() => {
       ilike: vi.fn(() => chain),
       order: vi.fn(() => chain),
       limit: vi.fn(() => chain),
+      range: vi.fn(() => chain),
       single: vi.fn(() => resolved),
       maybeSingle: vi.fn(() => resolved),
       then: (onFulfilled: any, onRejected?: any) => resolved.then(onFulfilled, onRejected),

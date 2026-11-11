@@ -328,7 +328,7 @@ export async function sendCouncilMessage(
 
   // ── MAVIS responds first ──────────────────────────────────────────────────
   const mavisSystemPrompt =
-    (await buildSystemPromptFromSnapshot("SOVEREIGN", appContext)) +
+    (await buildSystemPromptFromSnapshot("SOVEREIGN", appContext, undefined, undefined, userMessage)) +
     `\n\nCOUNCIL BOARD MODE — You are presiding. Respond first as MAVIS, before council members weigh in. Keep it focused — 1–3 paragraphs. Do not speak for individual council members; they respond separately after you.`;
 
   const mavisResponse = await invokeAI(

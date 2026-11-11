@@ -1149,7 +1149,7 @@ export default function MavisChat() {
           // reliable than the MavisUI tab, which always calls this uncached.
           setAgentThinking("Building context…");
           const agentSystemPrompt = await (fullCtx
-            ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia)
+            ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, vaultMedia, content)
             : buildSystemPromptFromSnapshot(chatMode, ({
                 profile: profile as any,
                 quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
@@ -1159,7 +1159,7 @@ export default function MavisChat() {
                 storeItems: appDataRef.current.storeItems as any[], energySystems: appDataRef.current.energySystems as any[],
                 bpmSessions: appDataRef.current.bpmSessions as any[], allies: appDataRef.current.allies as any[],
                 rituals: appDataRef.current.rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
-              } as any), archivedMemories, vaultMedia));
+              } as any), archivedMemories, vaultMedia, content));
 
           // ── Stream via mavis-agent with live SSE progress updates ────────────────
           setAgentThinking("Executing…");
@@ -1232,7 +1232,7 @@ export default function MavisChat() {
               vaultEntries: vaultEntries as any[], councilMembers: appDataRef.current.councils as any[], inventory: appDataRef.current.inventory as any[],
               storeItems: appDataRef.current.storeItems as any[], energySystems: appDataRef.current.energySystems as any[], bpmSessions: appDataRef.current.bpmSessions as any[],
               allies: appDataRef.current.allies as any[], rituals: appDataRef.current.rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
-            } as any), archivedMemories, vaultMedia);
+            } as any), archivedMemories, vaultMedia, content);
             const fallbackResult = await streamChatMessage(
               content, fallbackSys, history,
               { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds: attachments.map((a) => a.id) },
