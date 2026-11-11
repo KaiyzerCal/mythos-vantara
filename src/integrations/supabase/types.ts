@@ -2413,6 +2413,7 @@ export type Database = {
           id: string
           label: string | null
           lane: string
+          meta: Json | null
           provider: string
           success: boolean
         }
@@ -2426,6 +2427,7 @@ export type Database = {
           id?: string
           label?: string | null
           lane: string
+          meta?: Json | null
           provider: string
           success?: boolean
         }
@@ -2439,6 +2441,7 @@ export type Database = {
           id?: string
           label?: string | null
           lane?: string
+          meta?: Json | null
           provider?: string
           success?: boolean
         }
