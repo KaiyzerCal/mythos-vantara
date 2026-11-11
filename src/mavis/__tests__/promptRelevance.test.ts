@@ -18,10 +18,10 @@ for (const nm of NAMES) {
 }
 const quests = Array.from({ length: 120 }, (_, i) => ({
   id: uid(5000 + i), title: i === 77 ? "Finish the eclipse manuscript chapter" : `Quest ${i}`, status: i < 40 ? "active" : "completed", type: "side", difficulty: "medium",
-  xp_reward: 50, progress_current: 0, progress_target: 1, description: "A long description of what this quest is about, padded to a realistic length for a real quest entry in the system.", linked_skill_ids: [],
+  xp_reward: 50, progress_current: 0, progress_target: 1, description: "A long description of what this quest is about, padded to a realistic length for a real quest entry in the system.", linked_skill_ids: [] as string[],
   updated_at: new Date(Date.now() - i * 86400000).toISOString(),
 }));
-const journalEntries = Array.from({ length: 60 }, (_, i) => ({ id: uid(7000 + i), title: i === 9 ? "Eclipse manuscript notes" : `Entry ${i}`, category: "personal", importance: "medium", xp_earned: 10, tags: [], content: "x".repeat(900), created_at: new Date(Date.now() - i * 3600000).toISOString() }));
+const journalEntries = Array.from({ length: 60 }, (_, i) => ({ id: uid(7000 + i), title: i === 9 ? "Eclipse manuscript notes" : `Entry ${i}`, category: "personal", importance: "medium", xp_earned: 10, tags: [] as string[], content: "x".repeat(900), created_at: new Date(Date.now() - i * 3600000).toISOString() }));
 const vaultEntries = Array.from({ length: 80 }, (_, i) => ({ id: uid(8000 + i), title: `Vault ${i}`, category: "business", importance: "high", content: "y".repeat(900), created_at: new Date(Date.now() - i * 3600000).toISOString() }));
 const profile: any = { inscribed_name: "Calvin", level: 10, rank: "F", current_form: "Base", arc_story: "arc" };
 const ctx: any = { quests, skills, journalEntries, vaultEntries, tasks: [], councils: [], allies: [], energySystems: [], inventory: [], transformations: [], bpmSessions: [], storeItems: [], rankings: [] };
