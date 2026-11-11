@@ -2270,6 +2270,10 @@ ${telosData
       aiKeys,
       useThinking,
       modeUpper,
+      // A person is waiting on this reply (voice overlay, skills, inline compose), same as the
+      // streaming path. Without this it ran in the background lane: gpt-4o-mini, measured at 10.7s
+      // per reply against 3.9s for the streaming path's Gemini on the same prompt.
+      true,
     );
 
     // ── ReAct loop (non-streaming): execute ACTION blocks and re-synthesize ──
@@ -2306,7 +2310,7 @@ ${telosData
         ];
 
         const { content: nextContent } = await callWithFallback(
-          provider, reactMessages, fullPromptFinal, aiKeys, useThinking, modeUpper,
+          provider, reactMessages, fullPromptFinal, aiKeys, useThinking, modeUpper, true,
         );
         content = nextContent;
         reactIter++;
