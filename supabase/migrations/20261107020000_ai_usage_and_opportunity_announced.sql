@@ -24,3 +24,6 @@ ALTER TABLE public.mavis_ai_usage ENABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS mavis_ai_usage_created_idx ON public.mavis_ai_usage (created_at DESC);
 
 ALTER TABLE public.mavis_opportunities ADD COLUMN IF NOT EXISTS announced_at timestamptz;
+
+-- Per-message prompt size breakdown (lane "prompt-breakdown"): block name -> characters.
+ALTER TABLE public.mavis_ai_usage ADD COLUMN IF NOT EXISTS meta jsonb;

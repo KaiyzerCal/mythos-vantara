@@ -483,7 +483,7 @@ function estimateCostUsd(provider: string, inTok: number, outTok: number): numbe
   const row = PRICE_PER_M.find(([re]) => re.test(provider));
   return row ? (inTok * row[1] + outTok * row[2]) / 1_000_000 : 0;
 }
-export function logAiUsage(e: { lane: string; system?: string; provider: string; ms: number; inChars: number; outChars: number | null; ok: boolean; error?: string }): void {
+export function logAiUsage(e: { lane: string; system?: string; provider: string; ms: number; inChars: number; outChars: number | null; ok: boolean; error?: string; meta?: Record<string, number> }): void {
   try {
     const url = Deno.env.get("SUPABASE_URL");
     const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -502,6 +502,7 @@ export function logAiUsage(e: { lane: string; system?: string; provider: string;
         est_out_tokens: outTok,
         est_cost_usd: Number(estimateCostUsd(e.provider, inTok, outTok ?? 0).toFixed(6)),
         success: e.ok,
+        ...(e.meta ? { meta: e.meta } : {}),
         error: e.error ? e.error.replace(/(sk-|key[=:\s"]*)[A-Za-z0-9_\-*.]{6,}/gi, "$1[redacted]").slice(0, 160) : null,
       }),
       signal: AbortSignal.timeout(3000),

@@ -503,7 +503,7 @@ export default function MavisDemo() {
 
     try {
       let systemPrompt = await (fullCtx
-        ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, [])
+        ? buildSystemPromptFromSnapshot(chatMode, fullCtx, archivedMemories, [], content)
         : buildSystemPromptFromSnapshot(chatMode, ({
             profile: profile as any,
             quests: quests as any[], tasks: tasks as any[], skills: skills as any[],
@@ -513,7 +513,7 @@ export default function MavisDemo() {
             storeItems: storeItems as any[], energySystems: energySystems as any[],
             bpmSessions: bpmSessions as any[], allies: allies as any[],
             rituals: rituals as any[], pendingApprovals: [], loadedAt: new Date().toISOString(),
-          } as any), archivedMemories, []));
+          } as any), archivedMemories, [], content));
       if (recallCtxRaw) systemPrompt += `\n\n${recallCtxRaw}`;
 
       const abortController = new AbortController();

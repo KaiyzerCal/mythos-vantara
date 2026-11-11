@@ -1,4 +1,5 @@
 // Moved from MavisChat.tsx — preserves the full MAVIS personality verbatim.
+import { makeRelevance, pickRelevant, selectBeyonder, ts } from "./promptRelevance";
 import type { AppContextSnapshot } from "./appContextLoader";
 import { getStandingOrders } from "./standingOrders";
 import { buildMemoryContext } from "./memoryEngine";
@@ -75,26 +76,48 @@ export function buildSystemPrompt(
   appContext: MavisAppContext,
   archivedMemories?: string,
   vaultMedia?: any[],
+  /** The operator's latest message. Lists are trimmed to what relates to it (see promptRelevance.ts). */
+  focusText?: string,
 ): string {
+  const rel = makeRelevance(focusText);
   const allSkills = appContext.skills || [];
   const skillNameById = new Map<string, string>(allSkills.map((s: any) => [s.id, s.name]));
   // Resolved to names (not left as bare UUIDs) so MAVIS can answer "which
   // pathway/sequence does this quest feed?" directly from this line instead
   // of guessing from the quest's title/description — see the linked_skill_ids
   // note under QUESTS in promptBuilder.ts for how it's meant to use this.
-  const questList = (appContext.quests || []).map((q: any) => {
-    const linkedNames = (q.linked_skill_ids || []).map((id: string) => skillNameById.get(id) || id);
-    return `  • [${q.id}] ${q.title} | type:${q.type} | status:${q.status} | difficulty:${q.difficulty} | xp:${q.xp_reward} | progress:${q.progress_current}/${q.progress_target}${q.description ? ` | desc: ${q.description}` : ""}${q.real_world_mapping ? ` | mapping: ${q.real_world_mapping}` : ""}${q.deadline ? ` | deadline: ${q.deadline}` : ""} | linked_skills:${linkedNames.length ? linkedNames.join(", ") : "none"}`;
-  }).join("\n");
+  // Quests: the 15 most relevant in full (active before completed), other ACTIVE quests as compact lines,
+  // finished ones only counted. Listing all 265 with descriptions was ~30k tokens on its own.
+  const allQuests = appContext.quests || [];
+  const fullQuests = pickRelevant<any>(allQuests, rel, 15, (q) => `${q.title} ${q.description ?? ""}`, (q) => ts(q.updated_at ?? q.created_at), (q) => (q.status === "active" ? 1 : 0));
+  const hiddenQuests = allQuests.filter((q: any) => !fullQuests.has(q) && q.status !== "active").length;
+  const questList = [
+    ...allQuests.filter((q: any) => fullQuests.has(q) || q.status === "active").map((q: any) => {
+      if (!fullQuests.has(q)) return `  · [${q.id}] ${q.title} | type:${q.type} | status:${q.status} | difficulty:${q.difficulty} (compact)`;
+      const linkedNames = (q.linked_skill_ids || []).map((id: string) => skillNameById.get(id) || id);
+      return `  • [${q.id}] ${q.title} | type:${q.type} | status:${q.status} | difficulty:${q.difficulty} | xp:${q.xp_reward} | progress:${q.progress_current}/${q.progress_target}${q.description ? ` | desc: ${q.description}` : ""}${q.real_world_mapping ? ` | mapping: ${q.real_world_mapping}` : ""}${q.deadline ? ` | deadline: ${q.deadline}` : ""} | linked_skills:${linkedNames.length ? linkedNames.join(", ") : "none"}`;
+    }),
+    hiddenQuests ? `  (+${hiddenQuests} completed/inactive quests not listed — look them up when needed, never invent an id)` : "",
+  ].filter(Boolean).join("\n");
   const taskList = (appContext.tasks || []).map((t: any) => `  • [${t.id}] ${t.title} | type:${t.type} | status:${t.status} | recurrence:${t.recurrence} | streak:${t.streak} | xp:${t.xp_reward}${t.description ? ` | desc: ${t.description}` : ""}`).join("\n");
   const beyonderSkills = allSkills.filter((s: any) => s.category === "Beyonder");
   const otherSkills = allSkills.filter((s: any) => s.category !== "Beyonder");
   const skillList = [
     otherSkills.map((s: any) => `  • [${s.id}] ${s.name} | cat:${s.category} | T${s.tier} | prof:${s.proficiency}% | energy:${s.energy_type} | unlocked:${s.unlocked} | cost:${s.cost}${s.description ? ` | desc: ${s.description}` : ""}${s.parent_skill_id ? ` | parent:${s.parent_skill_id}` : ""}`).join("\n"),
-    beyonderSkills.length ? `  BEYONDER PATHWAYS (${beyonderSkills.filter((s: any) => !s.parent_skill_id).length} pathways, each with 10 sequences from Sequence 9 — least developed — down to Sequence 0 — mastery — each sequence carries 3 real-world abilities):\n${formatBeyonderTree(beyonderSkills).split("\n").map((l) => `  ${l}`).join("\n")}` : "",
+    beyonderSkills.length ? `  BEYONDER PATHWAYS (${beyonderSkills.filter((s: any) => !s.parent_skill_id).length} pathways, each with 10 sequences from Sequence 9 — least developed — down to Sequence 0 — mastery — each sequence carries 3 real-world abilities):\n${formatBeyonderTree(selectBeyonder(beyonderSkills, rel)).split("\n").map((l) => `  ${l}`).join("\n")}\n  (All pathway roots are listed; sequences and abilities appear only for pathways/sequences relevant to this message — ${beyonderSkills.length} Beyonder rows exist in total. Use suggest_skill_links or ask for any other; never invent an id.)` : "",
   ].filter(Boolean).join("\n");
-  const journalList = (appContext.journalEntries || []).map((j: any) => `  • [${j.id}] ${j.title} | cat:${j.category} | importance:${j.importance}${j.mood ? ` | mood:${j.mood}` : ""} | xp:${j.xp_earned} | tags:${(j.tags||[]).join(",")} | content: ${(j.content || "").slice(0, 500)}`).join("\n");
-  const vaultList = (appContext.vaultEntries || []).map((v: any) => `  • [${v.id}] ${v.title} | cat:${v.category} | importance:${v.importance} | content: ${(v.content || "").slice(0, 500)}`).join("\n");
+  // Journal / vault: 500 characters of content for the 8 most relevant (else most recent) entries, a
+  // compact title line for the rest.
+  const allJournal = appContext.journalEntries || [];
+  const fullJournal = pickRelevant<any>(allJournal, rel, 8, (j) => `${j.title} ${j.content ?? ""} ${(j.tags || []).join(" ")}`, (j) => ts(j.created_at));
+  const journalList = allJournal.map((j: any) => fullJournal.has(j)
+    ? `  • [${j.id}] ${j.title} | cat:${j.category} | importance:${j.importance}${j.mood ? ` | mood:${j.mood}` : ""} | xp:${j.xp_earned} | tags:${(j.tags||[]).join(",")} | content: ${(j.content || "").slice(0, 500)}`
+    : `  · [${j.id}] ${j.title} | cat:${j.category} (compact)`).join("\n");
+  const allVault = appContext.vaultEntries || [];
+  const fullVault = pickRelevant<any>(allVault, rel, 8, (v) => `${v.title} ${v.content ?? ""}`, (v) => ts(v.created_at));
+  const vaultList = allVault.map((v: any) => fullVault.has(v)
+    ? `  • [${v.id}] ${v.title} | cat:${v.category} | importance:${v.importance} | content: ${(v.content || "").slice(0, 500)}`
+    : `  · [${v.id}] ${v.title} | cat:${v.category} (compact)`).join("\n");
   const councilList = (appContext.councils || []).map((c: any) => `  • [${c.id}] ${c.name} | role:${c.role} | class:${c.class}${c.specialty ? ` | spec:${c.specialty}` : ""} | notes: ${c.notes || ""}`).join("\n");
   const allyList = (appContext.allies || []).map((a: any) => `  • [${a.id}] ${a.name} | rel:${a.relationship} | lv:${a.level} | affinity:${a.affinity}${a.specialty ? ` | spec:${a.specialty}` : ""} | notes: ${a.notes || ""}`).join("\n");
   const energyList = (appContext.energySystems || []).map((e: any) => `  • [${e.id}] ${e.type} | ${e.current_value}/${e.max_value} | status:${e.status} | color:${e.color}${e.description ? ` | desc: ${e.description}` : ""}`).join("\n");
@@ -740,6 +763,7 @@ export async function buildSystemPromptFromSnapshot(
   ctx: AppContextSnapshot,
   archivedMemories?: string,
   vaultMedia?: any[],
+  focusText?: string,
 ): Promise<string> {
   const profile = (ctx.profile ?? {}) as any;
   const appContext: MavisAppContext = {
@@ -767,7 +791,7 @@ export async function buildSystemPromptFromSnapshot(
     fetchPatternInsights(userId),
   ]);
 
-  const base = buildSystemPrompt(profile, mode, appContext, archivedMemories, vaultMedia);
+  const base = buildSystemPrompt(profile, mode, appContext, archivedMemories, vaultMedia, focusText);
 
   const extras: string[] = [];
   if (providerContext) extras.push(`\n\n--- LIVE CONTEXT ---\n${providerContext}`);
