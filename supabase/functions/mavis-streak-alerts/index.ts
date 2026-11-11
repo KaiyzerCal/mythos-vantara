@@ -54,9 +54,14 @@ Deno.serve(async (req) => {
     }
 
     // Find tasks not completed today
+    // At risk = kept yesterday, not yet today. A streak last kept earlier than yesterday is already broken
+    // (the stored count is never reset), so alerting on it would nag about a streak that no longer exists —
+    // which this query would have started doing the day its column name was fixed.
+    const yesterdayIso = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
     const atRisk = (tasks as any[]).filter(t => {
-      if (!t.last_completed) return true;
-      return t.last_completed.slice(0, 10) < todayIso;
+      if (!t.last_completed) return false;
+      const day = t.last_completed.slice(0, 10);
+      return day < todayIso && day >= yesterdayIso;
     });
 
     if (!atRisk.length) {
