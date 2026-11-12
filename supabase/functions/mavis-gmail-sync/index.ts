@@ -98,14 +98,12 @@ serve(async (req) => {
       .single();
 
     if (!integration?.config && (await composioReady(uid, "gmail"))) {
-      // Gmail is authorized through Composio. Primary inbox only (the direct path's q=category:primary), so ask for
-      // extra and drop anything labelled with another category.
+      // Gmail is authorized through Composio. Primary tab only (what the direct path's q=category:primary did): Composio's
+      // `query` argument is not applied to this tool, but Gmail labels the Primary tab CATEGORY_PERSONAL, so filter on that.
       const data = await composioRun(uid, "GMAIL_FETCH_EMAILS", {
-        max_results: Math.min(max * 2, 50), label_ids: ["INBOX"], verbose: true, include_payload: false,
+        max_results: Math.min(max, 30), label_ids: ["INBOX", "CATEGORY_PERSONAL"], verbose: true, include_payload: false,
       });
-      const primary = ((data?.messages ?? []) as any[])
-        .filter((m) => !((m.labelIds ?? []) as string[]).some((l) => l.startsWith("CATEGORY_") && l !== "CATEGORY_PERSONAL"))
-        .slice(0, max);
+      const primary = (data?.messages ?? []) as any[];
       let count = 0, contactCount = 0;
       for (const m of primary) {
         const text = String(m.messageText ?? m.preview?.body ?? "");
