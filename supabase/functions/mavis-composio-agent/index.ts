@@ -129,6 +129,21 @@ serve(async (req) => {
       return json({ connect_url: connectUrl, connected_account_id: link.data?.connected_account_id ?? null });
     }
 
+    // ── Tool discovery: real slugs and required arguments for a toolkit ───
+    if (body.action === "tools") {
+      const slug = String(body.toolkit_slug ?? "").trim().toLowerCase();
+      if (!slug) return json({ error: "toolkit_slug is required" }, 400);
+      const r = await cx(`/tools?toolkit_slug=${encodeURIComponent(slug)}&limit=100`);
+      if (!r.ok) return fail(r, "list tools");
+      return json({
+        tools: items(r.data).map((t: any) => ({
+          slug: t.slug, name: t.name,
+          required: t.input_parameters?.required ?? [],
+          params: Object.keys(t.input_parameters?.properties ?? {}),
+        })),
+      });
+    }
+
     // ── What is connected for this operator ────────────────────────────────
     if (body.action === "status") {
       const r = await cx(`/connected_accounts?user_ids=${encodeURIComponent(userId)}&limit=50`);
