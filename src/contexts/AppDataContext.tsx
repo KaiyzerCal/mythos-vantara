@@ -9,7 +9,7 @@ import {
   useSkills, useEnergySystems, useInventory, useAllies, useBpmSessions, useActivityLog, useStoreItems, useCurrencies, useTransformations, useRankings, useRituals, useDomainEffects,
   type Task, type JournalEntry, type VaultEntry,
   type CouncilMember, type Skill, type EnergySystem, type InventoryItem, type Ally, type BpmSession, type StoreItem, type Currency, type Transformation, type RankingProfile, type Ritual, type DomainEffect,
-  INVENTORY_SELL_VALUE,
+  sellValueFor,
 } from "@/hooks/useDataHooks";
 
 export interface ChatMessage {
@@ -231,7 +231,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     if (!item) return { ok: false, earned: 0, sold: 0 };
     const owned = Math.max(1, item.quantity);
     const sold = Math.min(owned, Math.max(1, Math.floor(quantity ?? owned)));
-    const unitValue = INVENTORY_SELL_VALUE[item.rarity] ?? INVENTORY_SELL_VALUE.common;
+    const unitValue = sellValueFor(item.rarity);
     const earned = unitValue * sold;
     if (sold >= owned) {
       await deleteInventoryItem(id);
