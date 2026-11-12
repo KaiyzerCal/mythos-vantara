@@ -61,7 +61,7 @@ serve(async (req) => {
   if (req.method !== "POST") return json({ error: "POST only" }, 405);
 
   try {
-    const body = await req.json().catch(() => ({})) as { action?: string; tool_slug?: string; toolkit_slug?: string; params?: Record<string, unknown>; user_id?: string };
+    const body = await req.json().catch(() => ({})) as { action?: string; tool_slug?: string; toolkit_slug?: string; connected_account_id?: string; params?: Record<string, unknown>; user_id?: string };
     const userId = await resolveUserId(req, body.user_id);
     if (!userId) return json({ error: "Unauthorized" }, 401);
 
@@ -79,49 +79,79 @@ serve(async (req) => {
       return json({ successful: false, error: "COMPOSIO_API_KEY is not configured. See Track A of the Execution Blueprint's Stage G." }, 503);
     }
 
-    // ── Connect-account flow (settings UI "Connect an app" button) ─────────
-    if (body.action === "connect") {
-      const toolkitSlug = String(body.toolkit_slug ?? "").trim();
-      if (!toolkitSlug) return json({ error: "toolkit_slug is required" }, 400);
-      const res = await fetch(`${COMPOSIO_BASE}/connected-accounts`, {
-        method: "POST",
+    // Composio's v3 REST API. Verified against a live account: execute wants `user_id` (snake_case; the original `userId`
+    // answered 400 "User ID is required with connected account"), and a connection link needs an auth_config_id, not a
+    // toolkit slug. Errors are passed through verbatim so a shape mismatch is visible instead of silent.
+    const cx = async (path: string, init: RequestInit = {}) => {
+      const res = await fetch(`${COMPOSIO_BASE}${path}`, {
+        ...init,
         headers: { "Content-Type": "application/json", "x-api-key": COMPOSIO_API_KEY },
-        body: JSON.stringify({ user_id: userId, toolkit_slug: toolkitSlug }),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(30_000),
       });
       const text = await res.text();
       let data: any = null;
       try { data = JSON.parse(text); } catch { /* non-JSON */ }
-      if (!res.ok) return json({ error: `Composio ${res.status}: ${text.slice(0, 500)}` }, res.status >= 500 ? 502 : res.status);
-      const connectUrl = data?.connection_url ?? data?.redirect_url ?? data?.url ?? null;
-      return json({ connect_url: connectUrl });
+      return { ok: res.ok, status: res.status, data, text };
+    };
+    const fail = (r: { status: number; text: string }, what: string) =>
+      json({ successful: false, error: `Composio ${what} ${r.status}: ${r.text.slice(0, 500)}` }, r.status >= 500 ? 502 : r.status);
+    const items = (d: any): any[] => d?.items ?? d?.data ?? (Array.isArray(d) ? d : []);
+
+    // ── Connect-account flow (Settings -> Integrations "Connect an app") ───
+    if (body.action === "connect") {
+      const slug = String(body.toolkit_slug ?? "").trim().toLowerCase();
+      if (!slug) return json({ error: "toolkit_slug is required" }, 400);
+
+      // 1. An existing auth config for the toolkit, else create a Composio-managed one.
+      let authConfigId: string | null = null;
+      const found = await cx(`/auth_configs?toolkit_slug=${encodeURIComponent(slug)}`);
+      if (found.ok) {
+        const list = items(found.data);
+        authConfigId = (list.find((c: any) => String(c.status ?? "ENABLED").toUpperCase() === "ENABLED") ?? list[0])?.id ?? null;
+      }
+      if (!authConfigId) {
+        const made = await cx("/auth_configs", {
+          method: "POST",
+          body: JSON.stringify({ toolkit: { slug }, auth_config: { type: "use_composio_managed_auth" } }),
+        });
+        if (!made.ok) return fail(made, "create auth config");
+        authConfigId = made.data?.auth_config?.id ?? made.data?.id ?? null;
+        if (!authConfigId) return json({ error: `Composio created an auth config but returned no id: ${made.text.slice(0, 300)}` }, 502);
+      }
+
+      // 2. A hosted authorization link for this operator.
+      const link = await cx("/connected_accounts/link", {
+        method: "POST",
+        body: JSON.stringify({ auth_config_id: authConfigId, user_id: userId }),
+      });
+      if (!link.ok) return fail(link, "create link");
+      const connectUrl = link.data?.redirect_url ?? link.data?.connection_url ?? link.data?.url ?? null;
+      return json({ connect_url: connectUrl, connected_account_id: link.data?.connected_account_id ?? null });
+    }
+
+    // ── What is connected for this operator ────────────────────────────────
+    if (body.action === "status") {
+      const r = await cx(`/connected_accounts?user_ids=${encodeURIComponent(userId)}&limit=50`);
+      if (!r.ok) return fail(r, "list connections");
+      const accounts = items(r.data).map((c: any) => ({
+        toolkit: c.toolkit?.slug ?? c.toolkit_slug ?? null, status: c.status ?? null, id: c.id ?? null,
+      }));
+      return json({ accounts });
     }
 
     const toolSlug = String(body.tool_slug ?? "").trim();
     if (!toolSlug) return json({ error: "tool_slug is required" }, 400);
 
-    const res = await fetch(`${COMPOSIO_BASE}/tools/execute/${encodeURIComponent(toolSlug)}`, {
+    const exec = await cx(`/tools/execute/${encodeURIComponent(toolSlug)}`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": COMPOSIO_API_KEY,
-      },
       body: JSON.stringify({
-        userId,
+        user_id: userId,
         arguments: body.params ?? {},
+        ...(body.connected_account_id ? { connected_account_id: body.connected_account_id } : {}),
       }),
-      signal: AbortSignal.timeout(60_000),
     });
-
-    const text = await res.text();
-    let data: unknown = null;
-    try { data = JSON.parse(text); } catch { /* non-JSON */ }
-
-    if (!res.ok) {
-      return json({ successful: false, error: `Composio ${res.status}: ${text.slice(0, 500)}` }, res.status >= 500 ? 502 : res.status);
-    }
-
-    return json(data ?? { successful: true });
+    if (!exec.ok) return fail(exec, "execute");
+    return json(exec.data ?? { successful: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return json({ successful: false, error: message }, 500);
