@@ -8,6 +8,7 @@
 // 'google_calendar', token fields inside the config jsonb column).
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { composioReady, composioRun } from "../_shared/composio.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { getGoogleToken } from "../_shared/googleAuth.ts";
 
@@ -41,6 +42,90 @@ function toRFC3339(dateStr: string, timeStr?: string): string {
   return new Date(dateStr).toISOString();
 }
 
+
+/** Free slots of `durationMin` inside work hours, avoiding `busy`. Shared by both back ends. */
+function findFreeSlots(busy: { start: Date; end: Date }[], startDate: Date, endDate: Date, durationMin: number, workStartHour: number, workEndHour: number) {
+  const freeSlots: { start: string; end: string }[] = [];
+  let cursor = new Date(startDate);
+  cursor.setHours(workStartHour, 0, 0, 0);
+  while (cursor < endDate && freeSlots.length < 5) {
+    if (cursor.getHours() >= workEndHour) {
+      cursor.setDate(cursor.getDate() + 1);
+      cursor.setHours(workStartHour, 0, 0, 0);
+      continue;
+    }
+    const slotEnd = new Date(cursor.getTime() + durationMin * 60_000);
+    const conflict = busy.some(b => cursor < b.end && slotEnd > b.start);
+    if (!conflict && slotEnd.getHours() <= workEndHour) {
+      freeSlots.push({ start: cursor.toISOString(), end: slotEnd.toISOString() });
+      cursor = slotEnd;
+    } else {
+      cursor = new Date(cursor.getTime() + 15 * 60_000);
+    }
+  }
+  return freeSlots;
+}
+
+/** The same actions through Composio's Google Calendar tools, answering in the shape the Calendar page expects. */
+async function manageViaComposio(uid: string, action: string, body: any): Promise<any> {
+  const calId = String(body.calendar_id ?? "primary");
+  switch (action) {
+    case "list_events": {
+      return await composioRun(uid, "GOOGLECALENDAR_EVENTS_LIST", {
+        calendarId: calId,
+        timeMin: body.time_min ? new Date(body.time_min).toISOString() : new Date().toISOString(),
+        timeMax: body.time_max ? new Date(body.time_max).toISOString() : new Date(Date.now() + 7 * 86400_000).toISOString(),
+        maxResults: Math.min(Number(body.max_results ?? 20), 50), singleEvents: true, orderBy: "startTime",
+      });
+    }
+    case "find_free_time": {
+      const durationMin = Number(body.duration_minutes ?? 60);
+      const startDate = body.start_date ? new Date(body.start_date) : new Date();
+      const endDate = body.end_date ? new Date(body.end_date) : new Date(Date.now() + 3 * 86400_000);
+      const data = await composioRun(uid, "GOOGLECALENDAR_EVENTS_LIST", {
+        calendarId: calId, timeMin: startDate.toISOString(), timeMax: endDate.toISOString(), singleEvents: true, orderBy: "startTime", maxResults: 250,
+      });
+      const busy = ((data?.items ?? []) as any[])
+        .filter((e) => e.start?.dateTime && e.end?.dateTime)
+        .map((e) => ({ start: new Date(e.start.dateTime), end: new Date(e.end.dateTime) }));
+      return { free_slots: findFreeSlots(busy, startDate, endDate, durationMin, Number(body.work_start ?? 9), Number(body.work_end ?? 18)), duration_minutes: durationMin };
+    }
+    case "create_event": {
+      const date = String(body.start_date ?? new Date().toISOString().split("T")[0]);
+      // Composio's create tool takes a start time plus a duration. All-day events become a full-day block.
+      const startTime = body.all_day ? "00:00:00" : String(body.start_time ?? "09:00:00");
+      const endDate = String(body.end_date ?? date);
+      const endTime = body.all_day ? "23:59:00" : String(body.end_time ?? "10:00:00");
+      const minutes = Math.max(15, Math.round((new Date(`${endDate}T${endTime}`).getTime() - new Date(`${date}T${startTime}`).getTime()) / 60_000));
+      const tz = String(body.timezone ?? "America/New_York");
+      const r = await composioRun(uid, "GOOGLECALENDAR_CREATE_EVENT", {
+        calendar_id: calId, summary: String(body.title ?? "MAVIS Scheduled Event"),
+        start_datetime: `${date}T${startTime}`, timezone: tz,
+        event_duration_hour: Math.floor(minutes / 60), event_duration_minutes: minutes % 60,
+        ...(body.description ? { description: String(body.description) } : {}),
+        ...(body.location ? { location: String(body.location) } : {}),
+        ...(body.attendees ? { attendees: body.attendees } : {}),
+      });
+      const ev = r?.response_data ?? r?.event ?? r;
+      const startIso = new Date(`${date}T${startTime}`).toISOString();
+      return {
+        id: ev?.id ?? ev?.event_id ?? null,
+        summary: ev?.summary ?? String(body.title ?? "MAVIS Scheduled Event"),
+        start: ev?.start ?? { dateTime: startIso },
+        end: ev?.end ?? { dateTime: new Date(new Date(startIso).getTime() + minutes * 60_000).toISOString() },
+      };
+    }
+    case "cancel_event": {
+      const eventId = String(body.event_id ?? "");
+      if (!eventId) throw new Error("event_id required");
+      await composioRun(uid, "GOOGLECALENDAR_DELETE_EVENT", { event_id: eventId, calendar_id: calId });
+      return { deleted: true, event_id: eventId };
+    }
+    default:
+      throw new Error(`${action} is not available through Composio yet. Use: list_events | find_free_time | create_event | cancel_event`);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -57,10 +142,18 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const action = String(body.action ?? "list_events");
 
-    let token: string;
+    let token: string | null = null;
     try {
       token = await getGoogleToken(sb, user.id, "google_calendar");
     } catch {
+      token = null;
+    }
+    if (!token) {
+      // No direct Google OAuth: use Composio if Google Calendar is authorized there.
+      if (await composioReady(user.id, "googlecalendar")) {
+        const result = await manageViaComposio(user.id, action, body);
+        return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(
         JSON.stringify({ error: "Google Calendar not connected. Connect it in Integrations → Google Calendar." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -99,26 +192,7 @@ serve(async (req) => {
           end: new Date(b.end),
         }));
 
-        // Find free slots within work hours
-        const freeSlots: { start: string; end: string }[] = [];
-        let cursor = new Date(startDate);
-        cursor.setHours(workStartHour, 0, 0, 0);
-
-        while (cursor < endDate && freeSlots.length < 5) {
-          if (cursor.getHours() >= workEndHour) {
-            cursor.setDate(cursor.getDate() + 1);
-            cursor.setHours(workStartHour, 0, 0, 0);
-            continue;
-          }
-          const slotEnd = new Date(cursor.getTime() + durationMin * 60_000);
-          const conflict = busy.some(b => cursor < b.end && slotEnd > b.start);
-          if (!conflict && slotEnd.getHours() <= workEndHour) {
-            freeSlots.push({ start: cursor.toISOString(), end: slotEnd.toISOString() });
-            cursor = slotEnd;
-          } else {
-            cursor = new Date(cursor.getTime() + 15 * 60_000);
-          }
-        }
+        const freeSlots = findFreeSlots(busy, startDate, endDate, durationMin, workStartHour, workEndHour);
 
         result = { free_slots: freeSlots, duration_minutes: durationMin };
         break;

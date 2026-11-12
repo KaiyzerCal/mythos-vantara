@@ -7,6 +7,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { composioReady, composioRun } from "../_shared/composio.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -183,6 +184,36 @@ Deno.serve(async (req) => {
         }
       }
     } catch { /* non-critical */ }
+
+    // ── Same two lookups through Composio, when Google is authorized there and the direct path gave nothing ──
+    if (calendarEvents.length === 0 && (await composioReady(uid, "googlecalendar"))) {
+      try {
+        const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const dayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+        const data = await composioRun(uid, "GOOGLECALENDAR_EVENTS_LIST", {
+          calendarId: "primary", timeMin: dayStart, timeMax: dayEnd, singleEvents: true, orderBy: "startTime", maxResults: 10,
+        });
+        calendarEvents = ((data?.items ?? []) as any[]).map((e: any) => ({
+          title: String(e.summary ?? "(No title)"),
+          start: String(e.start?.dateTime ?? e.start?.date ?? ""),
+          end:   String(e.end?.dateTime   ?? e.end?.date   ?? ""),
+        }));
+      } catch { /* non-critical */ }
+    }
+    if (unreadCount === 0 && topSubjects.length === 0 && (await composioReady(uid, "gmail"))) {
+      try {
+        const data = await composioRun(uid, "GMAIL_FETCH_EMAILS", {
+          max_results: 5, label_ids: ["INBOX", "UNREAD"], verbose: true, include_payload: false,
+        });
+        const msgs = (data?.messages ?? []) as any[];
+        unreadCount = data?.resultSizeEstimate ?? msgs.length;
+        topSubjects = msgs.slice(0, 3).map((m: any) => {
+          const sender = String(m.sender ?? "");
+          const fromName = sender.replace(/<[^>]+>/, "").replace(/"/g, "").trim().split(" ")[0] || sender.slice(0, 20);
+          return `${fromName}: ${String(m.subject ?? "(no subject)").slice(0, 45)}`;
+        });
+      } catch { /* non-critical */ }
+    }
 
     const [
       approvalsRes, questsRes, tasksRes, srRes,

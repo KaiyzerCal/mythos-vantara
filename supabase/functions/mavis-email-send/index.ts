@@ -9,6 +9,7 @@
 //   SUPABASE_SERVICE_ROLE_KEY
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { composioReady, composioRun } from "../_shared/composio.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
 
@@ -90,8 +91,11 @@ serve(async (req) => {
   const userId = await resolveUserId(req);
   if (!userId) return json({ error: "Unauthorized" }, 401);
 
-  if (!RESEND_KEY) {
-    return json({ success: false, error: "RESEND_API_KEY is not configured" }, 400);
+  // Sending: the operator's own Gmail through Composio when it is authorized (mail arrives from their real address),
+  // else Resend. Never retried on the other service after an error, so nothing can be sent twice.
+  const viaGmail = await composioReady(userId, "gmail");
+  if (!viaGmail && !RESEND_KEY) {
+    return json({ success: false, error: "No email sender configured: authorize Gmail through Composio, or set RESEND_API_KEY" }, 400);
   }
 
   let input: {
@@ -147,6 +151,20 @@ serve(async (req) => {
       }
     } else {
       subject = "Message from MAVIS";
+    }
+  }
+
+  if (viaGmail) {
+    try {
+      const sent = await composioRun(userId, "GMAIL_SEND_EMAIL", { recipient_email: to, subject, body });
+      const messageId: string = String(sent?.id ?? sent?.messageId ?? sent?.response_data?.id ?? "");
+      const { error: dbErr } = await adminSb.from("email_outbox").insert({
+        user_id: userId, to_address: to, subject, body, resend_id: messageId || null, status: "sent", created_at: new Date().toISOString(),
+      });
+      if (dbErr) console.error("[mavis-email-send] DB insert error:", dbErr);
+      return json({ success: true, email_id: messageId, subject, body, via: "gmail" });
+    } catch (err) {
+      return json({ success: false, error: `Gmail send failed: ${err instanceof Error ? err.message : String(err)}` }, 502);
     }
   }
 
