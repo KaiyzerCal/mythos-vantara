@@ -13372,6 +13372,7 @@ export type Database = {
         Args: { p_code: number; p_job_name: string }
         Returns: undefined
       }
+      mavis_prune_logs: { Args: never; Returns: Json }
       prune_gesture_events: { Args: { p_user_id: string }; Returns: undefined }
       search_mavis_memories: {
         Args: {
