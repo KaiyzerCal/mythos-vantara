@@ -270,7 +270,12 @@ async function checkRevenueMentions(
     if (Date.now() - latest < sevenDaysMs) return result; // discussed recently
   }
 
-  // No revenue discussion in 7+ days
+  // No revenue discussion in 7+ days. One nudge per week: without this guard the same pending row was inserted on
+  // every run (20,464 identical rows between August and October).
+  const { data: already } = await sb.from("mavis_tasks").select("id").eq("user_id", userId)
+    .eq("payload->>trigger", "revenue_silence_7d").gte("created_at", new Date(Date.now() - 7 * 86400 * 1000).toISOString()).limit(1);
+  if (already?.length) return result;
+
   await sb.from("mavis_tasks").insert({
     user_id: userId,
     type: "business",
