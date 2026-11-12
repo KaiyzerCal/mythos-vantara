@@ -1764,6 +1764,48 @@ export type Database = {
         }
         Relationships: []
       }
+      mavis_a2a_tasks: {
+        Row: {
+          calling_agent_url: string | null
+          created_at: string | null
+          error: string | null
+          id: string
+          input: Json | null
+          result: Json | null
+          session_id: string | null
+          skill_id: string
+          status: string
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          calling_agent_url?: string | null
+          created_at?: string | null
+          error?: string | null
+          id?: string
+          input?: Json | null
+          result?: Json | null
+          session_id?: string | null
+          skill_id: string
+          status?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          calling_agent_url?: string | null
+          created_at?: string | null
+          error?: string | null
+          id?: string
+          input?: Json | null
+          result?: Json | null
+          session_id?: string | null
+          skill_id?: string
+          status?: string
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       mavis_action_queue: {
         Row: {
           action_payload: Json
