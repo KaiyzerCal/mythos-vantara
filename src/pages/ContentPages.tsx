@@ -32,6 +32,13 @@ export function JournalPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium", mood: "", tags: "" });
+  const [jSearch, setJSearch] = useState("");
+  const [jCat, setJCat] = useState("all");
+  const [jImp, setJImp] = useState("all");
+  const [jEmo, setJEmo] = useState("all");
+  const [jSort, setJSort] = useState("newest");
+  const [jVisible, setJVisible] = useState(30);
+  useEffect(() => { setJVisible(30); }, [jSearch, jCat, jImp, jEmo, jSort]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -133,6 +140,41 @@ export function JournalPage() {
 
   const importanceColors: Record<string, string> = { low: "text-muted-foreground", medium: "text-blue-400", high: "text-amber-400", critical: "text-red-400" };
 
+  // ── Find, filter and sort (82 entries used to be one flat, unsearchable list) ──
+  const countBy = (vals: (string | null | undefined)[]) => vals.reduce<Record<string, number>>((m, v) => { if (v) m[v] = (m[v] ?? 0) + 1; return m; }, {});
+  const jCatCounts = countBy(journalEntries.map((e: any) => e.category));
+  const jEmoCounts = countBy(journalEntries.map((e: any) => e.dominant_emotion));
+  const jCatOptions = Array.from(new Set(["personal", "business", "fitness", "legal", "reflection", ...Object.keys(jCatCounts), form.category].filter(Boolean)));
+  const IMP_RANK: Record<string, number> = { critical: 3, high: 2, medium: 1, low: 0 };
+  const jq = jSearch.trim().toLowerCase();
+  const jEntries = journalEntries
+    .filter((e: any) =>
+      (jCat === "all" || e.category === jCat) && (jImp === "all" || e.importance === jImp) && (jEmo === "all" || e.dominant_emotion === jEmo) &&
+      (!jq || [e.title, e.content, e.mood, e.dominant_emotion, (e.tags ?? []).join(" ")].some((v) => String(v ?? "").toLowerCase().includes(jq))))
+    .sort((a: any, b: any) => {
+      switch (jSort) {
+        case "oldest": return String(a.created_at).localeCompare(String(b.created_at));
+        case "importance": return (IMP_RANK[b.importance] ?? 0) - (IMP_RANK[a.importance] ?? 0) || String(b.created_at).localeCompare(String(a.created_at));
+        case "title": return String(a.title).localeCompare(String(b.title));
+        default: return String(b.created_at).localeCompare(String(a.created_at));
+      }
+    });
+  const jShown = jEntries.slice(0, jVisible);
+
+  // Habit read-out: entries this month, the current daily streak, and what the last 30 days felt like.
+  const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const loggedDays = new Set(journalEntries.map((e: any) => dayKey(new Date(e.created_at))));
+  let streak = 0;
+  for (let d = new Date(); streak < 3650; d = new Date(d.getTime() - 86_400_000)) {
+    if (loggedDays.has(dayKey(d))) streak++;
+    else if (streak === 0 && dayKey(d) === dayKey(new Date())) continue; // today not written yet: the streak is still alive
+    else break;
+  }
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const thisMonth = journalEntries.filter((e: any) => new Date(e.created_at).getTime() >= monthStart).length;
+  const recentEmo = Object.entries(countBy(journalEntries.filter((e: any) => Date.now() - new Date(e.created_at).getTime() < 30 * 86_400_000).map((e: any) => e.dominant_emotion)))
+    .sort((a, b) => b[1] - a[1]).slice(0, 4);
+
   if (journalLoading) return (
     <div className="space-y-5">
       <div className="flex items-center justify-between border-b border-border pb-4">
@@ -201,7 +243,7 @@ export function JournalPage() {
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
             <div className="grid grid-cols-3 gap-2">
               <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                {["personal", "business", "fitness", "legal", "reflection"].map((c) => <option key={c}>{c}</option>)}
+                {jCatOptions.map((c) => <option key={c}>{c}</option>)}
               </select>
               <select value={form.importance} onChange={(e) => setForm((f) => ({ ...f, importance: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                 {["low", "medium", "high", "critical"].map((i) => <option key={i}>{i}</option>)}
@@ -216,8 +258,43 @@ export function JournalPage() {
           </div>
         </HudCard>
       )}
+      {journalEntries.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-muted-foreground">
+            <span><span className="text-foreground">{thisMonth}</span> this month</span>
+            <span>{streak > 0 ? <><span className="text-green-400">{streak}-day</span> streak</> : "no streak yet"}</span>
+            {recentEmo.length > 0 && <span>last 30 days: {recentEmo.map(([k, n]) => `${k} ${n}`).join(" · ")}</span>}
+            <span className="ml-auto">{jEntries.length === journalEntries.length ? `${jEntries.length} entries` : `${jEntries.length} of ${journalEntries.length} entries`}</span>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input value={jSearch} onChange={(e) => setJSearch(e.target.value)} placeholder="Search title, content, tags, mood..." className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+            <select value={jSort} onChange={(e) => setJSort(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Sort entries">
+              <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="importance">Most important</option><option value="title">Title A–Z</option>
+            </select>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <select value={jCat} onChange={(e) => setJCat(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Filter by category">
+              <option value="all">All categories</option>
+              {Object.keys(jCatCounts).sort((a, b) => jCatCounts[b] - jCatCounts[a]).map((c) => <option key={c} value={c}>{c} ({jCatCounts[c]})</option>)}
+            </select>
+            <select value={jImp} onChange={(e) => setJImp(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Filter by importance">
+              <option value="all">Any importance</option><option value="critical">critical</option><option value="high">high</option><option value="medium">medium</option><option value="low">low</option>
+            </select>
+            {Object.keys(jEmoCounts).length > 0 && (
+              <select value={jEmo} onChange={(e) => setJEmo(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Filter by emotion">
+                <option value="all">Any emotion</option>
+                {Object.keys(jEmoCounts).sort((a, b) => jEmoCounts[b] - jEmoCounts[a]).map((c) => <option key={c} value={c}>{c} ({jEmoCounts[c]})</option>)}
+              </select>
+            )}
+            {(jSearch || jCat !== "all" || jImp !== "all" || jEmo !== "all") && (
+              <button onClick={() => { setJSearch(""); setJCat("all"); setJImp("all"); setJEmo("all"); }} className="px-2 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground">Clear filters</button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
-        {journalEntries.map((e, i) => {
+        {jShown.map((e, i) => {
           const isExpanded = expandedId === e.id;
 
           if (editingId === e.id) {
@@ -230,7 +307,7 @@ export function JournalPage() {
                     <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Entry content..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm font-body resize-none focus:outline-none focus:border-primary/40" />
                     <div className="grid grid-cols-3 gap-2">
                       <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                        {["personal", "business", "fitness", "legal", "reflection"].map((c) => <option key={c}>{c}</option>)}
+                        {jCatOptions.map((c) => <option key={c}>{c}</option>)}
                       </select>
                       <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                         {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}
@@ -258,6 +335,7 @@ export function JournalPage() {
                       <h3 className="text-sm font-display font-bold">{e.title}</h3>
                       <span className={`text-xs font-mono uppercase ${importanceColors[e.importance]}`}>{e.importance}</span>
                       <span className="text-xs font-mono text-muted-foreground">{e.category}</span>
+                      {(e as any).dominant_emotion && <span className="text-xs font-mono text-primary/80 border border-primary/20 rounded px-1.5 py-0.5">{(e as any).dominant_emotion}</span>}
                     </div>
                     {e.content && <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-2"}`}>{e.content}</p>}
                     {isExpanded && (
@@ -267,12 +345,24 @@ export function JournalPage() {
                           <div><span className="text-muted-foreground">Importance:</span> <span className={importanceColors[e.importance]}>{e.importance}</span></div>
                           {e.mood && <div><span className="text-muted-foreground">Mood:</span> <span className="text-foreground">{e.mood}</span></div>}
                           <div><span className="text-muted-foreground">XP Earned:</span> <span className="text-green-400">+{e.xp_earned}</span></div>
+                          {Object.keys((e as any).emotion_scores ?? {}).length > 0 && (
+                            <div className="col-span-2 space-y-1">
+                              <span className="text-muted-foreground">Emotional read:</span>
+                              {Object.entries((e as any).emotion_scores as Record<string, number>).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => (
+                                <div key={k} className="flex items-center gap-2">
+                                  <span className="w-24 text-muted-foreground">{k}</span>
+                                  <div className="flex-1 h-1.5 bg-muted/30 rounded overflow-hidden"><div className="h-full bg-primary/60" style={{ width: `${Math.round(Math.min(1, Math.max(0, Number(v))) * 100)}%` }} /></div>
+                                  <span className="w-8 text-right text-foreground">{Math.round(Number(v) * 100)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           <div className="col-span-2"><span className="text-muted-foreground">Created:</span> <span className="text-foreground">{new Date(e.created_at).toLocaleString()}</span></div>
                         </div>
                       </div>
                     )}
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      {e.tags.map((t) => (
+                      {(e.tags ?? []).map((t) => (
                         <span key={t} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
                       ))}
                       {!isExpanded && e.mood && <span className="text-xs font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
@@ -291,6 +381,12 @@ export function JournalPage() {
           );
         })}
         {journalEntries.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No journal entries yet. Start logging your arc.</p>}
+        {journalEntries.length > 0 && jEntries.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No entries match these filters.</p>}
+        {jEntries.length > jVisible && (
+          <button onClick={() => setJVisible((n) => n + 30)} className="w-full py-2 text-xs font-mono text-muted-foreground border border-border/50 rounded hover:text-foreground hover:border-border transition-colors">
+            Show {Math.min(30, jEntries.length - jVisible)} more ({jEntries.length - jVisible} remaining)
+          </button>
+        )}
       </div>
       <ConfirmDialog
         open={confirmDeleteJournal !== null}
@@ -315,6 +411,11 @@ export function VaultCodexPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState("all");
+  const [vSearch, setVSearch] = useState("");
+  const [vImp, setVImp] = useState("all");
+  const [vSort, setVSort] = useState("newest");
+  const [vVisible, setVVisible] = useState(40);
+  useEffect(() => { setVVisible(40); }, [vSearch, vImp, vSort, catFilter]);
   const [form, setForm] = useState({ title: "", content: "", category: "personal", importance: "medium" });
   const [uploading, setUploading] = useState(false);
   const [entryMedia, setEntryMedia] = useState<Record<string, any[]>>({});
@@ -356,8 +457,28 @@ export function VaultCodexPage() {
     setBacklinks(prev => ({ ...prev, [entryId]: links }));
   }, [session?.user?.id, backlinks]);
 
-  const categories = ["all", "legal", "business", "personal", "evidence", "achievement", "chapter", "media"];
-  const filtered = vaultEntries.filter((e) => catFilter === "all" || e.category === catFilter);
+  // Categories come from the data. Entries saved with a multi-value category ("legal|evidence|critical") count under each part.
+  // The fixed list used to hide worldbuilding, gamification and system entries behind "all".
+  // "critical"/"high"/... inside a category string is an importance, not a category.
+  const catsOf = (e: any): string[] => String(e.category ?? "").split("|").map((c) => c.trim()).filter((c) => c && !["critical", "high", "medium", "low"].includes(c.toLowerCase()));
+  const vCatCounts: Record<string, number> = {};
+  for (const e of vaultEntries) for (const c of catsOf(e)) vCatCounts[c] = (vCatCounts[c] ?? 0) + 1;
+  const categories = ["all", ...Object.keys(vCatCounts).sort((a, b) => vCatCounts[b] - vCatCounts[a]), "media"];
+  const vCatOptions = Array.from(new Set(["legal", "business", "personal", "evidence", "achievement", "chapter", ...Object.keys(vCatCounts), form.category].filter(Boolean)));
+  const V_IMP_RANK: Record<string, number> = { critical: 3, high: 2, medium: 1, low: 0 };
+  const vq = vSearch.trim().toLowerCase();
+  const filtered = vaultEntries
+    .filter((e) => (catFilter === "all" || catsOf(e).includes(catFilter)) && (vImp === "all" || e.importance === vImp) &&
+      (!vq || [e.title, e.content].some((v) => String(v ?? "").toLowerCase().includes(vq))))
+    .sort((a, b) => {
+      switch (vSort) {
+        case "oldest": return String(a.created_at).localeCompare(String(b.created_at));
+        case "importance": return (V_IMP_RANK[b.importance] ?? 0) - (V_IMP_RANK[a.importance] ?? 0) || String(b.created_at).localeCompare(String(a.created_at));
+        case "title": return String(a.title).localeCompare(String(b.title));
+        default: return String(b.created_at).localeCompare(String(a.created_at));
+      }
+    });
+  const vShown = filtered.slice(0, vVisible);
   const importanceBorder: Record<string, string> = { critical: "border-red-700/50", high: "border-amber-700/50", medium: "border-border", low: "border-border/50" };
   const importanceColor: Record<string, string> = { critical: "text-red-400", high: "text-amber-400", medium: "text-blue-400", low: "text-muted-foreground" };
 
@@ -565,7 +686,7 @@ export function VaultCodexPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Vault Codex" subtitle="Classified knowledge & evidence repository" icon={<BookLock size={18} />}
+      <PageHeader title="Vault Codex" subtitle={`${vaultEntries.length} entries · classified knowledge & evidence repository`} icon={<BookLock size={18} />}
         actions={
           <div className="flex gap-2 flex-wrap">
             <button onClick={exportVaultMarkdown} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-muted/30 border border-border text-muted-foreground hover:text-primary hover:border-primary/30 rounded transition-all">
@@ -630,7 +751,7 @@ export function VaultCodexPage() {
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
             <div className="grid grid-cols-2 gap-2">
               <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                {["legal", "business", "personal", "evidence", "achievement", "chapter"].map((c) => <option key={c}>{c}</option>)}
+                {vCatOptions.map((c) => <option key={c}>{c}</option>)}
               </select>
               <select value={form.importance} onChange={(e) => setForm((f) => ({ ...f, importance: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                 {["low", "medium", "high", "critical"].map((i) => <option key={i}>{i}</option>)}
@@ -822,9 +943,19 @@ export function VaultCodexPage() {
       {/* Only show entries list / upload UI when not in gallery mode */}
       {!showGallery && <>
 
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input value={vSearch} onChange={(e) => setVSearch(e.target.value)} placeholder="Search vault titles and content..." className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+        <select value={vImp} onChange={(e) => setVImp(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Filter by importance">
+          <option value="all">Any importance</option><option value="critical">critical</option><option value="high">high</option><option value="medium">medium</option><option value="low">low</option>
+        </select>
+        <select value={vSort} onChange={(e) => setVSort(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Sort vault">
+          <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="importance">Most important</option><option value="title">Title A–Z</option>
+        </select>
+      </div>
+
       <div className="flex gap-1.5 flex-wrap">
         {categories.map((c) => (
-          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
+          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}{c !== "all" && c !== "media" && <span className="ml-1 opacity-60">{vCatCounts[c]}</span>}</button>
         ))}
       </div>
 
@@ -866,7 +997,7 @@ export function VaultCodexPage() {
           notes list and its "Vault empty" message under the Vault Files
           card above would just be noise. */}
       {catFilter !== "media" && <div className="space-y-2">
-        {filtered.map((e) => {
+        {vShown.map((e) => {
           const isExpanded = expandedId === e.id;
           const media = entryMedia[e.id] || [];
 
@@ -880,7 +1011,7 @@ export function VaultCodexPage() {
                     <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
                     <div className="grid grid-cols-2 gap-2">
                       <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                        {["legal", "business", "personal", "evidence", "achievement", "chapter"].map((c) => <option key={c}>{c}</option>)}
+                        {vCatOptions.map((c) => <option key={c}>{c}</option>)}
                       </select>
                       <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                         {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}
@@ -997,7 +1128,13 @@ export function VaultCodexPage() {
           </HudCard>
           );
         })}
-        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
+        {vaultEntries.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">Vault empty — classified knowledge awaits.</p>}
+        {vaultEntries.length > 0 && filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8">No vault entries match these filters.</p>}
+        {filtered.length > vVisible && (
+          <button onClick={() => setVVisible((n) => n + 40)} className="w-full py-2 text-xs font-mono text-muted-foreground border border-border/50 rounded hover:text-foreground hover:border-border transition-colors">
+            Show {Math.min(40, filtered.length - vVisible)} more ({filtered.length - vVisible} remaining)
+          </button>
+        )}
       </div>}
       </>}
       <ConfirmDialog
