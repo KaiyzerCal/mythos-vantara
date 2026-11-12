@@ -40,7 +40,6 @@ journal.md         ← session audit trail
 3. Never modify `supabase/migrations/` without explicit instruction.
 4. Never push to `main` directly.
 5. Specialist files in `Team/` define tone, posture, what each role hands off.
-6. Exclude the Claude compatibility backend test from the browser TypeScript project; run it with Vitest so Deno-only dependencies do not enter browser checking.
 
 ## Pipeline Default
 
