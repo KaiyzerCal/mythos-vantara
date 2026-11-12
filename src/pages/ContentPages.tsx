@@ -356,7 +356,7 @@ export function VaultCodexPage() {
     setBacklinks(prev => ({ ...prev, [entryId]: links }));
   }, [session?.user?.id, backlinks]);
 
-  const categories = ["all", "legal", "business", "personal", "evidence", "achievement", "media"];
+  const categories = ["all", "legal", "business", "personal", "evidence", "achievement", "chapter", "media"];
   const filtered = vaultEntries.filter((e) => catFilter === "all" || e.category === catFilter);
   const importanceBorder: Record<string, string> = { critical: "border-red-700/50", high: "border-amber-700/50", medium: "border-border", low: "border-border/50" };
   const importanceColor: Record<string, string> = { critical: "text-red-400", high: "text-amber-400", medium: "text-blue-400", low: "text-muted-foreground" };
@@ -630,7 +630,7 @@ export function VaultCodexPage() {
             <textarea value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
             <div className="grid grid-cols-2 gap-2">
               <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                {["legal", "business", "personal", "evidence", "achievement"].map((c) => <option key={c}>{c}</option>)}
+                {["legal", "business", "personal", "evidence", "achievement", "chapter"].map((c) => <option key={c}>{c}</option>)}
               </select>
               <select value={form.importance} onChange={(e) => setForm((f) => ({ ...f, importance: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                 {["low", "medium", "high", "critical"].map((i) => <option key={i}>{i}</option>)}
@@ -880,7 +880,7 @@ export function VaultCodexPage() {
                     <textarea value={form.content} onChange={(ev) => setForm((f) => ({ ...f, content: ev.target.value }))} placeholder="Vault content (evidence, notes, data)..." rows={4} className="w-full bg-muted/30 border border-border rounded px-3 py-2 text-sm resize-none focus:outline-none" />
                     <div className="grid grid-cols-2 gap-2">
                       <select value={form.category} onChange={(ev) => setForm((f) => ({ ...f, category: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                        {["legal", "business", "personal", "evidence", "achievement"].map((c) => <option key={c}>{c}</option>)}
+                        {["legal", "business", "personal", "evidence", "achievement", "chapter"].map((c) => <option key={c}>{c}</option>)}
                       </select>
                       <select value={form.importance} onChange={(ev) => setForm((f) => ({ ...f, importance: ev.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                         {["low", "medium", "high", "critical"].map((imp) => <option key={imp}>{imp}</option>)}

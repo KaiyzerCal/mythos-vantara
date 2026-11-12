@@ -4,8 +4,12 @@
 //   chapter  weekly: turns the week's journal, quests, achievements and emotions into the next chapter of the
 //            Black Sun Monarch's story and files it in the vault (category "Chapter"). Skips if one was written in
 //            the last 5 days unless { force: true }, or if there is nothing to chronicle.
-//   boss     daily: generates ONE boss fight (a hard side quest linked to the stalest main/epic quest) with a
-//            rewards tier. Skips while an earlier "Boss:" quest is still active.
+//   boss     daily: generates ONE boss fight linked to the stalest main/epic quest, with loot and a buff drop.
+//            Difficulty tunes itself from how the last bosses went (wins step it up, losses step it down).
+//            Overdue bosses are closed as failed (no penalty) so the next one can arrive. Skips while one is live.
+//   status   every 6h: reads the last 72h (journal emotions, chat, quest wins and losses) and may apply up to two
+//            short-lived buffs/debuffs to the character's status effects (mavis_domain_effects, source
+//            "mavis-auto"). Debuffs are mild, expire in <= 48h and always name a way to lift them.
 //   beat     hourly/daily: detects new milestones (level, task streak, quests completed) and writes a short
 //            in-voice beat for each, sent to Telegram. The first run only baselines what is already reached,
 //            so history is never announced as if it were new. Ledger: mavis_beats (unique per user + key).
@@ -61,7 +65,7 @@ const CHRONICLER = `You are MAVIS in your chronicler role: keeper of the Black S
 
 async function chapter(uid: string, force: boolean) {
   const recent = await sb.from("vault_entries").select("title,content,created_at").eq("user_id", uid)
-    .eq("category", "Chapter").order("created_at", { ascending: false }).limit(1);
+    .eq("category", "chapter").order("created_at", { ascending: false }).limit(1);
   const last = recent.data?.[0];
   if (!force && last && Date.parse(last.created_at) > Date.now() - 5 * 86_400_000) {
     return { skipped: "a chapter was written in the last 5 days", last: last.title };
@@ -77,7 +81,7 @@ async function chapter(uid: string, force: boolean) {
     sb.from("profiles").select("display_name,level,rank,xp").eq("id", uid).maybeSingle(),
     sb.from("mavis_narrative").select("arc,identity_summary,themes").eq("user_id", uid)
       .order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    sb.from("vault_entries").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("category", "Chapter"),
+    sb.from("vault_entries").select("id", { count: "exact", head: true }).eq("user_id", uid).eq("category", "chapter"),
   ]);
   const j = journal.data ?? [], q = quests.data ?? [], a = ach.data ?? [];
   if (!j.length && !q.length && !a.length) return { skipped: "nothing to chronicle this week" };
@@ -102,55 +106,142 @@ async function chapter(uid: string, force: boolean) {
   const body = (m?.[2] ?? ai.content).trim();
   if (body.length < 300) return { skipped: "the model returned too little text", provider: ai.provider };
 
-  const ins = await sb.from("vault_entries").insert({ user_id: uid, title, content: body, category: "Chapter" }).select("id").single();
+  const ins = await sb.from("vault_entries").insert({ user_id: uid, title, content: body, category: "chapter" }).select("id").single();
   if (ins.error) throw new Error(`vault insert failed: ${ins.error.message}`);
   reembedRow(sb, "vault_entries", String(ins.data.id), uid);
-  await telegram(`${title}\n\nThe week is written into your vault (category: Chapter).\n\n${clip(body, 280)}…`);
+  await telegram(`${title}\n\nThe week is written into your vault (Vault, category: chapter).\n\n${clip(body, 280)}…`);
   return { written: title, words: body.split(/\s+/).length, provider: ai.provider, id: ins.data.id };
 }
 
 // ── boss ─────────────────────────────────────────────────────────────────────
 
-const BOSS_REWARD: Record<string, { xp: number; cp: number }> = {
-  Hard: { xp: 150, cp: 5 }, Extreme: { xp: 300, cp: 10 },
+const TIERS = ["Normal", "Hard", "Extreme"] as const;
+type Tier = typeof TIERS[number];
+const BOSS_REWARD: Record<Tier, { xp: number; cp: number; rarity: string }> = {
+  Normal: { xp: 80, cp: 3, rarity: "uncommon" },
+  Hard: { xp: 150, cp: 5, rarity: "rare" },
+  Extreme: { xp: 300, cp: 10, rarity: "epic" },
 };
 
-async function boss(uid: string, force: boolean) {
-  const open = await sb.from("quests").select("id,title").eq("user_id", uid).eq("status", "active")
-    .ilike("title", "Boss:%").limit(1);
-  if (!force && open.data?.length) return { skipped: "a boss is still active", boss: open.data[0].title };
+/** Next tier from the last few finished bosses: 2+ wins and no loss steps up, 2+ losses steps down. */
+function tuneTier(finished: { difficulty: string; status: string }[]): { tier: Tier; why: string } {
+  const last = finished[0];
+  const idx = Math.max(0, TIERS.indexOf((last?.difficulty ?? "Hard") as Tier));
+  const recent = finished.slice(0, 3);
+  if (recent.length < 2) return { tier: TIERS[idx === -1 ? 1 : idx], why: "not enough history yet" };
+  const wins = recent.filter((q) => q.status === "completed").length;
+  const losses = recent.length - wins;
+  if (wins >= 2 && losses === 0 && idx < 2) return { tier: TIERS[idx + 1], why: `${wins} wins in a row` };
+  if (losses >= 2 && idx > 0) return { tier: TIERS[idx - 1], why: `${losses} of the last ${recent.length} bosses slipped` };
+  return { tier: TIERS[idx], why: "holding steady" };
+}
 
-  const [arcs, journal, profile] = await Promise.all([
+async function boss(uid: string, force: boolean) {
+  // Close overdue bosses (deadline + 12h grace). Failing has no penalty here — same as the app's failQuest.
+  const open = await sb.from("quests").select("id,title,deadline").eq("user_id", uid).eq("status", "active")
+    .ilike("title", "Boss:%");
+  const live: { id: string; title: string }[] = [];
+  for (const q of open.data ?? []) {
+    if (q.deadline && Date.parse(q.deadline) + 12 * 3_600_000 < Date.now()) {
+      await sb.from("quests").update({ status: "failed", updated_at: new Date().toISOString() }).eq("id", q.id).eq("user_id", uid);
+    } else live.push(q);
+  }
+  if (!force && live.length) return { skipped: "a boss is still active", boss: live[0].title };
+
+  const [arcs, journal, profile, finished] = await Promise.all([
     sb.from("quests").select("id,title,description,type,updated_at").eq("user_id", uid).eq("status", "active")
-      .in("type", ["main", "epic"]).order("updated_at", { ascending: true }).limit(8),
+      .in("type", ["main", "epic"]).not("title", "ilike", "Boss:%").order("updated_at", { ascending: true }).limit(8),
     sb.from("journal_entries").select("title,dominant_emotion,created_at").eq("user_id", uid)
       .gte("created_at", daysAgo(5)).order("created_at", { ascending: false }).limit(8),
     sb.from("profiles").select("level,rank").eq("id", uid).maybeSingle(),
+    sb.from("quests").select("difficulty,status").eq("user_id", uid).ilike("title", "Boss:%")
+      .in("status", ["completed", "failed"]).order("updated_at", { ascending: false }).limit(6),
   ]);
   const cands = arcs.data ?? [];
   if (!cands.length) return { skipped: "no active main or epic quest to fight for" };
 
+  const { tier, why } = tuneTier((finished.data ?? []) as any[]);
+  const reward = BOSS_REWARD[tier];
+
   const ai = await aiComplete({
-    system: `You are MAVIS designing today's boss fight for the Operator's gamified life. A boss is a single hard, concrete, finishable challenge that moves a stalled main quest forward — a real action he can complete today or tomorrow, framed as a battle against a named obstacle. Reply with ONLY a JSON object.`,
+    system: `You are MAVIS designing today's boss fight for the Operator's gamified life. A boss is a single concrete, finishable challenge that moves a stalled main quest forward — a real action he can complete in a day or two, framed as a battle against a named obstacle. Reply with ONLY a JSON object.`,
     premiumFirst: true,
-    user: `Operator level ${profile.data?.level ?? "?"}, rank ${profile.data?.rank ?? "?"}.\n\nActive arcs (stalest first):\n${cands.map((c: any, i: number) => `${i}. ${c.title} — ${clip(c.description, 160)} (last touched ${c.updated_at?.slice(0, 10)})`).join("\n")}\n\nRecent journal moods: ${(journal.data ?? []).map((e: any) => `${e.created_at.slice(0, 10)} ${e.dominant_emotion ?? "?"}`).join("; ") || "none"}\n\nPick the arc that most needs a push (usually index 0 unless the mood says otherwise). JSON keys: "arc" (index number), "boss_name" (the obstacle, 2-5 words), "description" (3-5 sentences: the fight, the concrete action, and what counts as victory), "difficulty" ("Hard" or "Extreme"), "real_world_mapping" (one short phrase).`,
+    user: `Operator level ${profile.data?.level ?? "?"}, rank ${profile.data?.rank ?? "?"}. Today's tier is ${tier} (${why}) — scale the size of the action to that tier: Normal is one focused sitting, Hard is a demanding half-day, Extreme is a day-long push.\n\nActive arcs (stalest first):\n${cands.map((c: any, i: number) => `${i}. ${c.title} — ${clip(c.description, 160)} (last touched ${c.updated_at?.slice(0, 10)})`).join("\n")}\n\nRecent journal moods: ${(journal.data ?? []).map((e: any) => `${e.created_at.slice(0, 10)} ${e.dominant_emotion ?? "?"}`).join("; ") || "none"}\n\nPick the arc that most needs a push (usually index 0 unless the mood says otherwise). JSON keys: "arc" (index number), "boss_name" (the obstacle, 2-5 words), "description" (3-5 sentences: the fight, the concrete action, what counts as victory), "real_world_mapping" (one short phrase), "loot_name" (a canon-flavored item the victory yields, 2-4 words), "buff_label" (a short boon name, 1-3 words), "buff_value" (number 3-10, a percent).`,
   });
   const j = extractJson(ai.content);
   if (!j || !j.boss_name || !j.description) return { skipped: "the model's reply was not a usable boss", provider: ai.provider };
 
   const arc = cands[Math.min(Math.max(Number(j.arc) || 0, 0), cands.length - 1)];
-  const diff = j.difficulty === "Extreme" ? "Extreme" : "Hard";
-  const reward = BOSS_REWARD[diff];
   const title = `Boss: ${clip(j.boss_name, 60)}`;
+  const loot = j.loot_name ? [{ itemName: clip(j.loot_name, 60), quantity: 1, rarity: reward.rarity }] : [];
+  const buffs = j.buff_label
+    ? [{ label: clip(j.buff_label, 40), value: Math.min(Math.max(Number(j.buff_value) || 5, 3), 10), unit: "%", duration: "24 hours" }]
+    : [];
   const ins = await sb.from("quests").insert({
-    user_id: uid, title, description: clip(j.description, 900), type: "side", status: "active", difficulty: diff,
+    user_id: uid, title, description: clip(j.description, 900), type: "side", status: "active", difficulty: tier,
     xp_reward: reward.xp, codex_points_reward: reward.cp, progress_current: 0, progress_target: 1,
     real_world_mapping: clip(j.real_world_mapping, 120) || null, category: "Boss",
-    deadline: new Date(Date.now() + 36 * 3_600_000).toISOString(), loot_rewards: [], parent_quest_id: arc.id,
+    deadline: new Date(Date.now() + 36 * 3_600_000).toISOString(), loot_rewards: loot, buff_effects: buffs,
+    parent_quest_id: arc.id,
   }).select("id").single();
   if (ins.error) throw new Error(`quest insert failed: ${ins.error.message}`);
-  await telegram(`${title}  [${diff} · ${reward.xp} XP]\nFights for: ${arc.title}\n\n${clip(j.description, 600)}\n\n36 hours on the clock.`);
-  return { created: title, difficulty: diff, arc: arc.title, provider: ai.provider, id: ins.data.id };
+  await telegram(`${title}  [${tier} · ${reward.xp} XP]\nFights for: ${arc.title}\n\n${clip(j.description, 600)}\n\nSpoils: ${loot[0]?.itemName ?? "—"} (${reward.rarity})${buffs[0] ? ` · ${buffs[0].label} +${buffs[0].value}%` : ""}\n36 hours on the clock.`);
+  return { created: title, tier, tuned: why, arc: arc.title, loot: loot[0]?.itemName, buff: buffs[0]?.label, provider: ai.provider, id: ins.data.id };
+}
+
+// ── status ───────────────────────────────────────────────────────────────────
+
+const STAT_LABELS = ["STR", "AGI", "VIT", "INT", "WIS", "CHA", "LCK"];
+
+async function status(uid: string) {
+  const nowIso = new Date().toISOString();
+  // Keep the sheet truthful: auto effects whose time is up are switched off (the Character page also ignores
+  // expired effects of any source).
+  await sb.from("mavis_domain_effects").update({ is_active: false }).eq("user_id", uid).eq("source", "mavis-auto")
+    .eq("is_active", true).lt("expires_at", nowIso);
+
+  const since = daysAgo(3);
+  const [live, journal, chat, won, lost, profile] = await Promise.all([
+    sb.from("mavis_domain_effects").select("name,source,expires_at").eq("user_id", uid).eq("is_active", true),
+    sb.from("journal_entries").select("title,content,dominant_emotion,mood,created_at").eq("user_id", uid)
+      .gte("created_at", since).order("created_at", { ascending: false }).limit(10),
+    sb.from("chat_messages").select("content,created_at").eq("user_id", uid).eq("role", "user")
+      .gte("created_at", since).order("created_at", { ascending: false }).limit(14),
+    sb.from("quests").select("title,difficulty").eq("user_id", uid).eq("status", "completed").gte("updated_at", since).limit(12),
+    sb.from("quests").select("title").eq("user_id", uid).eq("status", "failed").gte("updated_at", since).limit(8),
+    sb.from("profiles").select("level,rank").eq("id", uid).maybeSingle(),
+  ]);
+  const j = journal.data ?? [], c = chat.data ?? [], w = won.data ?? [], l = lost.data ?? [];
+  if (!j.length && !c.length && !w.length && !l.length) return { skipped: "no new data in the last 72h" };
+  const auto = (live.data ?? []).filter((e: any) => e.source === "mavis-auto");
+  if (auto.length >= 3) return { skipped: "three auto-applied effects are already active", active: auto.map((e: any) => e.name) };
+
+  const ai = await aiComplete({
+    system: `You are MAVIS reading the Operator's recent life-data as the system that governs his character sheet in Vantara.exe (a gamified-life engine; the character is the Black Sun Monarch). Decide whether the data clearly supports a temporary STATUS EFFECT. Rules: only when the data plainly shows it — an empty list is a normal, good answer; at most 2 effects; a buff for real momentum or a good streak of wins, a debuff for sustained strain (e.g. several low days, a run of slipped quests) or a clear spike of a hard emotion; debuffs are mild (-3 to -8 %), expire within 48 hours, and are framed in game terms, never as a diagnosis; every effect's description must end with one concrete way to lift or earn it ("Lifted by: ..."). Never invent facts. Reply with ONLY JSON: {"effects":[{"name","kind":"buff"|"debuff","description","stat":"${STAT_LABELS.join("|")}","value":<number>,"hours":<number>}]}.${CREATIVE_PRACTICE_BLOCK}`,
+    premiumFirst: false,
+    user: `Operator level ${profile.data?.level ?? "?"}, rank ${profile.data?.rank ?? "?"}.\nAlready active: ${(live.data ?? []).map((e: any) => e.name).join(", ") || "none"} — do not duplicate these.\n\nJOURNAL (72h):\n${j.map((e: any) => `- [${e.created_at.slice(5, 10)}${e.dominant_emotion ? `, ${e.dominant_emotion}` : ""}${e.mood ? `, mood ${e.mood}` : ""}] ${clip(e.title, 60)}: ${clip(e.content, 220)}`).join("\n") || "(none)"}\n\nWHAT HE SAID TO MAVIS (72h):\n${c.map((m: any) => `- ${clip(m.content, 200)}`).join("\n") || "(none)"}\n\nQUESTS WON: ${w.map((q: any) => `${q.title} (${q.difficulty})`).join("; ") || "none"}\nQUESTS SLIPPED: ${l.map((q: any) => q.title).join("; ") || "none"}`,
+  });
+  const parsed = extractJson(ai.content);
+  const list: any[] = Array.isArray(parsed?.effects) ? parsed!.effects.slice(0, 2) : [];
+  const have = new Set((live.data ?? []).map((e: any) => String(e.name).toLowerCase()));
+  const made: string[] = [];
+  for (const e of list) {
+    const name = clip(e?.name, 60);
+    const stat = String(e?.stat ?? "").toUpperCase();
+    if (!name || have.has(name.toLowerCase()) || !STAT_LABELS.includes(stat)) continue;
+    const buff = e.kind === "buff";
+    const mag = Math.min(Math.abs(Number(e.value) || 5), buff ? 10 : 8);
+    const hours = Math.min(Math.max(Number(e.hours) || 24, 6), buff ? 72 : 48);
+    const ins = await sb.from("mavis_domain_effects").insert({
+      user_id: uid, name, description: clip(e.description, 400), effect_type: buff ? "aura" : "curse", source: "mavis-auto",
+      stat_modifiers: [{ label: stat, value: buff ? mag : -mag, unit: "%" }], area_effects: [], is_active: true,
+      expires_at: new Date(Date.now() + hours * 3_600_000).toISOString(),
+    });
+    if (ins.error) continue;
+    made.push(`${buff ? "BUFF" : "DEBUFF"} ${name} (${stat} ${buff ? "+" : "-"}${mag}%, ${hours}h)`);
+  }
+  if (made.length) await telegram(`STATUS UPDATE\n\n${made.join("\n")}\n\nSee your Character sheet.`);
+  return { applied: made, provider: ai.provider };
 }
 
 // ── beat ─────────────────────────────────────────────────────────────────────
@@ -227,7 +318,8 @@ Deno.serve(async (req) => {
     if (mode === "chapter") return json(await chapter(uid, !!body.force));
     if (mode === "boss") return json(await boss(uid, !!body.force));
     if (mode === "beat") return json(await beat(uid));
-    return json({ error: "mode must be one of: chapter, boss, beat" }, 400);
+    if (mode === "status") return json(await status(uid));
+    return json({ error: "mode must be one of: chapter, boss, beat, status" }, 400);
   } catch (err) {
     console.error("[mavis-fun-engine]", mode, err);
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);

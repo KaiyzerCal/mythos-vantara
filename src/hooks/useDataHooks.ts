@@ -199,7 +199,7 @@ export interface VaultEntry {
   user_id: string;
   title: string;
   content: string;
-  category: "legal" | "business" | "personal" | "evidence" | "achievement";
+  category: "legal" | "business" | "personal" | "evidence" | "achievement" | "chapter";
   importance: "low" | "medium" | "high" | "critical";
   attachments: string[];
   created_at: string;

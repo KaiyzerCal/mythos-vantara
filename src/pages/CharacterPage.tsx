@@ -108,7 +108,8 @@ export default function CharacterPage() {
     (i) => i.quantity > 0 && i.is_equipped && Array.isArray(i.stat_effects) && i.stat_effects.length > 0,
   );
   const activeTransform = transformations.find((t) => t.name === profile.current_form);
-  const activeDomains = domainEffects.filter((d) => d.is_active);
+  // An effect with an expiry that has passed is over, even if nothing has switched is_active off yet.
+  const activeDomains = domainEffects.filter((d) => d.is_active && (!d.expires_at || new Date(d.expires_at).getTime() > Date.now()));
 
   // Sum stat_effects from every item whose effect currently applies, keyed by profile stat column
   const gearBonuses = effectiveItems.reduce((acc, item) => {

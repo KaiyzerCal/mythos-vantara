@@ -553,6 +553,14 @@ async function callWithFallbackInner(
     }
   }
 
+  // Cost guard. mavis-watchdog sets the "cost-guard" marker (mavis_provider_health) when the rolling 24h
+  // spend passes the hard cap. While it is set, background-lane callers (premiumFirst = false: scheduled jobs and
+  // work nobody reads as prose) stop here after the free tier instead of spending on paid providers. Interactive
+  // callers (chat, voice, council, skills) are never affected. It expires by itself and is re-evaluated each run.
+  if (!premiumFirst && isProviderUnhealthy("cost-guard")) {
+    throw new Error("Background AI paused by the cost guard (24h spend cap reached); interactive AI is unaffected");
+  }
+
   // Background lane. Callers that did not ask for premiumFirst are scheduled jobs and
   // other work nobody reads as prose (~90 call sites). They take the cheapest paid
   // model right after the free tier: gpt-4o-mini is ~$0.15/1M input and its cost does
