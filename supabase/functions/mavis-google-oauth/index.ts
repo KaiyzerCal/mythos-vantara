@@ -6,6 +6,7 @@
 // Google provider so all sync functions and the google_api tool can use them.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { composioToolkits } from "../_shared/composio.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveAuthedUid } from "../_shared/auth.ts";
 
@@ -272,7 +273,15 @@ serve(async (req) => {
           statuses[p] = !!(row?.config?.refresh_token);
         }
 
-        return json({ connected, email: emailRow?.key_value ?? "", statuses });
+        // Composio: a Google account authorized there counts as connected for the same services, so the tabs
+        // that gate on these statuses (Calendar, ...) open. Direct OAuth wins when both exist.
+        const viaComposio: string[] = [];
+        const toolkits = await composioToolkits(userId);
+        for (const [provider, toolkit] of [["gmail", "gmail"], ["google_calendar", "googlecalendar"], ["gdrive", "googledrive"]] as const) {
+          if (!statuses[provider] && toolkits.has(toolkit)) { statuses[provider] = true; viaComposio.push(provider); }
+        }
+
+        return json({ connected: connected || viaComposio.length > 0, email: emailRow?.key_value ?? "", statuses, via_composio: viaComposio });
       }
 
       // ── Disconnect — revoke token + delete rows ─────────────────

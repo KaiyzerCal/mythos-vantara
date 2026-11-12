@@ -3,6 +3,7 @@
 // and upserts them into the calendar_events table for the authenticated user.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { composioReady, composioRun } from "../_shared/composio.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
@@ -158,6 +159,42 @@ serve(async (req) => {
     .eq("user_id", user.id)
     .eq("provider", "google_calendar")
     .single();
+
+  // ── Composio path ─────────────────────────────────────────────────────────
+  // No direct Google OAuth, but Google Calendar is authorized through Composio: pull the same events from there.
+  if (!gcalRow?.config?.refresh_token && (await composioReady(user.id, "googlecalendar"))) {
+    try {
+      const now     = new Date();
+      const horizon = new Date(now.getTime() + safeDays * 86400_000);
+      const data = await composioRun(user.id, "GOOGLECALENDAR_EVENTS_LIST", {
+        calendarId: "primary", timeMin: now.toISOString(), timeMax: horizon.toISOString(),
+        singleEvents: true, orderBy: "startTime", maxResults: 100,
+      });
+      const rows = ((data?.items ?? []) as any[]).map((e: any) => ({
+        user_id:     user.id,
+        event_uid:   e.id,
+        title:       e.summary ?? "Untitled",
+        start_at:    e.start?.dateTime ?? e.start?.date ?? now.toISOString(),
+        end_at:      e.end?.dateTime   ?? e.end?.date   ?? null,
+        description: e.description    ?? null,
+        location:    e.location       ?? null,
+        ical_url:    "google_calendar_api",
+        synced_at:   now.toISOString(),
+      }));
+      if (rows.length > 0) {
+        const { error: upErr } = await supabase.from("calendar_events").upsert(rows, { onConflict: "user_id,event_uid" });
+        if (upErr) throw new Error(`Database upsert failed: ${upErr.message}`);
+      }
+      return new Response(
+        JSON.stringify({ events: rows.map(r => ({ title: r.title, start_at: r.start_at, end_at: r.end_at, location: r.location })), count: rows.length, source: "composio" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: `Calendar sync via Composio failed: ${e?.message ?? e}` }), {
+        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
 
   if (gcalRow?.config?.refresh_token) {
     let token: string = gcalRow.config.access_token;
