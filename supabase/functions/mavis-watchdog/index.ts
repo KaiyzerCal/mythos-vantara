@@ -35,6 +35,8 @@ const CHAT_ID = Deno.env.get("TELEGRAM_CHAT_ID") ?? "";
 // Tuning knobs.
 const CALLS_PER_JOB_PER_DAY = 150;
 const DAILY_COST_USD = 2;
+// Hard cap: past this the cost guard pauses paid background AI (see _shared/providers.ts). Alert-only below it.
+const HARD_CAP_USD = 4;
 const GROWTH_MIN_ROWS = 1000;
 const GROWTH_MIN_RATIO = 0.5;
 const SNAPSHOT_MIN_AGE_MS = 20 * 3600_000;
@@ -142,7 +144,22 @@ async function usageChecks(sb: Sb): Promise<Problem[]> {
       problems.push({ id: `calls:${label.slice(0, 50)}`, kind: "runaway AI job", text: `"${label.slice(0, 60)}" made ${v.calls} AI calls in 24h (~$${v.cost.toFixed(2)})` });
     }
   }
-  if (total >= DAILY_COST_USD) problems.push({ id: "spend:day", kind: "high AI spend", text: `Estimated AI spend $${total.toFixed(2)} in the last 24h (threshold $${DAILY_COST_USD})` });
+  const top = [...byLabel.entries()].sort((a, b) => b[1].cost - a[1].cost).slice(0, 3)
+    .map(([l, v]) => `"${l.slice(0, 40)}" ${v.calls} calls $${v.cost.toFixed(2)}`).join("; ");
+  // Cost guard: set while over the hard cap, cleared when back under. 7h outlives the 6h schedule, so it never
+  // lapses between runs, and it expires on its own if the watchdog itself stops.
+  const over = total >= HARD_CAP_USD;
+  await sb.from("mavis_provider_health").upsert({
+    provider: "cost-guard",
+    unhealthy_until: new Date(Date.now() + (over ? 7 * 3600_000 : -1000)).toISOString(),
+    reason: over ? `24h spend $${total.toFixed(2)} >= $${HARD_CAP_USD}` : "under cap",
+  }, { onConflict: "provider" });
+  if (total >= DAILY_COST_USD) {
+    problems.push({
+      id: "spend:day", kind: "high AI spend",
+      text: `Estimated AI spend $${total.toFixed(2)} in the last 24h (alert $${DAILY_COST_USD}, guard $${HARD_CAP_USD}${over ? " - COST GUARD ON: background AI paused, chat unaffected" : ""}). Top: ${top}`,
+    });
+  }
   if (failedAll >= 20) problems.push({ id: "allfail", kind: "AI providers failing", text: `${failedAll} AI calls in 24h failed on every provider` });
   return problems;
 }

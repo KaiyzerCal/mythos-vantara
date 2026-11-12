@@ -13,6 +13,7 @@ import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, QuestTypeBadge 
 import { RANK_COLORS } from "@/types/rpg";
 import { StreakHeatmap } from "@/components/StreakHeatmap";
 import { OnboardingWidget } from "@/components/OnboardingWidget";
+import { StoryCard } from "@/components/StoryCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { MavisActivityFeed } from "@/components/MavisActivityFeed";
@@ -243,6 +244,8 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {user && <OnboardingWidget userId={user.id} />}
+
+      <StoryCard />
 
       {/* Time-of-day greeting */}
       <motion.div {...fadeIn(0)} className="flex items-center justify-between">

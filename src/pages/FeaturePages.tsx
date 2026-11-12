@@ -270,13 +270,14 @@ export function QuestsPage() {
   const questIds = useMemo(() => new Set(quests.map((q: any) => q.id)), [quests]);
   const parentQuests = useMemo(
     // Include "orphaned" sub-quests whose parent no longer exists so they're never invisible.
-    () => quests.filter((q: any) => !q.parent_quest_id || !questIds.has(q.parent_quest_id)),
+    // Boss fights name their arc as parent_quest_id, but they are the day's headline, so they stay top-level.
+    () => quests.filter((q: any) => !q.parent_quest_id || !questIds.has(q.parent_quest_id) || q.category === "Boss"),
     [quests, questIds]
   );
   const subQuestMap = useMemo(() => {
     const map: Record<string, any[]> = {};
     quests.forEach((q: any) => {
-      if (q.parent_quest_id && questIds.has(q.parent_quest_id)) {
+      if (q.parent_quest_id && questIds.has(q.parent_quest_id) && q.category !== "Boss") {
         if (!map[q.parent_quest_id]) map[q.parent_quest_id] = [];
         map[q.parent_quest_id].push(q);
       }
@@ -741,6 +742,34 @@ export function QuestsPage() {
           <button key={s} onClick={() => setStatusFilter(s)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${statusFilter === s ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground hover:border-border"}`}>{s}</button>
         ))}
       </div>
+
+      {/* Boss fights: always visible at the top, whatever the filters say */}
+      {quests.filter((q: any) => q.category === "Boss" && q.status === "active").map((q: any) => {
+        const msLeft = q.deadline ? new Date(q.deadline).getTime() - Date.now() : null;
+        const timeLeft = msLeft == null ? null : msLeft <= 0 ? "overdue" : msLeft > 3_600_000 ? `${Math.floor(msLeft / 3_600_000)}h left` : `${Math.max(1, Math.ceil(msLeft / 60_000))}m left`;
+        const loot = (Array.isArray(q.loot_rewards) ? q.loot_rewards : []) as { itemName: string; rarity?: string }[];
+        const buffs = (Array.isArray(q.buff_effects) ? q.buff_effects : []) as { label: string; value: number; unit?: string }[];
+        return (
+          <HudCard key={`boss-${q.id}`} className="border-red-500/40 bg-red-500/5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-red-400">Boss fight · {q.difficulty}{timeLeft ? ` · ${timeLeft}` : ""}</p>
+                <h3 className="text-base font-display font-bold mt-1">{String(q.title).replace(/^Boss:\s*/i, "")}</h3>
+                {q.description && <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{q.description}</p>}
+                <p className="text-[11px] font-mono text-muted-foreground mt-2">
+                  Spoils: {q.xp_reward} XP{q.codex_points_reward ? ` · ${q.codex_points_reward} CP` : ""}
+                  {loot.map((l) => ` · ${l.itemName}${l.rarity ? ` (${l.rarity})` : ""}`)}
+                  {buffs.map((b) => ` · ${b.label} +${b.value}${b.unit ?? ""}`)}
+                </p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <button onClick={() => handleComplete(q)} className="px-2.5 py-1 text-xs font-mono rounded border border-green-500/40 text-green-400 hover:bg-green-400/10 transition-all">Victory</button>
+                <button onClick={() => failQuest(q.id)} className="px-2.5 py-1 text-xs font-mono rounded border border-red-500/30 text-red-400 hover:bg-red-400/10 transition-all">Slipped</button>
+              </div>
+            </div>
+          </HudCard>
+        );
+      })}
 
       {/* Quest list */}
       <div className="space-y-2">
