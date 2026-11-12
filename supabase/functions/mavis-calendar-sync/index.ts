@@ -4,6 +4,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { composioReady, composioRun } from "../_shared/composio.ts";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
@@ -129,9 +130,10 @@ serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
-  const jwt = authHeader.slice(7);
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
-  if (authErr || !user) {
+  // A user session (the Calendar page's Sync button) or the service key (the scheduled sync, which acts as the operator).
+  const uid = await resolveAuthedUid(req, supabase);
+  const user = uid ? { id: uid } : null;
+  if (!user) {
     return new Response(
       JSON.stringify({ error: "Unauthorized" }),
       { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -185,8 +187,23 @@ serve(async (req) => {
         const { error: upErr } = await supabase.from("calendar_events").upsert(rows, { onConflict: "user_id,event_uid" });
         if (upErr) throw new Error(`Database upsert failed: ${upErr.message}`);
       }
+      // Events deleted or moved out of the window in Google would otherwise stay here forever, now that this runs
+      // unattended. Only rows this sync created (ical_url = google_calendar_api), only inside the window it just read,
+      // and only when the list was not truncated at maxResults (a cut-off list would look like deletions).
+      let removed = 0;
+      if (rows.length < 100) {
+        const keep = new Set(rows.map((r) => r.event_uid));
+        const { data: local } = await supabase.from("calendar_events").select("id, event_uid")
+          .eq("user_id", user.id).eq("ical_url", "google_calendar_api")
+          .gte("start_at", now.toISOString()).lte("start_at", horizon.toISOString());
+        const stale = (local ?? []).filter((r: any) => !keep.has(r.event_uid)).map((r: any) => r.id);
+        if (stale.length) {
+          await supabase.from("calendar_events").delete().in("id", stale);
+          removed = stale.length;
+        }
+      }
       return new Response(
-        JSON.stringify({ events: rows.map(r => ({ title: r.title, start_at: r.start_at, end_at: r.end_at, location: r.location })), count: rows.length, source: "composio" }),
+        JSON.stringify({ events: rows.map(r => ({ title: r.title, start_at: r.start_at, end_at: r.end_at, location: r.location })), count: rows.length, removed, source: "composio" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     } catch (e: any) {
