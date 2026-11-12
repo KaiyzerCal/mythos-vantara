@@ -37,41 +37,54 @@ interface Ingest {
   body: string; snippet: string; labelIds: string[]; receivedAt: string;
 }
 
-/** One normalised message -> gmail_messages (read by triage and the ambient scan), mavis_notes, and contacts. Shared by the
- *  direct Google path and the Composio path. Returns whether a sender contact was recorded. */
-async function ingest(adminSb: any, uid: string, m: Ingest): Promise<boolean> {
+/** One normalised message -> gmail_messages (read by triage and the ambient scan), mavis_notes, and contacts.
+ *  Shared by the direct Google path and the Composio path.
+ *
+ *  Written against the LIVE tables: gmail_messages is (user_id, gmail_id)-keyed with from_address / body_text, and
+ *  mavis_notes / contacts only have PARTIAL unique indexes, which ON CONFLICT cannot target, so those two are
+ *  look-up-then-insert. Every write's result is checked: the first version of this wrote columns that do not exist,
+ *  swallowed the errors, and still reported "synced: N". */
+async function ingest(adminSb: any, uid: string, m: Ingest): Promise<{ contact: boolean; error?: string }> {
   const fromEmail = (m.from.match(/<(.+?)>/)?.[1] ?? m.from.match(/(\S+@\S+)/)?.[1] ?? "").toLowerCase();
   const fromName  = m.from.match(/^"?([^"<]+)"?\s*</)?.[1]?.trim() ?? "";
+  const errors: string[] = [];
 
-  await Promise.resolve(adminSb.from("gmail_messages").upsert(
+  const g = await adminSb.from("gmail_messages").upsert(
     {
-      id: m.id, user_id: uid, thread_id: m.threadId, subject: m.subject.slice(0, 500),
-      from_email: fromEmail, from_name: fromName || null, snippet: m.snippet.slice(0, 500),
-      body: m.body.slice(0, 4000), labels: m.labelIds, is_read: !m.labelIds.includes("UNREAD"), received_at: m.receivedAt,
+      user_id: uid, gmail_id: m.id, thread_id: m.threadId, from_address: m.from, subject: m.subject.slice(0, 500),
+      snippet: m.snippet.slice(0, 500), body_text: m.body.slice(0, 4000), labels: m.labelIds,
+      is_read: !m.labelIds.includes("UNREAD"), received_at: m.receivedAt,
+      metadata: { from_email: fromEmail, from_name: fromName || null, source: "gmail" },
     },
-    { onConflict: "id" },
-  )).catch((e: any) => console.error("[mavis-gmail-sync] gmail_messages upsert error:", e?.message ?? e));
+    { onConflict: "user_id,gmail_id" },
+  );
+  if (g.error) errors.push(`gmail_messages: ${g.error.message}`);
 
-  await adminSb.from("mavis_notes").upsert(
-    {
+  const sourceUrl = `gmail:${m.id}`;
+  const note = await adminSb.from("mavis_notes").select("id").eq("user_id", uid).eq("source_url", sourceUrl).maybeSingle();
+  if (!note.data) {
+    const ins = await adminSb.from("mavis_notes").insert({
       user_id: uid,
       title: `[Email] ${m.subject.slice(0, 100)}`,
       content: `From: ${m.from}\nDate: ${m.date}\n\n${m.body.slice(0, 1000)}`,
       tags: ["email", "gmail", "intel"],
       properties: { source: "gmail", from: m.from, subject: m.subject, date: m.date, thread_id: m.threadId },
-      importance: m.from.includes("@") && !m.from.toLowerCase().includes("noreply") && !m.from.toLowerCase().includes("no-reply") ? 6 : 3,
-    },
-    { onConflict: "user_id,title" },
-  );
+      source_url: sourceUrl,
+    });
+    if (ins.error) errors.push(`mavis_notes: ${ins.error.message}`);
+  }
 
-  if (!fromEmail) return false;
-  await adminSb
-    .from("contacts")
-    .upsert({ user_id: uid, name: fromName || fromEmail, email: fromEmail, source: "gmail" }, { onConflict: "user_id,email" })
-    // Postgrest builders are thenable but don't implement .catch() — calling it directly threw synchronously on every
-    // contact, aborting the whole sync.
-    .then(() => {}, () => {/* contacts table may have diff schema */});
-  return true;
+  // A contact per real sender; automated senders are not contacts.
+  let contact = false;
+  if (fromEmail && !/(^|[._-])(no-?reply|donotreply|do-not-reply|notifications?|mailer-daemon|alerts?|news(letter)?)([._-]|@)/.test(fromEmail)) {
+    const have = await adminSb.from("contacts").select("id").eq("user_id", uid).eq("email", fromEmail).maybeSingle();
+    if (!have.data) {
+      const ins = await adminSb.from("contacts").insert({ user_id: uid, name: fromName || fromEmail, email: fromEmail, source: "gmail" });
+      if (ins.error) errors.push(`contacts: ${ins.error.message}`);
+      else contact = true;
+    }
+  }
+  return { contact, error: errors[0] };
 }
 
 serve(async (req) => {
@@ -105,6 +118,7 @@ serve(async (req) => {
       });
       const primary = (data?.messages ?? []) as any[];
       let count = 0, contactCount = 0;
+      const errors: string[] = [];
       for (const m of primary) {
         const text = String(m.messageText ?? m.preview?.body ?? "");
         const got = await ingest(adminSb, uid, {
@@ -113,10 +127,10 @@ serve(async (req) => {
           labelIds: Array.isArray(m.labelIds) ? m.labelIds : [],
           receivedAt: m.messageTimestamp ? new Date(m.messageTimestamp).toISOString() : new Date().toISOString(),
         });
-        count++;
-        if (got) contactCount++;
+        if (got.error) errors.push(got.error); else count++;
+        if (got.contact) contactCount++;
       }
-      return new Response(JSON.stringify({ synced: count, contacts_updated: contactCount, source: "composio" }),
+      return new Response(JSON.stringify({ synced: count, contacts_added: contactCount, errors: [...new Set(errors)].slice(0, 3), source: "composio" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -140,6 +154,7 @@ serve(async (req) => {
 
     let count = 0;
     let contactCount = 0;
+    const errors: string[] = [];
 
     for (const msg of messages.slice(0, max)) {
       // Fetch full message
@@ -183,12 +198,12 @@ serve(async (req) => {
           ? new Date(Number(msgData.internalDate)).toISOString()
           : (date ? new Date(date).toISOString() : new Date().toISOString()),
       });
-      count++;
-      if (got) contactCount++;
+      if (got.error) errors.push(got.error); else count++;
+      if (got.contact) contactCount++;
     }
 
     return new Response(
-      JSON.stringify({ synced: count, contacts_updated: contactCount }),
+      JSON.stringify({ synced: count, contacts_added: contactCount, errors: [...new Set(errors)].slice(0, 3) }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
