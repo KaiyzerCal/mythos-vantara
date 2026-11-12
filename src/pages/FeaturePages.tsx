@@ -299,7 +299,9 @@ export function QuestsPage() {
     return map;
   }, [questChains]);
 
+  // An active boss is shown by the banner above the list, so it is not repeated as a row (completed or failed ones still are).
   const filtered = parentQuests.filter((q: any) =>
+    !(q.category === "Boss" && q.status === "active") &&
     (typeFilter === "all" || q.type === typeFilter) &&
     (statusFilter === "all" || q.status === statusFilter)
   );
@@ -751,7 +753,7 @@ export function QuestsPage() {
         const buffs = (Array.isArray(q.buff_effects) ? q.buff_effects : []) as { label: string; value: number; unit?: string }[];
         return (
           <HudCard key={`boss-${q.id}`} className="border-red-500/40 bg-red-500/5">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-red-400">Boss fight · {q.difficulty}{timeLeft ? ` · ${timeLeft}` : ""}</p>
                 <h3 className="text-base font-display font-bold mt-1">{String(q.title).replace(/^Boss:\s*/i, "")}</h3>

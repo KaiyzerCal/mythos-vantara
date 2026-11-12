@@ -1581,7 +1581,7 @@ export default function MavisChat() {
       setAgentSteps([]);
       abortRef.current = null;
     }
-  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, refreshSections, goToActionResult, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist]);
+  }, [input, chatMessages, isLoading, chatMode, agentModeOn, agentThinking, profile, quests, tasks, skills, journalEntries, vaultEntries, conversationId, setChatMessages, setConversationId, refetchAll, refreshSections, goToActionResult, ensureConversation, persistMessage, saveMemoriesFromResponse, speakText, attachments, clearStaged, editingMsgId, responseLength, activeSpecialist, customSkills, selectedPersonaPrompt, superContext]);
 
   const sendFeedback = useCallback(async (msg: any, rating: 1 | -1) => {
     if (feedbackGiven[msg.id]) return;

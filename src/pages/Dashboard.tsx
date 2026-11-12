@@ -245,7 +245,6 @@ export default function Dashboard() {
     <div className="space-y-6">
       {user && <OnboardingWidget userId={user.id} />}
 
-      <StoryCard />
 
       {/* Time-of-day greeting */}
       <motion.div {...fadeIn(0)} className="flex items-center justify-between">
@@ -283,6 +282,7 @@ export default function Dashboard() {
         </div>
       </motion.div>
 
+      <StoryCard />
 
       <PageHeader
         title="Black Sun Monarch"
