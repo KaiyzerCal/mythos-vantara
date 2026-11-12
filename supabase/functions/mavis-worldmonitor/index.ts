@@ -350,7 +350,14 @@ async function handleNewsBrief(sb: any): Promise<any> {
     };
   }
 
-  const result = { ...brief, generated_at: new Date().toISOString() };
+  const RISKS = ["low", "moderate", "elevated", "high", "critical"];
+  const result = {
+    headline: String(brief?.headline ?? articles[0]?.title ?? "Global feed active"),
+    body: String(brief?.body ?? ""),
+    risk_level: RISKS.includes(brief?.risk_level) ? brief.risk_level : "moderate",
+    key_themes: Array.isArray(brief?.key_themes) ? brief.key_themes.map(String) : [],
+    generated_at: new Date().toISOString(),
+  };
   await setCache(sb, "news_brief", result, 3600);
   return json(result);
 }
