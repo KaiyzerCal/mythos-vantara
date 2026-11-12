@@ -535,7 +535,11 @@ export const INVENTORY_SELL_VALUE: Record<string, number> = {
   epic: 40,
   legendary: 100,
   mythic: 250,
+  uncommon: 8,
 };
+/** Rarity text in the data is mixed-case ("Epic", "Uncommon") and sometimes free text; match it case-insensitively. */
+export const sellValueFor = (rarity?: string | null): number =>
+  INVENTORY_SELL_VALUE[String(rarity ?? "").trim().toLowerCase()] ?? INVENTORY_SELL_VALUE.common;
 
 // ─── TRANSFORMATIONS (Forms) ──────────────────────────────
 export interface Transformation {

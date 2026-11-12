@@ -8,7 +8,7 @@ import { BookOpen, BookLock, Sparkles, Package, Plus, Trash2, Loader2, Star, Edi
 import { useAppData } from "@/contexts/AppDataContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { INVENTORY_SELL_VALUE } from "@/hooks/useDataHooks";
+import { sellValueFor } from "@/hooks/useDataHooks";
 import { PageHeader, HudCard, RarityBadge, ProgressBar } from "@/components/SharedUI";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -1860,6 +1860,9 @@ export function InventoryPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
+  const [invSearch, setInvSearch] = useState("");
+  const [invSort, setInvSort] = useState("recent");
+  const [rarityFilter, setRarityFilter] = useState("all");
   const [form, setForm] = useState({ name: "", description: "", type: "equipment", rarity: "common", quantity: 1, effect: "", stat_effects: "" });
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<{ id: string; label: string } | null>(null);
   const [confirmSellItem, setConfirmSellItem] = useState<{ id: string; label: string; owned: number; unitValue: number } | null>(null);
@@ -1882,9 +1885,37 @@ export function InventoryPage() {
   }, [refetchInventory]);
 
   const EQUIPPABLE = new Set(["equipment", "weapon", "artifact"]);
-  const types = ["all", "equipment", "weapon", "artifact", "consumable", "material"];
-  const filtered = inventory.filter((i) => typeFilter === "all" || i.type === typeFilter);
+  // Types and rarities come from the data: rows carry values the fixed lists never knew ("blunt weapon / ritual tool",
+  // "Uncommon", mixed case), so those items were unreachable under every chip but "all".
+  const BASE_TYPES = ["equipment", "weapon", "artifact", "consumable", "material"];
+  const norm = (v: any) => String(v ?? "").trim().toLowerCase();
+  const typeCounts = inventory.reduce((m: Record<string, number>, i) => { const t = norm(i.type) || "other"; m[t] = (m[t] ?? 0) + 1; return m; }, {});
+  const types = ["all", ...Array.from(new Set([...BASE_TYPES.filter((t) => typeCounts[t]), ...Object.keys(typeCounts)]))];
+  const RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic"];
+  const rarityRank = (r: any) => { const i = RARITY_ORDER.indexOf(norm(r)); return i < 0 ? 0 : i; };
+  const rarities = ["all", ...Array.from(new Set(inventory.map((i) => norm(i.rarity)).filter(Boolean))).sort((a, b) => rarityRank(a) - rarityRank(b))];
+  const iq = invSearch.trim().toLowerCase();
+  const filtered = inventory
+    .filter((i) => (typeFilter === "all" || (norm(i.type) || "other") === typeFilter) &&
+      (rarityFilter === "all" || norm(i.rarity) === rarityFilter) &&
+      (!iq || [i.name, i.description, i.effect, i.type, i.slot].some((v) => String(v ?? "").toLowerCase().includes(iq))))
+    .sort((a, b) => {
+      switch (invSort) {
+        case "rarity": return rarityRank(b.rarity) - rarityRank(a.rarity) || String(a.name).localeCompare(String(b.name));
+        case "value": return sellValueFor(b.rarity) * Math.max(1, b.quantity) - sellValueFor(a.rarity) * Math.max(1, a.quantity);
+        case "quantity": return (b.quantity ?? 0) - (a.quantity ?? 0);
+        case "name": return String(a.name).localeCompare(String(b.name));
+        default: return String(b.obtained_at ?? "").localeCompare(String(a.obtained_at ?? ""));
+      }
+    });
   const equipped = inventory.filter((i) => i.is_equipped);
+  const totalUnits = inventory.reduce((n, i) => n + Math.max(1, i.quantity ?? 1), 0);
+  const sellTotal = inventory.reduce((n, i) => n + sellValueFor(i.rarity) * Math.max(1, i.quantity ?? 1), 0);
+  // What the equipped loadout adds up to, per stat.
+  const loadoutTotals = equipped.reduce((m: Record<string, number>, i) => {
+    for (const e of (Array.isArray(i.stat_effects) ? i.stat_effects : []) as { label: string; value: number; unit: string }[]) m[e.label + (e.unit || "")] = (m[e.label + (e.unit || "")] ?? 0) + e.value;
+    return m;
+  }, {});
 
   const handleEquip = async (item: any) => {
     const next = !item.is_equipped;
@@ -1892,7 +1923,7 @@ export function InventoryPage() {
     toast.success(next ? `${item.name} equipped` : `${item.name} unequipped`);
   };
 
-  const unitSellValue = (item: any) => INVENTORY_SELL_VALUE[item.rarity] ?? INVENTORY_SELL_VALUE.common;
+  const unitSellValue = (item: any) => sellValueFor(item.rarity);
 
   const openSell = (item: any) => {
     setSellQty(1);
@@ -2015,9 +2046,38 @@ export function InventoryPage() {
         </HudCard>
       )}
 
+      {inventory.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-muted-foreground">
+          <span>{totalUnits} units</span>
+          <span>worth <span className="text-amber-400">{sellTotal} CP</span> if sold</span>
+          {Object.keys(loadoutTotals).length > 0 && (
+            <span>loadout {Object.entries(loadoutTotals).map(([k, v]) => (
+              <span key={k} className={v >= 0 ? "text-green-400" : "text-red-400"}> {k}{v >= 0 ? "+" : ""}{v}</span>
+            ))}</span>
+          )}
+        </div>
+      )}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input value={invSearch} onChange={(e) => setInvSearch(e.target.value)} placeholder="Search name, effect, description..." className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+        <select value={invSort} onChange={(e) => setInvSort(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Sort inventory">
+          <option value="recent">Newest first</option>
+          <option value="rarity">Rarest first</option>
+          <option value="value">Highest sell value</option>
+          <option value="quantity">Largest stack</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </div>
+      {rarities.length > 2 && (
+        <div className="flex gap-1.5 flex-wrap items-center">
+          <span className="text-[10px] font-mono uppercase text-muted-foreground">Rarity</span>
+          {rarities.map((r) => (
+            <button key={r} onClick={() => setRarityFilter(r)} className={`px-2 py-0.5 text-xs font-mono uppercase rounded border transition-all ${rarityFilter === r ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{r}</button>
+          ))}
+        </div>
+      )}
       <div className="flex gap-1.5 flex-wrap">
         {types.map((t) => (
-          <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{t}</button>
+          <button key={t} onClick={() => setTypeFilter(t)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${typeFilter === t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{t}<span className="ml-1 opacity-60">{t === "all" ? inventory.length : typeCounts[t]}</span></button>
         ))}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -2033,7 +2093,7 @@ export function InventoryPage() {
                     <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
                     <input type="number" value={form.quantity} onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))} placeholder="Qty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" min={1} />
                     <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                      {["equipment", "consumable", "material", "artifact"].map((t) => <option key={t}>{t}</option>)}
+                      {Array.from(new Set([...BASE_TYPES, form.type])).map((t) => <option key={t}>{t}</option>)}
                     </select>
                     <select value={form.rarity} onChange={(e) => setForm((f) => ({ ...f, rarity: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
                       {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
@@ -2117,7 +2177,7 @@ export function InventoryPage() {
           </HudCard>
           );
         })}
-        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">Inventory empty.</p>}
+        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">{inventory.length === 0 ? "Inventory empty." : "No items match these filters."}</p>}
       </div>
       <ConfirmDialog
         open={confirmDeleteItem !== null}

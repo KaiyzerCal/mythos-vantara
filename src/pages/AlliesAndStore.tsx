@@ -243,9 +243,12 @@ export function StorePage() {
   const {
     profile, storeItems, storeLoading, createStoreItem, updateStoreItem, deleteStoreItem,
     currencies, currenciesLoading, createCurrency, setCurrencyAmount, deleteCurrency, spendCurrency,
-    inventory, createInventoryItem,
+    inventory, createInventoryItem, updateInventoryItem,
   } = useAppData();
   const [catFilter, setCatFilter] = useState("all");
+  const [storeSearch, setStoreSearch] = useState("");
+  const [storeSort, setStoreSort] = useState("default");
+  const [affordableOnly, setAffordableOnly] = useState(false);
   const [buyingId, setBuyingId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -254,7 +257,30 @@ export function StorePage() {
   const [newCurrency, setNewCurrency] = useState({ name: "", amount: 0, icon: "💰" });
   const [showAddCurrency, setShowAddCurrency] = useState(false);
 
-  const filtered = storeItems.filter((i) => catFilter === "all" || i.category === catFilter);
+  const lc = (v: any) => String(v ?? "").trim().toLowerCase();
+  // Categories come from the data too, so an item in a category the fixed list didn't know still has a chip.
+  const categoryOptions = Array.from(new Set([...CATEGORY_FILTERS.filter((c) => c !== "all"), ...storeItems.map((i) => lc(i.category)).filter(Boolean)]));
+  const catCount = (c: string) => storeItems.filter((i) => lc(i.category) === c).length;
+  const balanceOf = (currency: string) => currencies.find((c) => lc(c.name) === lc(currency))?.amount ?? 0;
+  const canAfford = (item: any) => balanceOf(item.currency) >= item.price;
+  const stackable = (item: any) => item.category === "consumable" || item.category === "material";
+  const ownedRow = (item: any) => inventory.find((i) => lc(i.name) === lc(item.name));
+  const RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic"];
+  const rarityRank = (r: any) => Math.max(0, RARITY_ORDER.indexOf(lc(r)));
+  const sq = storeSearch.trim().toLowerCase();
+  const filtered = storeItems
+    .filter((i) => (catFilter === "all" || lc(i.category) === catFilter) &&
+      (!affordableOnly || canAfford(i)) &&
+      (!sq || [i.name, i.description, i.effect, i.category].some((v) => String(v ?? "").toLowerCase().includes(sq))))
+    .sort((a, b) => {
+      switch (storeSort) {
+        case "price-asc": return a.price - b.price;
+        case "price-desc": return b.price - a.price;
+        case "rarity": return rarityRank(b.rarity) - rarityRank(a.rarity) || a.price - b.price;
+        case "name": return String(a.name).localeCompare(String(b.name));
+        default: return 0;
+      }
+    });
 
   const resetForm = () => {
     setForm({ ...EMPTY_STORE_FORM });
@@ -294,11 +320,13 @@ export function StorePage() {
     return true;
   };
 
+  const affordableCount = storeItems.filter((i) => canAfford(i) && canPurchase(i)).length;
+
   // Owned state is derived from real inventory rows (best-effort match on
   // name), not local UI state — so it survives a refresh and actually means
   // something. Previously "Buy" only ever touched a local Set that reset on
   // navigation, with no currency deducted and no purchase persisted anywhere.
-  const isOwned = (item: any) => inventory.some((i) => i.name === item.name);
+  const isOwned = (item: any) => !stackable(item) && !!ownedRow(item);
 
   async function handleBuy(item: any) {
     if (buyingId) return;
@@ -309,18 +337,24 @@ export function StorePage() {
         toast.error(`Not enough ${item.currency} — you have ${result.balance}, need ${item.price}.`);
         return;
       }
-      await createInventoryItem({
-        name: item.name,
-        description: item.description,
-        type: categoryToInventoryType(item.category),
-        rarity: item.rarity,
-        quantity: 1,
-        effect: item.effect || null,
-        slot: null,
-        tier: null,
-        stat_effects: [],
-        is_equipped: false,
-      });
+      const existing = stackable(item) ? ownedRow(item) : undefined;
+      if (existing) {
+        // A second potion is a bigger stack, not a duplicate row.
+        await updateInventoryItem(existing.id, { quantity: Math.max(1, existing.quantity ?? 1) + 1 });
+      } else {
+        await createInventoryItem({
+          name: item.name,
+          description: item.description,
+          type: categoryToInventoryType(item.category),
+          rarity: item.rarity,
+          quantity: 1,
+          effect: item.effect || null,
+          slot: null,
+          tier: null,
+          stat_effects: [],
+          is_equipped: false,
+        });
+      }
       toast.success(`Purchased "${item.name}" for ${item.price} ${item.currency} — added to Inventory.`);
     } finally {
       setBuyingId(null);
@@ -418,7 +452,7 @@ export function StorePage() {
                   {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
                 </select>
                 <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                  {["consumable", "material", "upgrade", "artifact"].map((c) => <option key={c}>{c}</option>)}
+                  {Array.from(new Set([...categoryOptions, form.category])).map((c) => <option key={c}>{c}</option>)}
                 </select>
               </div>
               <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
@@ -435,9 +469,26 @@ export function StorePage() {
         </motion.div>
       )}
 
+      {storeItems.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-muted-foreground">
+          <span>{filtered.length} of {storeItems.length} shown</span>
+          <span>{affordableCount} you can afford now</span>
+        </div>
+      )}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input value={storeSearch} onChange={(e) => setStoreSearch(e.target.value)} placeholder="Search name, effect, description..." className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+        <select value={storeSort} onChange={(e) => setStoreSort(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Sort store">
+          <option value="default">Default order</option>
+          <option value="price-asc">Price: low to high</option>
+          <option value="price-desc">Price: high to low</option>
+          <option value="rarity">Rarest first</option>
+          <option value="name">Name A–Z</option>
+        </select>
+        <button onClick={() => setAffordableOnly((v) => !v)} className={`px-3 py-1.5 text-xs font-mono rounded border transition-all ${affordableOnly ? "bg-primary/10 border-primary/30 text-primary" : "border-border text-muted-foreground"}`}>Affordable only</button>
+      </div>
       <div className="flex gap-1.5 flex-wrap">
-        {CATEGORY_FILTERS.map((c) => (
-          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
+        {["all", ...categoryOptions].map((c) => (
+          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}<span className="ml-1 opacity-60">{c === "all" ? storeItems.length : catCount(c)}</span></button>
         ))}
       </div>
 
@@ -463,7 +514,7 @@ export function StorePage() {
                       {["common", "rare", "epic", "legendary", "mythic"].map((r) => <option key={r}>{r}</option>)}
                     </select>
                     <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                      {["consumable", "material", "upgrade", "artifact"].map((c) => <option key={c}>{c}</option>)}
+                      {Array.from(new Set([...categoryOptions, form.category])).map((c) => <option key={c}>{c}</option>)}
                     </select>
                   </div>
                   <input value={form.effect} onChange={(e) => setForm((f) => ({ ...f, effect: e.target.value }))} placeholder="Effect" className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none" />
@@ -493,6 +544,7 @@ export function StorePage() {
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <span className="text-xs font-mono font-bold text-primary">{item.price} {item.currency}</span>
                     <span className="text-xs font-mono text-muted-foreground">{item.category}</span>
+                    {stackable(item) && ownedRow(item) && <span className="text-xs font-mono text-green-400">owned ×{ownedRow(item)!.quantity ?? 1}</span>}
                     {item.req_level && <span className="text-xs font-mono text-amber-400">LV{item.req_level}+</span>}
                     {item.req_rank && <span className="text-xs font-mono text-amber-400">{item.req_rank}+</span>}
                   </div>
@@ -502,6 +554,10 @@ export function StorePage() {
                     <Lock size={14} className="text-muted-foreground" />
                   ) : bought ? (
                     <span title="Owned — see Inventory"><CheckCircle2 size={14} className="text-green-400" /></span>
+                  ) : !canAfford(item) ? (
+                    <span className="px-2 py-1 text-[10px] font-mono text-muted-foreground border border-border rounded" title={`You have ${balanceOf(item.currency)} ${item.currency}`}>
+                      Need {item.price - balanceOf(item.currency)} more
+                    </span>
                   ) : (
                     <button
                       onClick={() => handleBuy(item)}
@@ -509,7 +565,7 @@ export function StorePage() {
                       className="px-2 py-1 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10 transition-all disabled:opacity-50 flex items-center gap-1"
                     >
                       {buying ? <Loader2 size={10} className="animate-spin" /> : null}
-                      Buy
+                      {stackable(item) && ownedRow(item) ? "Buy another" : "Buy"}
                     </button>
                   )}
                   <button onClick={() => handleEdit(item)} className="p-1 text-muted-foreground hover:text-primary transition-colors"><Edit2 size={12} /></button>
@@ -519,7 +575,7 @@ export function StorePage() {
             </HudCard>
           );
         })}
-        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">No store items. Add your first item above.</p>}
+        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-3">{storeItems.length === 0 ? "No store items. Add your first item above." : "No items match these filters."}</p>}
       </div>
 
       <ConfirmDialog
