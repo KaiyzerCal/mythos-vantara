@@ -371,3 +371,19 @@
   .energy-emerald { background: #08C284; }
   .energy-blackheart { background: #1a1a1a; border: 1px solid #333; }
 }
+
+/* ── Click-to-expand for cut-off text (see components/ClickToExpand.tsx) ───────────────────────────────────────────── */
+[data-clamped="true"]:not([data-expanded="true"]) { cursor: zoom-in; }
+[data-expanded="true"] {
+  cursor: zoom-out;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  max-height: none !important;
+  overflow-wrap: anywhere;
+}
+[data-expanded="true"][class*="line-clamp-"] {
+  display: block !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+}

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
+import { ClickToExpand } from "@/components/ClickToExpand";
 import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "next-themes";
@@ -300,6 +301,7 @@ const App = () => (
           <ThemeColorSync />
           <Toaster />
           <SonnerToaster position="bottom-right" theme="dark" />
+          <ClickToExpand />
           <BrowserRouter>
             <AuthProvider>
               <VoiceProvider>
