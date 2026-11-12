@@ -4,7 +4,7 @@
 // ============================================================
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Plus, X, Edit2, Trash2, MessageCircle, Phone, Mail, Calendar, Tag, ChevronDown, ChevronUp, Loader2, AlertTriangle } from "lucide-react";
+import { Users, Plus, X, Edit2, Trash2, MessageCircle, Phone, Mail, Calendar, Tag, ChevronDown, ChevronUp, Loader2, AlertTriangle, Building2, Copy } from "lucide-react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
 const supabase = _supabase as any;
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,6 +24,12 @@ interface Contact {
   tags: string[];
   interaction_count: number;
   created_at: string;
+  // Present on the live table (the Gmail sync fills them) but missing here, so they were never shown.
+  email?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  source?: string | null;
+  pipeline_stage?: string | null;
 }
 
 interface ContactInteraction {
@@ -38,7 +44,11 @@ interface ContactInteraction {
 const RELATIONSHIP_TYPES = ["personal", "business", "family", "mentor", "other"] as const;
 const INTERACTION_TYPES = ["call", "message", "meeting", "email", "note"] as const;
 const SENTIMENTS = ["positive", "neutral", "negative"] as const;
-const TAB_FILTERS = ["all", "personal", "business", "family", "mentor", "other"] as const;
+const EMPTY_FORM = { name: "", relationship_type: "personal", email: "", phone: "", company: "", notes: "", tags: "", follow_up_date: "" };
+
+const SORTS: Record<string, string> = {
+  name: "Name A–Z", recent: "Recently contacted", followup: "Follow-up soonest", interactions: "Most interactions", newest: "Newest added",
+};
 
 const RELATIONSHIP_COLORS: Record<string, string> = {
   personal: "text-blue-400 border-blue-700 bg-blue-900/30",
@@ -46,6 +56,11 @@ const RELATIONSHIP_COLORS: Record<string, string> = {
   family: "text-green-400 border-green-700 bg-green-900/30",
   mentor: "text-purple-400 border-purple-700 bg-purple-900/30",
   other: "text-zinc-400 border-zinc-600 bg-zinc-800/30",
+  // Types that exist in the data but the page did not know, so they all rendered grey and had no filter tab.
+  ally: "text-emerald-400 border-emerald-700 bg-emerald-900/30",
+  partner: "text-cyan-400 border-cyan-700 bg-cyan-900/30",
+  professional: "text-sky-400 border-sky-700 bg-sky-900/30",
+  prospect: "text-orange-400 border-orange-700 bg-orange-900/30",
 };
 
 const SENTIMENT_COLORS: Record<string, string> = {
@@ -94,13 +109,9 @@ export function ContactsPage() {
   const [savingInteraction, setSavingInteraction] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
 
-  const [form, setForm] = useState({
-    name: "",
-    relationship_type: "personal",
-    notes: "",
-    tags: "",
-    follow_up_date: "",
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [sortBy, setSortBy] = useState<string>("name");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
 
   const [interactionForm, setInteractionForm] = useState({
     interaction_type: "note",
@@ -138,7 +149,7 @@ export function ContactsPage() {
 
   // ─── CRUD ──────────────────────────────────────────────────
   function resetForm() {
-    setForm({ name: "", relationship_type: "personal", notes: "", tags: "", follow_up_date: "" });
+    setForm(EMPTY_FORM);
     setEditingId(null);
     setShowCreate(false);
   }
@@ -147,6 +158,9 @@ export function ContactsPage() {
     setForm({
       name: c.name,
       relationship_type: c.relationship_type,
+      email: c.email || "",
+      phone: c.phone || "",
+      company: c.company || "",
       notes: c.notes || "",
       tags: (c.tags || []).join(", "),
       follow_up_date: c.follow_up_date || "",
@@ -163,6 +177,9 @@ export function ContactsPage() {
     const payload = {
       name: form.name.trim(),
       relationship_type: form.relationship_type,
+      email: form.email.trim().toLowerCase() || null,
+      phone: form.phone.trim() || null,
+      company: form.company.trim() || null,
       notes: form.notes,
       tags,
       follow_up_date: form.follow_up_date || null,
@@ -175,7 +192,7 @@ export function ContactsPage() {
       toast.success("Contact updated");
       setSavingContact(false);
       setEditingId(null);
-      setForm({ name: "", relationship_type: "personal", notes: "", tags: "", follow_up_date: "" });
+      setForm(EMPTY_FORM);
       setExpandedId(savedId); // keep the card open after saving
       loadContacts();
     } else {
@@ -234,11 +251,29 @@ export function ContactsPage() {
   }
 
   // ─── Filtering ─────────────────────────────────────────────
-  const filtered = contacts.filter((c) => {
-    const matchTab = tabFilter === "all" || c.relationship_type === tabFilter;
-    const matchSearch = !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchTab && matchSearch;
-  });
+  // Tabs come from the data: a relationship type that exists must be reachable.
+  const typeCounts = contacts.reduce<Record<string, number>>((m, c) => { const t = c.relationship_type || "other"; m[t] = (m[t] ?? 0) + 1; return m; }, {});
+  const typeTabs = ["all", ...Object.keys(typeCounts).sort((x, y) => typeCounts[y] - typeCounts[x])];
+  const sources = Array.from(new Set(contacts.map((c) => c.source || "manual")));
+  const relOptions = Array.from(new Set([...RELATIONSHIP_TYPES, ...Object.keys(typeCounts), form.relationship_type].filter(Boolean)));
+
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = contacts
+    .filter((c) => {
+      const matchTab = tabFilter === "all" || (c.relationship_type || "other") === tabFilter;
+      const matchSource = sourceFilter === "all" || (c.source || "manual") === sourceFilter;
+      const matchSearch = !q || [c.name, c.email, c.company, c.phone, c.notes, (c.tags ?? []).join(" ")].some((v) => String(v ?? "").toLowerCase().includes(q));
+      return matchTab && matchSource && matchSearch;
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "recent": return (b.last_contact_at ?? "").localeCompare(a.last_contact_at ?? "");
+        case "followup": return (a.follow_up_date ?? "9999").localeCompare(b.follow_up_date ?? "9999");
+        case "interactions": return (b.interaction_count ?? 0) - (a.interaction_count ?? 0);
+        case "newest": return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+        default: return a.name.localeCompare(b.name);
+      }
+    });
 
   if (loading) {
     return (
@@ -280,13 +315,18 @@ export function ContactsPage() {
                   placeholder="Full name..."
                   className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40"
                 />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="Email" type="email" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+                  <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Phone" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+                  <input value={form.company} onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))} placeholder="Company" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <select
                     value={form.relationship_type}
                     onChange={(e) => setForm((f) => ({ ...f, relationship_type: e.target.value }))}
                     className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none"
                   >
-                    {RELATIONSHIP_TYPES.map((r) => <option key={r}>{r}</option>)}
+                    {relOptions.map((r) => <option key={r}>{r}</option>)}
                   </select>
                   <input
                     type="date"
@@ -323,16 +363,27 @@ export function ContactsPage() {
         )}
       </AnimatePresence>
 
-      {/* Search + Tab filters */}
+      {/* Search + sort + source + type tabs */}
       <div className="space-y-2">
-        <input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search contacts..."
-          className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40"
-        />
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search name, email, company, notes, tags..."
+            className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40"
+          />
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Sort contacts">
+            {Object.entries(SORTS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+          {sources.length > 1 && (
+            <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Filter by source">
+              <option value="all">All sources</option>
+              {sources.map((src) => <option key={src} value={src}>{src}</option>)}
+            </select>
+          )}
+        </div>
         <div className="flex gap-1.5 flex-wrap">
-          {TAB_FILTERS.map((tab) => (
+          {typeTabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setTabFilter(tab)}
@@ -342,7 +393,7 @@ export function ContactsPage() {
                   : "border-border text-muted-foreground hover:border-border/60 hover:text-foreground"
               }`}
             >
-              {tab}
+              {tab}{tab !== "all" && <span className="ml-1 opacity-60">{typeCounts[tab]}</span>}
             </button>
           ))}
         </div>
@@ -354,19 +405,20 @@ export function ContactsPage() {
         <span className="text-amber-400">
           {filtered.filter((c) => getFollowUpStatus(c.follow_up_date) !== null).length} need follow-up
         </span>
+        {filtered.some((c) => c.source === "gmail") && <span>{filtered.filter((c) => c.source === "gmail").length} from Gmail</span>}
       </div>
 
       {/* Contacts grid */}
       {filtered.length === 0 ? (
         <HudCard>
-          <p className="text-xs font-mono text-muted-foreground text-center py-6">No contacts found. Add your first one.</p>
+          <p className="text-xs font-mono text-muted-foreground text-center py-6">{contacts.length === 0 ? "No contacts yet. Add your first one." : "No contacts match these filters."}</p>
         </HudCard>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((c, i) => {
             const isExpanded = expandedId === c.id;
             const followUpStatus = getFollowUpStatus(c.follow_up_date);
-            const relColor = RELATIONSHIP_COLORS[c.relationship_type] ?? RELATIONSHIP_COLORS.other;
+            const relColor = RELATIONSHIP_COLORS[c.relationship_type || "other"] ?? RELATIONSHIP_COLORS.other;
 
             return (
               <motion.div
@@ -389,8 +441,9 @@ export function ContactsPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="text-sm font-display font-bold truncate">{c.name}</h3>
                           <span className={`text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border ${relColor}`}>
-                            {c.relationship_type}
+                            {c.relationship_type || "other"}
                           </span>
+                          {c.source === "gmail" && <span className="text-xs font-mono uppercase tracking-widest px-1.5 py-0.5 rounded border border-red-900/40 text-red-300/80 bg-red-950/20">gmail</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-1 ml-2 shrink-0">
@@ -411,11 +464,22 @@ export function ContactsPage() {
                       </div>
                     )}
 
+                    {/* Who they are: company, email, phone (these were never shown) */}
+                    {(c.company || c.email || c.phone) && (
+                      <div className="mb-1.5 space-y-0.5 text-xs font-mono text-muted-foreground">
+                        {c.company && <div className="flex items-center gap-1"><Building2 size={9} className="shrink-0" /><span className="truncate">{c.company}</span></div>}
+                        {c.email && <div className="flex items-center gap-1"><Mail size={9} className="shrink-0" /><span className="truncate">{c.email}</span></div>}
+                        {c.phone && <div className="flex items-center gap-1"><Phone size={9} className="shrink-0" /><span className="truncate">{c.phone}</span></div>}
+                      </div>
+                    )}
+
                     {/* Last contact */}
                     <div className="flex items-center gap-1 text-xs font-mono text-muted-foreground">
                       <Calendar size={9} />
                       Last contact: {formatDate(c.last_contact_at)}
                     </div>
+
+                    {c.notes && <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{c.notes}</p>}
 
                     {/* Tags */}
                     {c.tags && c.tags.length > 0 && (
@@ -439,6 +503,17 @@ export function ContactsPage() {
                         className="overflow-hidden"
                       >
                         <div className="mt-3 pt-3 border-t border-border/30 space-y-3">
+                          {/* Details */}
+                          {(c.email || c.phone || c.company || c.pipeline_stage) && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-xs font-mono">
+                              {c.email && <div><span className="text-muted-foreground">Email: </span><span className="text-foreground break-all">{c.email}</span></div>}
+                              {c.phone && <div><span className="text-muted-foreground">Phone: </span><span className="text-foreground">{c.phone}</span></div>}
+                              {c.company && <div><span className="text-muted-foreground">Company: </span><span className="text-foreground">{c.company}</span></div>}
+                              {c.pipeline_stage && <div><span className="text-muted-foreground">Stage: </span><span className="text-foreground">{c.pipeline_stage}</span></div>}
+                              <div><span className="text-muted-foreground">Added: </span><span className="text-foreground">{formatDate(c.created_at)}{c.source ? ` · ${c.source}` : ""}</span></div>
+                            </div>
+                          )}
+
                           {/* Notes */}
                           {c.notes && (
                             <div>
@@ -457,13 +532,18 @@ export function ContactsPage() {
                                 placeholder="Full name..."
                                 className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40"
                               />
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <input value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="Email" type="email" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+                                <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="Phone" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+                                <input value={form.company} onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))} placeholder="Company" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-primary/40" />
+                              </div>
                               <div className="grid grid-cols-2 gap-2">
                                 <select
                                   value={form.relationship_type}
                                   onChange={(e) => setForm((f) => ({ ...f, relationship_type: e.target.value }))}
                                   className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none"
                                 >
-                                  {RELATIONSHIP_TYPES.map((r) => <option key={r}>{r}</option>)}
+                                  {relOptions.map((r) => <option key={r}>{r}</option>)}
                                 </select>
                                 <input
                                   type="date"
@@ -504,6 +584,21 @@ export function ContactsPage() {
                             >
                               <Edit2 size={9} /> Edit
                             </button>
+                            {c.email && (
+                              <a href={`mailto:${c.email}`} className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors">
+                                <Mail size={9} /> Email
+                              </a>
+                            )}
+                            {c.phone && (
+                              <a href={`tel:${c.phone}`} className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors">
+                                <Phone size={9} /> Call
+                              </a>
+                            )}
+                            {c.email && (
+                              <button onClick={() => { navigator.clipboard?.writeText(c.email!).then(() => toast.success("Email copied"), () => toast.error("Couldn't copy")); }} className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors" title="Copy email">
+                                <Copy size={9} /> Copy
+                              </button>
+                            )}
                             <button
                               onClick={() => setLogContactId(logContactId === c.id ? null : c.id)}
                               className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground hover:border-border/60 transition-colors"

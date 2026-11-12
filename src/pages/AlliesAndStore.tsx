@@ -15,11 +15,36 @@ export function AlliesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("affinity");
   const [form, setForm] = useState({ name: "", relationship: "ally", level: 1, specialty: "General", affinity: 50, notes: "" });
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string; type: 'ally' | 'store_item' } | null>(null);
 
-  const RELATIONSHIP_COLORS: Record<string, string> = { ally: "text-green-400", council: "text-blue-400", rival: "text-red-400" };
-  const filtered = allies.filter((a) => filter === "all" || a.relationship === filter);
+  const RELATIONSHIP_COLORS: Record<string, string> = {
+    ally: "text-green-400", council: "text-blue-400", rival: "text-red-400",
+    // Relationship types that exist in the data but were unknown here (no colour, no filter tab, no dropdown option).
+    partner: "text-cyan-400", "strategic alliance": "text-purple-400",
+  };
+  const colorFor = (rel: string) => RELATIONSHIP_COLORS[rel] ?? "text-amber-400";
+  const relTypes = Array.from(new Set(["ally", "council", "rival", ...allies.map((a: any) => a.relationship), form.relationship].filter(Boolean)));
+
+  // How the bond reads, so the number means something.
+  const tierOf = (n: number) => (n < 20 ? "Hostile" : n < 40 ? "Wary" : n < 60 ? "Neutral" : n < 80 ? "Trusted" : "Devoted");
+
+  const q = search.trim().toLowerCase();
+  const filtered = allies
+    .filter((a: any) => (filter === "all" || a.relationship === filter) &&
+      (!q || [a.name, a.specialty, a.notes, a.relationship].some((v) => String(v ?? "").toLowerCase().includes(q))))
+    .sort((a: any, b: any) => {
+      switch (sortBy) {
+        case "level": return (b.level ?? 0) - (a.level ?? 0);
+        case "name": return String(a.name).localeCompare(String(b.name));
+        case "newest": return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+        default: return (b.affinity ?? 0) - (a.affinity ?? 0);
+      }
+    });
+  const avgAffinity = allies.length ? Math.round(allies.reduce((n: number, a: any) => n + (a.affinity ?? 0), 0) / allies.length) : 0;
+  const strongest = [...allies].sort((a: any, b: any) => (b.affinity ?? 0) - (a.affinity ?? 0))[0] as any;
 
   const resetForm = () => {
     setForm({ name: "", relationship: "ally", level: 1, specialty: "General", affinity: 50, notes: "" });
@@ -64,7 +89,7 @@ export function AlliesPage() {
               <div className="grid grid-cols-2 gap-2">
                 <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
                 <select value={form.relationship} onChange={(e) => setForm((f) => ({ ...f, relationship: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                  {["ally", "council", "rival"].map((r) => <option key={r}>{r}</option>)}
+                  {relTypes.map((r) => <option key={r}>{r}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -85,8 +110,26 @@ export function AlliesPage() {
         </motion.div>
       )}
 
-      <div className="flex gap-1.5">
-        {["all", "ally", "council", "rival"].map((r) => (
+      {allies.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-muted-foreground">
+          <span>{filtered.length} shown</span>
+          <span>avg bond <span className="text-foreground">{avgAffinity}</span> ({tierOf(avgAffinity)})</span>
+          {strongest && <span>strongest <span className="text-foreground">{strongest.name}</span> · {strongest.affinity}</span>}
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, specialty, notes..." className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Sort allies">
+          <option value="affinity">Strongest bond</option>
+          <option value="level">Highest level</option>
+          <option value="name">Name A–Z</option>
+          <option value="newest">Newest added</option>
+        </select>
+      </div>
+
+      <div className="flex gap-1.5 flex-wrap">
+        {["all", ...relTypes].map((r) => (
           <button key={r} onClick={() => setFilter(r)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${filter === r ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{r}</button>
         ))}
       </div>
@@ -101,7 +144,7 @@ export function AlliesPage() {
                   <div className="grid grid-cols-2 gap-2">
                     <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Name" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
                     <select value={form.relationship} onChange={(e) => setForm((f) => ({ ...f, relationship: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                      {["ally", "council", "rival"].map((r) => <option key={r}>{r}</option>)}
+                      {relTypes.map((r) => <option key={r}>{r}</option>)}
                     </select>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
@@ -130,15 +173,15 @@ export function AlliesPage() {
                 scope={`ally/${ally.id}`}
                 fallback={ally.name}
                 sizeClass="w-10 h-10"
-                ringClass={`border-2 ${RELATIONSHIP_COLORS[ally.relationship]}`}
+                ringClass={`border-2 ${colorFor(ally.relationship)}`}
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className={`text-sm font-display font-bold ${RELATIONSHIP_COLORS[ally.relationship]}`}>{ally.name}</p>
-                  <span className={`text-xs font-mono uppercase ${RELATIONSHIP_COLORS[ally.relationship]}`}>{ally.relationship}</span>
+                  <p className={`text-sm font-display font-bold ${colorFor(ally.relationship)}`}>{ally.name}</p>
+                  <span className={`text-xs font-mono uppercase ${colorFor(ally.relationship)}`}>{ally.relationship}</span>
                 </div>
-                <p className="text-xs font-mono text-muted-foreground">LV{ally.level} • {ally.specialty}</p>
-                {ally.notes && <p className="text-xs font-body text-muted-foreground mt-0.5 line-clamp-1">{ally.notes}</p>}
+                <p className="text-xs font-mono text-muted-foreground">LV{ally.level} • {ally.specialty} • <span className="text-foreground/80">{tierOf(ally.affinity)}</span></p>
+                {ally.notes && <p className="text-xs font-body text-muted-foreground mt-0.5 line-clamp-2">{ally.notes}</p>}
                 <div className="mt-2 flex items-center gap-2">
                   <Heart size={10} className={ally.affinity > 70 ? "text-red-400" : "text-muted-foreground"} />
                   <div className="flex-1">
@@ -163,7 +206,7 @@ export function AlliesPage() {
           </HudCard>
           );
         })}
-        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">No allies — expand your network.</p>}
+        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">{allies.length === 0 ? "No allies — expand your network." : "No allies match these filters."}</p>}
       </div>
 
       <ConfirmDialog
