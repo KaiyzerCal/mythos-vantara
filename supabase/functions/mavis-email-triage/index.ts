@@ -56,13 +56,14 @@ serve(async (req) => {
 
     const { data: gmailRows, error: gmailErr } = await sb
       .from("gmail_messages")
-      .select("id, subject, from_email, snippet, body, received_at, is_read, labels")
+      .select("id, subject, from_address, snippet, body_text, received_at, is_read, labels")
       .eq("user_id", user.id)
       .order("received_at", { ascending: false })
       .limit(limit);
 
     if (!gmailErr && gmailRows && gmailRows.length > 0) {
-      emails = gmailRows;
+      // Live columns are from_address / body_text; the rest of this function reads from_email / body.
+      emails = gmailRows.map((r: any) => ({ ...r, from_email: r.from_address, body: r.body_text }));
     } else {
       const { data: memRows, error: memErr } = await sb
         .from("mavis_memory")
