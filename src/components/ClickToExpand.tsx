@@ -24,7 +24,7 @@ function isCutOff(el: HTMLElement): boolean {
   return el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1;
 }
 
-export function ClickToExpand() {
+export function ClickToExpand(): null {
   useEffect(() => {
     const onOver = (e: MouseEvent) => {
       const el = clampableFrom(e.target);
