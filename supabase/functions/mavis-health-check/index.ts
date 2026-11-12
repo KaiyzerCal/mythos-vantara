@@ -4,6 +4,7 @@
 // All tests are read-only; no data is mutated.
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { claudeFetch } from "../_shared/claudeCompat.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -120,7 +121,7 @@ Deno.serve(async (req) => {
   tests.push(
     runTest("ai_anthropic", "Anthropic Claude", "AI Providers", async () => {
       if (!ANTHROPIC_KEY) return { status: "warn", message: "ANTHROPIC_API_KEY not set" };
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await claudeFetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "x-api-key": ANTHROPIC_KEY,

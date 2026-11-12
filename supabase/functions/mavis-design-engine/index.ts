@@ -5,6 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { claudeFetch } from "../_shared/claudeCompat.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -858,7 +859,7 @@ serve(async (req) => {
     // 2. Call Claude Opus — token budget scales with quality tier
     const tier      = getTier(brief);
     const maxTokens = tier === 1 ? 8000 : tier === 2 ? 16000 : 32000;
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+    const claudeRes = await claudeFetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type":      "application/json",

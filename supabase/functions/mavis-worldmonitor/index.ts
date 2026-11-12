@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { aiComplete } from "../_shared/providers.ts";
+import { resolveAuthedUid } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -255,45 +256,77 @@ async function handleGlobeEvents(sb: any): Promise<any> {
 }
 
 // --- news_brief ---
+// Reliable news pool. GDELT (the original source) rate-limits to ~1 request / 5s and often answers with nothing, which
+// left the brief on "cooling down" and made every page load wait 10s+ on its sleeps. Public RSS feeds answer in
+// parallel and are stable; GDELT is now only a best-effort supplement.
+const RSS_FEEDS: [string, string][] = [
+  ["https://feeds.bbci.co.uk/news/world/rss.xml", "bbc.co.uk"],
+  ["https://www.aljazeera.com/xml/rss/all.xml", "aljazeera.com"],
+  ["https://feeds.npr.org/1004/rss.xml", "npr.org"],
+  ["https://rss.dw.com/rdf/rss-en-world", "dw.com"],
+  ["https://www.theguardian.com/world/rss", "theguardian.com"],
+  ["https://www.france24.com/en/rss", "france24.com"],
+];
+
+const decodeXml = (t: string) => t
+  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/<[^>]+>/g, "")
+  .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'")
+  .replace(/\s+/g, " ").trim();
+const tag = (item: string, name: string) => decodeXml(item.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i"))?.[1] ?? "");
+/** Date as GDELT writes it (20240101T120000Z) so existing formatting keeps working. */
+const toGdeltDate = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+
+async function fetchRssPool(sb: any): Promise<any[]> {
+  const cached = await getCache(sb, "rss_pool");
+  if (cached) return cached;
+  const pools = await Promise.all(RSS_FEEDS.map(async ([url, domain]) => {
+    const xml = await safeText(url, { headers: { "User-Agent": "Mozilla/5.0 (MAVIS WorldMonitor)" } });
+    if (!xml) return [];
+    return (xml.match(/<item[\s>][\s\S]*?<\/item>/gi) ?? []).slice(0, 15).map((it) => {
+      const when = new Date(tag(it, "pubDate") || tag(it, "dc:date") || Date.now());
+      return {
+        title: tag(it, "title"), url: tag(it, "link") || it.match(/<link[^>]*href="([^"]+)"/i)?.[1] || "",
+        domain, sourcecountry: "", seendate: toGdeltDate(isNaN(when.getTime()) ? new Date() : when),
+      };
+    }).filter((a) => a.title);
+  }));
+  const seen = new Set<string>();
+  const merged = pools.flat().filter((a) => {
+    const k = a.title.toLowerCase().slice(0, 40);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).sort((x, y) => y.seendate.localeCompare(x.seendate));
+  if (merged.length) await setCache(sb, "rss_pool", merged, 600);
+  return merged;
+}
+
 async function handleNewsBrief(sb: any): Promise<any> {
   const cached = await getCache(sb, "news_brief");
   if (cached) return json(cached);
 
-  // GDELT rate-limits to ~1 req / 5s. Sequence with delays; send UA.
-  const queries = ["conflict war military", "economy sanctions trade", "geopolitics diplomacy nato"];
-  const gdeltHeaders = { headers: { "User-Agent": "Mozilla/5.0 (MAVIS WorldMonitor)" } };
-  const articles: any[] = [];
-  const seen = new Set<string>();
-  for (let i = 0; i < queries.length; i++) {
-    if (i > 0) await new Promise((r) => setTimeout(r, 5200));
-    const url = `https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=${encodeURIComponent(queries[i])}&maxrecords=20&sort=DateDesc&language=English`;
-    const data = await safeFetch(url, gdeltHeaders);
-    for (const a of (data?.articles ?? [])) {
-      const key = (a.title ?? "").slice(0, 40);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      articles.push(a);
-    }
+  const articles: any[] = await fetchRssPool(sb);
+  if (articles.length < 8) {
+    // Thin RSS pool: one best-effort GDELT query (no sleeps).
+    const data = await safeFetch(
+      `https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=${encodeURIComponent("conflict economy geopolitics")}&maxrecords=20&sort=DateDesc&language=English`,
+      { headers: { "User-Agent": "Mozilla/5.0 (MAVIS WorldMonitor)" } },
+    );
+    for (const a of (data?.articles ?? [])) articles.push(a);
   }
 
-  // Prefer Lovable AI Gateway; fall back to Anthropic if only that is set.
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-  const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if ((!lovableKey && !anthropicKey) || articles.length === 0) {
-    const fallback = {
-      headline: articles.length === 0 ? "News feed cooling down" : "Intelligence synthesis unavailable",
-      body: articles.length === 0
-        ? "GDELT rate-limited or returned no articles. Retrying automatically on next cache cycle."
-        : "No LLM key configured (LOVABLE_API_KEY or ANTHROPIC_API_KEY).",
-      risk_level: "low",
-      key_themes: [],
-      generated_at: new Date().toISOString(),
+  if (articles.length === 0) {
+    const down = {
+      headline: "News feeds unreachable",
+      body: "No news source answered just now. Trying again shortly.",
+      risk_level: "low", key_themes: [], generated_at: new Date().toISOString(),
     };
-    return json(fallback);
+    await setCache(sb, "news_brief", down, 300); // short, so a blip heals fast without hammering the sources
+    return json(down);
   }
 
   const articleList = articles.slice(0, 30).map((a) =>
-    `- ${a.title} [${a.domain}, ${a.sourcecountry}, ${a.seendate ? parseGdeltDate(a.seendate) : "unknown"}]`
+    `- ${a.title} [${[a.domain, a.sourcecountry, a.seendate ? parseGdeltDate(a.seendate) : ""].filter(Boolean).join(", ")}]`
   ).join("\n");
 
   const prompt = `You are MAVIS, a global intelligence analyst. Synthesize these recent news articles into a concise intelligence brief for the operator.\n\nArticles:\n${articleList}\n\nRespond in JSON only (no markdown fences):\n{\n  "headline": "One sentence capturing the most critical global development",\n  "body": "Three paragraphs: (1) geopolitical landscape, (2) economic/market context, (3) emerging risks or opportunities",\n  "risk_level": "low|moderate|elevated|high|critical",\n  "key_themes": ["array", "of", "3-5", "themes"]\n}`;
@@ -311,7 +344,7 @@ async function handleNewsBrief(sb: any): Promise<any> {
   if (!brief) {
     brief = {
       headline: articles[0]?.title ?? "Global feed active",
-      body: `Synthesis engine returned no structured output. ${articles.length} raw articles collected across ${queries.length} feeds; showing top headline.`,
+      body: `Synthesis engine returned no structured output. ${articles.length} raw articles collected; showing top headline.`,
       risk_level: "moderate",
       key_themes: [],
     };
@@ -458,37 +491,29 @@ async function handleTechPulse(sb: any): Promise<any> {
 // --- country_brief ---
 async function handleCountryBrief(sb: any, country: string): Promise<any> {
   if (!country) return err("country param required");
+  const needle = country.toLowerCase();
 
+  const pool = (await fetchRssPool(sb)).filter((a: any) => a.title.toLowerCase().includes(needle));
   const gdeltData = await safeFetch(
-    `https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=${encodeURIComponent(`"${country}"`)}&maxrecords=20&sort=DateDesc&language=English`
+    `https://api.gdeltproject.org/api/v2/doc/doc?mode=artlist&format=json&query=${encodeURIComponent(`"${country}"`)}&maxrecords=20&sort=DateDesc&language=English`,
+    { headers: { "User-Agent": "Mozilla/5.0 (MAVIS WorldMonitor)" } },
   );
+  const articles = [...pool, ...(gdeltData?.articles ?? [])].slice(0, 20);
+  const sources = articles.slice(0, 10).map((a: any) => ({ title: a.title, url: a.url, domain: a.domain }));
+  if (!articles.length) return json({ country, brief: `No recent coverage of ${country} in the monitored feeds.`, risk_level: "low", sources: [] });
 
-  const articles = gdeltData?.articles ?? [];
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-
-  if (!apiKey) {
-    return json({ country, brief: "No Claude API key configured.", risk_level: "low", sources: [] });
-  }
-
-  const articleList = articles.slice(0, 20).map((a: any) =>
-    `- ${a.title} [${a.domain}, ${a.seendate ? parseGdeltDate(a.seendate) : "unknown"}]`
-  ).join("\n") || "No recent articles found.";
-
-  const prompt = `You are MAVIS, a global intelligence analyst. Write a concise 2-paragraph brief about ${country}'s current situation based on these recent news articles.\n\nArticles:\n${articleList}\n\nRespond in JSON only:\n{\n  "brief": "Two paragraphs about current situation and risks",\n  "risk_level": "low|moderate|elevated|high|critical"\n}`;
+  const articleList = articles.map((a: any) =>
+    `- ${a.title} [${[a.domain, a.seendate ? parseGdeltDate(a.seendate) : ""].filter(Boolean).join(", ")}]`).join("\n");
 
   let brief = "No brief available.";
   let risk_level = "low";
-
   try {
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: AbortSignal.timeout(30000),
-      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 512, messages: [{ role: "user", content: prompt }] }),
+    const { content } = await aiComplete({
+      system: "You are MAVIS, a global intelligence analyst. Respond with JSON only.",
+      user: `Write a concise 2-paragraph brief about ${country}'s current situation based on these recent news headlines, and rate the risk. Respond with JSON only: {"brief": "<two paragraphs>", "risk_level": "low"|"moderate"|"elevated"|"high"|"critical"}\n\nHeadlines:\n${articleList}`,
+      premiumFirst: true,
     });
-    const claudeData = await claudeRes.json();
-    const text = claudeData?.content?.[0]?.text ?? "";
-    const match = text.match(/\{[\s\S]*\}/);
+    const match = content.replace(/```json|```/g, "").match(/\{[\s\S]*\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);
       brief = parsed.brief ?? brief;
@@ -496,7 +521,6 @@ async function handleCountryBrief(sb: any, country: string): Promise<any> {
     }
   } catch { /* fall through */ }
 
-  const sources = articles.slice(0, 10).map((a: any) => ({ title: a.title, url: a.url, domain: a.domain }));
   return json({ country, brief, risk_level, sources });
 }
 
@@ -505,6 +529,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const sb = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
+
+  // Public data, but the briefs spend AI credits, so the endpoint is not open to the internet.
+  if (!(await resolveAuthedUid(req, sb))) return err("Unauthorized", 401);
 
   const url = new URL(req.url);
   let body: any = {};

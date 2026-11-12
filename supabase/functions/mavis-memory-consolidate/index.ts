@@ -7,6 +7,7 @@
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { isServiceRoleCaller, resolveOperatorUid } from "../_shared/auth.ts";
+import { claudeCreateBg as claudeCreate } from "../_shared/claudeCompat.ts";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const supabase  = createClient(
@@ -71,7 +72,7 @@ Deno.serve(async (req) => {
         `[${new Date(m.created_at).toISOString().slice(0, 10)}] ${m.title}: ${m.content?.slice(0, 300) ?? ""}`
       ).join("\n");
 
-      const res = await anthropic.messages.create({
+      const res = await claudeCreate({
         model:      "claude-haiku-4-5-20251001",
         max_tokens: 600,
         system: `You are a memory consolidation engine for a personal AI operating system.

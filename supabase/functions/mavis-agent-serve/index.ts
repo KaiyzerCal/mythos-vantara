@@ -5,6 +5,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.0";
+import { claudeCreate } from "../_shared/claudeCompat.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -101,7 +102,7 @@ serve(async (req) => {
       { role: "user", content: message },
     ];
 
-    const response = await anthropic.messages.create({
+    const response = await claudeCreate({
       model:      "claude-haiku-4-5-20251001",
       max_tokens: 512,
       system:     buildSystemPrompt(agent),

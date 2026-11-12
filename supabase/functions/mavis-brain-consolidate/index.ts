@@ -9,6 +9,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.1";
+import { claudeCreateBg as claudeCreate } from "../_shared/claudeCompat.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -149,7 +150,7 @@ Respond with valid JSON matching this schema:
 }`;
 
   try {
-    const res = await anthropic.messages.create({
+    const res = await claudeCreate({
       model: "claude-sonnet-4-6",
       max_tokens: 2000,
       messages: [{ role: "user", content: prompt }],

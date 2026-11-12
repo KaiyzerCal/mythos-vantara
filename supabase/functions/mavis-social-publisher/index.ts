@@ -17,6 +17,7 @@
 //   (BLOTATO_API_KEY and HEYGEN_API_KEY used inside their respective functions)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { claudeFetch } from "../_shared/claudeCompat.ts";
 
 const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -73,7 +74,7 @@ async function callAI(system: string, user: string): Promise<string> {
     } catch { /* fall through */ }
   }
   if (ANTHROPIC_KEY) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await claudeFetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({

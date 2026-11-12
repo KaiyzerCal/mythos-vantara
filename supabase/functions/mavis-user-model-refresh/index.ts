@@ -6,6 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { claudeFetchBg as claudeFetch } from "../_shared/claudeCompat.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -221,7 +222,7 @@ ${journalLines || "None"}
 
       if (!raw && claudeKey) {
         try {
-          const r = await fetch("https://api.anthropic.com/v1/messages", {
+          const r = await claudeFetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
             body: JSON.stringify({

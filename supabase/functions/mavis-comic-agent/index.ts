@@ -12,6 +12,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { claudeFetch } from "../_shared/claudeCompat.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,7 +52,7 @@ async function fetchComicImageUrl(strip: string, year: string, month: string, da
 
 async function analyzeComic(imageUrl: string, targetLanguage: string, model: string): Promise<string> {
   if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await claudeFetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type":      "application/json",

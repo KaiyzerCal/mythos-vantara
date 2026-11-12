@@ -6,6 +6,7 @@
 
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { claudeCreateBg as claudeCreate } from "../_shared/claudeCompat.ts";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const SB_KEY    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -93,7 +94,7 @@ async function executeAction(
     case "web_search": {
       // Simulated web search — MAVIS reasons about the query
       const query = String(args.query ?? "");
-      const res = await anthropic.messages.create({
+      const res = await claudeCreate({
         model:      "claude-haiku-4-5-20251001",
         max_tokens: 400,
         system:     "You are a research assistant. Reason about the query from your knowledge and provide the most useful information available. Be concise and factual.",
@@ -104,7 +105,7 @@ async function executeAction(
 
     case "analyze": {
       const prompt = String(args.prompt ?? "");
-      const res = await anthropic.messages.create({
+      const res = await claudeCreate({
         model:      "claude-sonnet-4-6",
         max_tokens: 800,
         system:     "You are MAVIS performing deep analysis. Be structured, decisive, and actionable.",
@@ -133,7 +134,7 @@ async function runGoalLoop(goal: string, context: string | undefined, maxIterati
   let history = `GOAL: ${goal}\n${context ? `CONTEXT: ${context}\n` : ""}`;
 
   for (let i = 1; i <= Math.min(maxIterations, 10); i++) {
-    const res = await anthropic.messages.create({
+    const res = await claudeCreate({
       model:      "claude-sonnet-4-6",
       max_tokens: 400,
       system:     SYSTEM,

@@ -16,6 +16,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { claudeFetch } from "../_shared/claudeCompat.ts";
 
 const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_SRK        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -67,7 +68,7 @@ async function scrapeHashtag(hashtag: string, apiKey: string): Promise<TrendItem
 // ── Claude helpers ────────────────────────────────────────────────────────────
 
 async function claudeVision(imageUrl: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await claudeFetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -92,7 +93,7 @@ async function claudeVision(imageUrl: string): Promise<string> {
 }
 
 async function claudeCaption(description: string, hashtag: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await claudeFetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify({

@@ -7,6 +7,7 @@
 import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.27.3";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { claudeCreateBg as claudeCreate } from "../_shared/claudeCompat.ts";
 
 const anthropic = new Anthropic({ apiKey: Deno.env.get("ANTHROPIC_API_KEY")! });
 const supabase  = createClient(
@@ -40,7 +41,7 @@ async function onQuestCompleted(record: any, user_id: string) {
     .eq("user_id", user_id)
     .eq("status", "active");
 
-  const res = await anthropic.messages.create({
+  const res = await claudeCreate({
     model:      "claude-haiku-4-5-20251001",
     max_tokens: 200,
     system:     "You are MAVIS congratulating the user on completing a quest. Be brief, energetic, and suggest what to focus on next. 2-3 sentences max.",
@@ -66,7 +67,7 @@ async function onQuestCompleted(record: any, user_id: string) {
 async function onJournalCreated(record: any, user_id: string) {
   // Tag emotional content and store mood signal
   if (!record.mood && record.content) {
-    const res = await anthropic.messages.create({
+    const res = await claudeCreate({
       model:      "claude-haiku-4-5-20251001",
       max_tokens: 60,
       system:     'Respond ONLY with valid JSON: {"mood": "one word", "energy": "low|medium|high", "themes": ["array", "of", "topics"]}',
