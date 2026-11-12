@@ -1229,6 +1229,10 @@ export function SkillsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [catFilter, setCatFilter] = useState("all");
   const [skillSearch, setSkillSearch] = useState("");
+  const [focus, setFocus] = useState<"all" | "training" | "mastered" | "untrained">("all");
+  const [sortBy, setSortBy] = useState("default");
+  const [shownCount, setShownCount] = useState(36);
+  const [searchShown, setSearchShown] = useState(50);
   const [form, setForm] = useState({ name: "", description: "", category: "General", energy_type: "Emerald Flames", tier: 1, proficiency: 0, parent_skill_id: "" });
   const [seeding, setSeeding] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
@@ -1312,8 +1316,37 @@ export function SkillsPage() {
 
   const parentSkills = skills.filter((s) => !s.parent_skill_id);
   const getSubskills = (parentId: string) => skills.filter((s) => s.parent_skill_id === parentId);
-  const categories = ["all", ...Array.from(new Set(skills.map((s) => s.category)))];
-  const filtered = parentSkills.filter((s) => catFilter === "all" || s.category === catFilter);
+  // Categories and their counts come from the data (the Beyonder tree alone is 1300+ rows), biggest first.
+  const catCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const s of skills) if (!s.parent_skill_id && s.category) m[s.category] = (m[s.category] ?? 0) + 1;
+    return m;
+  }, [skills]);
+  const categories = ["all", ...Object.keys(catCounts).sort((a, b) => catCounts[b] - catCounts[a] || a.localeCompare(b))];
+  const prof = (s: any) => Number(s.proficiency ?? 0);
+  const filtered = parentSkills
+    .filter((s) => (catFilter === "all" || s.category === catFilter) &&
+      (focus === "all" || (focus === "mastered" ? prof(s) >= 80 : focus === "training" ? prof(s) > 0 && prof(s) < 80 : prof(s) === 0)))
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "proficiency": return prof(b) - prof(a);
+        case "next": return (prof(a) === 0 ? 101 : prof(a)) - (prof(b) === 0 ? 101 : prof(b)) || (b.tier ?? 0) - (a.tier ?? 0); // closest-to-start trained skills last; lowest started first
+        case "tier": return (b.tier ?? 0) - (a.tier ?? 0) || prof(b) - prof(a);
+        case "name": return String(a.name).localeCompare(String(b.name));
+        default: return 0; // keep the data's own order
+      }
+    });
+  const stats = useMemo(() => {
+    const mastered = skills.filter((s) => prof(s) >= 80).length;
+    const training = skills.filter((s) => prof(s) > 0 && prof(s) < 80).length;
+    const trained = skills.filter((s) => prof(s) > 0);
+    const avg = trained.length ? Math.round(trained.reduce((n, s) => n + prof(s), 0) / trained.length) : 0;
+    return { mastered, training, untrained: skills.length - mastered - training, avg };
+  }, [skills]);
+  const subRollup = (id: string) => {
+    const subs = skills.filter((x) => x.parent_skill_id === id);
+    return subs.length ? Math.round(subs.reduce((n, x) => n + prof(x), 0) / subs.length) : 0;
+  };
 
   // Typing a search finds a skill (or sub-skill/ability at any depth — the
   // Beyonder tree alone is 1100+ rows, three levels deep) by name or
@@ -1540,11 +1573,31 @@ export function SkillsPage() {
           </div>
         </HudCard>
       )}
+      {skills.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { k: "Mastered", v: stats.mastered, c: "text-green-400", f: "mastered" as const },
+            { k: "In training", v: stats.training, c: "text-cyan-400", f: "training" as const },
+            { k: "Untrained", v: stats.untrained, c: "text-muted-foreground", f: "untrained" as const },
+            { k: "Avg when trained", v: `${stats.avg}%`, c: "text-primary", f: null },
+          ].map((t) => (
+            <button
+              key={t.k}
+              disabled={!t.f}
+              onClick={() => { if (t.f) { setFocus(focus === t.f ? "all" : t.f); setShownCount(36); } }}
+              className={`rounded border px-3 py-2 text-left transition-all ${t.f && focus === t.f ? "border-primary/50 bg-primary/10" : "border-border bg-muted/10"} ${t.f ? "hover:border-primary/30" : "cursor-default"}`}
+            >
+              <p className={`text-base font-display font-bold ${t.c}`}>{t.v}</p>
+              <p className="text-[10px] font-mono uppercase text-muted-foreground">{t.k}</p>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="relative">
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         <input
           value={skillSearch}
-          onChange={(e) => setSkillSearch(e.target.value)}
+          onChange={(e) => { setSkillSearch(e.target.value); setSearchShown(50); }}
           placeholder={`Search ${skills.length} skills by name, category, or energy type...`}
           className="w-full bg-muted/30 border border-border rounded pl-8 pr-8 py-1.5 text-sm focus:outline-none focus:border-primary/40"
         />
@@ -1561,7 +1614,7 @@ export function SkillsPage() {
           {searchResults.length === 0 ? (
             <p className="text-xs font-mono text-muted-foreground/60 italic py-4 text-center">No skills match "{skillSearch}"</p>
           ) : (
-            searchResults.map((s: any) => (
+            searchResults.slice(0, searchShown).map((s: any) => (
               <HudCard key={s.id} className={s.unlocked ? "" : "opacity-50"}>
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded border border-primary/20 bg-primary/5 flex items-center justify-center shrink-0">
@@ -1576,21 +1629,42 @@ export function SkillsPage() {
                     {s.breadcrumb && <p className="text-xs font-mono text-primary/50">{s.breadcrumb}</p>}
                     <p className="text-xs font-mono text-primary/60">{s.category} · {s.energy_type}</p>
                     {s.description && <p className="text-xs font-body text-muted-foreground mt-1 line-clamp-2">{s.description}</p>}
+                    {s.proficiency > 0 && <div className="mt-1.5"><ProgressBar value={s.proficiency} max={100} height="xs" label={`${s.proficiency}%`} /></div>}
                   </div>
                 </div>
               </HudCard>
             ))
+          )}
+          {searchResults.length > searchShown && (
+            <button onClick={() => setSearchShown((n) => n + 50)} className="w-full py-2 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10">
+              Show {Math.min(50, searchResults.length - searchShown)} more ({searchResults.length - searchShown} left)
+            </button>
           )}
         </div>
       ) : (
       <>
       <div className="flex gap-1.5 flex-wrap">
         {categories.map((c) => (
-          <button key={c} onClick={() => setCatFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}</button>
+          <button key={c} onClick={() => { setCatFilter(c); setShownCount(36); }} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${catFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>{c}{c !== "all" && <span className="ml-1 opacity-60">{catCounts[c]}</span>}</button>
         ))}
       </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <select value={sortBy} onChange={(e) => { setSortBy(e.target.value); setShownCount(36); }} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Sort skills">
+          <option value="default">Default order</option>
+          <option value="proficiency">Highest proficiency</option>
+          <option value="next">Next to train</option>
+          <option value="tier">Highest tier</option>
+          <option value="name">Name A–Z</option>
+        </select>
+        {focus !== "all" && (
+          <button onClick={() => setFocus("all")} className="flex items-center gap-1 px-2 py-1 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10">
+            {focus} <X size={10} />
+          </button>
+        )}
+        <span className="text-xs font-mono text-muted-foreground">{filtered.length} shown</span>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {filtered.map((s) => {
+        {filtered.slice(0, shownCount).map((s) => {
           const subs = getSubskills(s.id);
           const isExpanded = expandedSkills.has(s.id);
 
@@ -1633,7 +1707,7 @@ export function SkillsPage() {
                       <span className="text-xs font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5">T{s.tier}</span>
                       {subs.length > 0 && (
                         <button onClick={(e) => { e.stopPropagation(); toggleExpand(s.id); }} className="text-xs font-mono text-primary/60 hover:text-primary transition-colors">
-                          {isExpanded ? "▾" : "▸"} {subs.length} sub
+                          {isExpanded ? "▾" : "▸"} {subs.length} sub · avg {subRollup(s.id)}%
                         </button>
                       )}
                     </div>
@@ -1745,7 +1819,12 @@ export function SkillsPage() {
             </div>
           );
         })}
-        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">No skills — unlock your first ability.</p>}
+        {filtered.length === 0 && <p className="text-xs font-mono text-muted-foreground text-center py-8 col-span-2">{skills.length === 0 ? "No skills — unlock your first ability." : "No skills match these filters."}</p>}
+        {filtered.length > shownCount && (
+          <button onClick={() => setShownCount((n) => n + 36)} className="sm:col-span-2 w-full py-2 text-xs font-mono text-primary border border-primary/30 rounded hover:bg-primary/10">
+            Show {Math.min(36, filtered.length - shownCount)} more ({filtered.length - shownCount} left)
+          </button>
+        )}
       </div>
       </>
       )}

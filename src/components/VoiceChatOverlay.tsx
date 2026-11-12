@@ -83,6 +83,8 @@ export function VoiceChatOverlay({
   // first and the two call each other).
   const rescueSpeechRef = useRef<(text: string, reason: string) => void>(() => {});
   const closingRef = useRef(false);
+  // Mirror of isPaused for timers/intervals, which would otherwise read a stale closure.
+  const isPausedRef = useRef(false);
   const nativeTtsRangeListenerRef = useRef<{ remove: () => Promise<void> } | null>(null);
   const wakeLockRef = useRef<any>(null);
   const replyScrollRef = useRef<HTMLDivElement>(null);
@@ -310,6 +312,7 @@ export function VoiceChatOverlay({
           }
           return;
         }
+        if (isPausedRef.current) return; // resume() here silently un-pauses the user's pause
         try { synth.resume(); } catch { /* ignore */ }
       }, 5000);
     };
@@ -399,6 +402,7 @@ export function VoiceChatOverlay({
         let wordIdx = 0;
         const tick = () => {
           if (wordIdx >= words.length || closingRef.current) { setSpokenUpTo(text.length); return; }
+          if (isPausedRef.current) { karaokeTickRef.current = setTimeout(tick, 120); return; } // hold the highlight while paused
           charPos += words[wordIdx].length + 1;
           setSpokenUpTo(Math.min(charPos, text.length));
           wordIdx++;
@@ -1282,6 +1286,32 @@ export function VoiceChatOverlay({
   useEffect(() => {
     if (phase !== "speaking") setIsPaused(false);
   }, [phase]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
+  // Hard-stop every speech path. Handlers are detached BEFORE the source is cleared: blanking an <audio> src fires
+  // `error`, whose handler used to re-speak the whole reply through the browser voice right after the user hit Stop.
+  const stopAllSpeech = useCallback(() => {
+    if (karaokeTickRef.current) { clearTimeout(karaokeTickRef.current); karaokeTickRef.current = null; }
+    if (resumeKeepAliveRef.current) { clearInterval(resumeKeepAliveRef.current); resumeKeepAliveRef.current = null; }
+    if (speakWatchdogRef.current) { clearTimeout(speakWatchdogRef.current); speakWatchdogRef.current = null; }
+    const a = elevenAudioElRef.current;
+    if (a) {
+      a.onended = null; a.onerror = null; a.onloadedmetadata = null;
+      try { a.pause(); } catch { /* ignore */ }
+      a.src = "";
+      elevenAudioElRef.current = null;
+    }
+    if (elevenAudioUrlRef.current) { URL.revokeObjectURL(elevenAudioUrlRef.current); elevenAudioUrlRef.current = null; }
+    utteranceRef.current = null; // late "canceled" events from the cancelled utterance now no-op
+    if (Capacitor.isNativePlatform()) NativeTextToSpeech.stop().catch(() => {});
+    const synth = window.speechSynthesis;
+    if (synth) {
+      try { synth.resume(); } catch { /* ignore */ } // a cancel() while paused can leave the engine stuck paused for the next reply
+      try { synth.cancel(); } catch { /* ignore */ }
+    }
+    isPausedRef.current = false;
+    setIsPaused(false);
+  }, []);
 
   // Orb (top) — pause/resume during speaking; normal tap-to-speak otherwise
   const handleOrbTap = useCallback(() => {
@@ -1306,15 +1336,14 @@ export function VoiceChatOverlay({
         else { elevenAudioElRef.current.pause(); setIsPaused(true); }
       } else if (Capacitor.isNativePlatform()) {
         // NativeTextToSpeech has no pause/resume API — treat a tap here as stop.
-        NativeTextToSpeech.stop().catch(() => {});
-        setIsPaused(false);
+        stopAllSpeech();
         setPhase("idle");
       } else if (window.speechSynthesis) {
         if (isPaused) { window.speechSynthesis.resume(); setIsPaused(false); }
         else { window.speechSynthesis.pause(); setIsPaused(true); }
       }
     }
-  }, [phase, liveMode, isPaused, startListening, unlockAudio]);
+  }, [phase, liveMode, isPaused, startListening, unlockAudio, stopAllSpeech]);
 
   // Bottom button — stop (cancel) during speaking; tap-to-speak otherwise
   const handleStopTap = useCallback(() => {
@@ -1333,17 +1362,10 @@ export function VoiceChatOverlay({
       setPersonaLoading(false);
       setPhase("idle");
     } else if (phase === "speaking") {
-      if (elevenAudioElRef.current) {
-        try { elevenAudioElRef.current.pause(); } catch { /* ignore */ }
-        elevenAudioElRef.current.src = "";
-        elevenAudioElRef.current = null;
-      }
-      if (Capacitor.isNativePlatform()) NativeTextToSpeech.stop().catch(() => {});
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
-      setIsPaused(false);
+      stopAllSpeech();
       setPhase("idle");
     }
-  }, [phase, liveMode, startListening, unlockAudio]);
+  }, [phase, liveMode, startListening, unlockAudio, stopAllSpeech]);
 
   const phaseLabel: Record<Phase, string> = {
     idle: "TAP TO SPEAK",

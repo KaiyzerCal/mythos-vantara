@@ -1810,6 +1810,8 @@ export function CouncilsPage() {
   const [appCtx, setAppCtx] = useState<AppContextSnapshot | null>(null);
   const [form, setForm] = useState({ name: "", role: "", specialty: "", class: "advisory", notes: "", timezone: "", identity: "" });
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; label: string } | null>(null);
+  const [search, setSearch] = useState("");
+  const [classFilter, setClassFilter] = useState("all");
 
   // Pre-load app context for voice calls (60s cache shared with MAVIS)
   useEffect(() => {
@@ -1868,12 +1870,19 @@ export function CouncilsPage() {
     setConfirmDelete({ id, label: member?.name ?? id });
   };
 
-  const grouped = {
-    core: councils.filter((c) => c.class === "core"),
-    advisory: councils.filter((c) => c.class === "advisory"),
-    "think-tank": councils.filter((c) => c.class === "think-tank"),
-    shadows: councils.filter((c) => c.class === "shadows"),
-  };
+  // Chambers: the four known ones first, then any other class that exists in the data (it used to vanish silently).
+  const CLASS_ORDER = ["core", "advisory", "think-tank", "shadows"];
+  const classes = Array.from(new Set([...CLASS_ORDER, ...councils.map((c: any) => c.class).filter(Boolean)]));
+  const classCount = (cls: string) => councils.filter((c: any) => c.class === cls).length;
+  const q = search.trim().toLowerCase();
+  const matches = (c: any) => !q || [c.name, c.role, c.specialty, c.notes, c.class].some((v) => String(v ?? "").toLowerCase().includes(q));
+  const grouped = Object.fromEntries(
+    classes
+      .filter((cls) => classFilter === "all" || classFilter === cls)
+      .map((cls) => [cls, councils.filter((c: any) => c.class === cls && matches(c))])
+  ) as Record<string, any[]>;
+  const shownTotal = Object.values(grouped).reduce((n, m) => n + m.length, 0);
+  const voicedCount = councils.filter((c: any) => c.voice_id).length;
 
   const classColors: Record<string, string> = {
     core: "text-primary",
@@ -1915,7 +1924,7 @@ export function CouncilsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Councils"
-        subtitle={`${councils.length} members — tap any to open a direct channel`}
+        subtitle={`${councils.length} members · ${voicedCount} with a voice — tap any to open a direct channel`}
         icon={<Users size={18} />}
         actions={
           <button onClick={() => { resetForm(); setShowCreate(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono bg-primary/10 border border-primary/30 text-primary rounded hover:bg-primary/20 transition-all">
@@ -1934,7 +1943,7 @@ export function CouncilsPage() {
                 <input value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} placeholder="Role" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
                 <input value={form.specialty} onChange={(e) => setForm((f) => ({ ...f, specialty: e.target.value }))} placeholder="Specialty" className="bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none" />
                 <select value={form.class} onChange={(e) => setForm((f) => ({ ...f, class: e.target.value }))} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none">
-                  {["core", "advisory", "think-tank", "shadows"].map((c) => <option key={c}>{c}</option>)}
+                  {Array.from(new Set([...CLASS_ORDER, form.class])).map((c) => <option key={c}>{c}</option>)}
                 </select>
               </div>
               <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Character essence / how they speak / their worldview..." rows={2} className="w-full bg-muted/30 border border-border rounded px-3 py-1.5 text-sm resize-none focus:outline-none" />
@@ -1951,9 +1960,29 @@ export function CouncilsPage() {
         </motion.div>
       )}
 
-      {(Object.entries(grouped) as [string, any[]][]).map(([cls, members]) => (
+      {councils.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, role, specialty, notes..." className="flex-1 bg-muted/30 border border-border rounded px-3 py-1.5 text-sm focus:outline-none focus:border-primary/40" />
+          </div>
+          <div className="flex gap-1.5 flex-wrap items-center">
+            {["all", ...classes].map((c) => (
+              <button key={c} onClick={() => setClassFilter(c)} className={`px-2 py-1 text-xs font-mono uppercase rounded border transition-all ${classFilter === c ? "bg-primary/10 border-primary/30 text-primary" : "border-border/50 text-muted-foreground"}`}>
+                {c}<span className="ml-1 opacity-60">{c === "all" ? councils.length : classCount(c)}</span>
+              </button>
+            ))}
+            {(q || classFilter !== "all") && <span className="text-xs font-mono text-muted-foreground ml-1">{shownTotal} shown</span>}
+          </div>
+        </div>
+      )}
+
+      {shownTotal === 0 && councils.length > 0 && (
+        <p className="text-xs font-mono text-muted-foreground text-center py-6">No members match these filters.</p>
+      )}
+
+      {(Object.entries(grouped) as [string, any[]][]).filter(([, members]) => members.length > 0 || (!q && classFilter !== "all") || (!q && councils.length === 0)).map(([cls, members]) => (
         <div key={cls}>
-          <h3 className={`text-xs font-mono uppercase tracking-widest mb-2 flex items-center gap-2 ${classColors[cls]}`}>
+          <h3 className={`text-xs font-mono uppercase tracking-widest mb-2 flex items-center gap-2 ${classColors[cls] ?? "text-amber-400"}`}>
             <Users size={10} /> {cls} Chamber ({members.length})
           </h3>
           {members.length === 0 ? (
@@ -1975,7 +2004,7 @@ export function CouncilsPage() {
                         scope={`council/${m.id}`}
                         fallback={m.name}
                         sizeClass="w-9 h-9"
-                        ringClass={`border ${classColors[m.class]}`}
+                        ringClass={`border ${classColors[m.class] ?? "text-amber-400"}`}
                         shape="square"
                       />
                     </div>
@@ -1983,7 +2012,7 @@ export function CouncilsPage() {
                       <p className="text-sm font-display font-bold">{m.name}</p>
                       <p className="text-xs font-mono text-muted-foreground">{m.role}</p>
                       {m.specialty && <p className="text-xs font-mono text-primary/50 truncate">⟡ {m.specialty}</p>}
-                      {m.notes && <p className="text-xs font-body text-muted-foreground mt-1 line-clamp-1">{m.notes}</p>}
+                      {m.notes && <p className="text-xs font-body text-muted-foreground mt-1 line-clamp-2">{m.notes}</p>}
                     </div>
                     <div className="flex flex-col gap-1 shrink-0">
                       <button onClick={(e) => handleEdit(m, e)} className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-all opacity-0 group-hover:opacity-100" title="Edit">
