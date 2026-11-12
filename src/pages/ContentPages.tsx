@@ -36,6 +36,7 @@ export function JournalPage() {
   const [jCat, setJCat] = useState("all");
   const [jImp, setJImp] = useState("all");
   const [jEmo, setJEmo] = useState("all");
+  const [jTag, setJTag] = useState("all");
   const [jSort, setJSort] = useState("newest");
   const [jVisible, setJVisible] = useState(30);
   useEffect(() => { setJVisible(30); }, [jSearch, jCat, jImp, jEmo, jSort]);
@@ -144,12 +145,15 @@ export function JournalPage() {
   const countBy = (vals: (string | null | undefined)[]) => vals.reduce<Record<string, number>>((m, v) => { if (v) m[v] = (m[v] ?? 0) + 1; return m; }, {});
   const jCatCounts = countBy(journalEntries.map((e: any) => e.category));
   const jEmoCounts = countBy(journalEntries.map((e: any) => e.dominant_emotion));
+  const jTagCounts = countBy(journalEntries.flatMap((e: any) => (e.tags ?? []) as string[]));
+  const wordsOf = (t: any) => { const n = String(t ?? "").trim().split(/\s+/).filter(Boolean).length; return n; };
   const jCatOptions = Array.from(new Set(["personal", "business", "fitness", "legal", "reflection", ...Object.keys(jCatCounts), form.category].filter(Boolean)));
   const IMP_RANK: Record<string, number> = { critical: 3, high: 2, medium: 1, low: 0 };
   const jq = jSearch.trim().toLowerCase();
   const jEntries = journalEntries
     .filter((e: any) =>
       (jCat === "all" || e.category === jCat) && (jImp === "all" || e.importance === jImp) && (jEmo === "all" || e.dominant_emotion === jEmo) &&
+      (jTag === "all" || (e.tags ?? []).includes(jTag)) &&
       (!jq || [e.title, e.content, e.mood, e.dominant_emotion, (e.tags ?? []).join(" ")].some((v) => String(v ?? "").toLowerCase().includes(jq))))
     .sort((a: any, b: any) => {
       switch (jSort) {
@@ -160,6 +164,18 @@ export function JournalPage() {
       }
     });
   const jShown = jEntries.slice(0, jVisible);
+
+  // Looking back: what was written about a month ago, or on this calendar day in an earlier year.
+  const lookBack = (() => {
+    const now = new Date();
+    return journalEntries.filter((e: any) => {
+      const d = new Date(e.created_at);
+      const days = (now.getTime() - d.getTime()) / 86_400_000;
+      const sameDayEarlierYear = d.getFullYear() < now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+      return (days >= 28 && days <= 32) || sameDayEarlierYear;
+    }).slice(0, 2);
+  })();
+  const filtersActive = !!(jSearch || jCat !== "all" || jImp !== "all" || jEmo !== "all" || jTag !== "all");
 
   // Habit read-out: entries this month, the current daily streak, and what the last 30 days felt like.
   const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -286,11 +302,36 @@ export function JournalPage() {
                 {Object.keys(jEmoCounts).sort((a, b) => jEmoCounts[b] - jEmoCounts[a]).map((c) => <option key={c} value={c}>{c} ({jEmoCounts[c]})</option>)}
               </select>
             )}
-            {(jSearch || jCat !== "all" || jImp !== "all" || jEmo !== "all") && (
-              <button onClick={() => { setJSearch(""); setJCat("all"); setJImp("all"); setJEmo("all"); }} className="px-2 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground">Clear filters</button>
+            {Object.keys(jTagCounts).length > 0 && (
+              <select value={jTag} onChange={(e) => setJTag(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Filter by tag">
+                <option value="all">Any tag</option>
+                {Object.keys(jTagCounts).sort((a, b) => jTagCounts[b] - jTagCounts[a] || a.localeCompare(b)).map((t) => <option key={t} value={t}>#{t} ({jTagCounts[t]})</option>)}
+              </select>
+            )}
+            {filtersActive && (
+              <button onClick={() => { setJSearch(""); setJCat("all"); setJImp("all"); setJEmo("all"); setJTag("all"); }} className="px-2 py-1.5 text-xs font-mono text-muted-foreground border border-border rounded hover:text-foreground">Clear filters</button>
             )}
           </div>
         </div>
+      )}
+
+      {!filtersActive && lookBack.length > 0 && (
+        <HudCard className="border-cyan-500/20 bg-cyan-500/5">
+          <p className="text-xs font-mono text-cyan-400 uppercase tracking-widest mb-2">Looking back</p>
+          <div className="space-y-1.5">
+            {lookBack.map((e: any) => (
+              <button
+                key={e.id}
+                onClick={() => { setJSort("newest"); const idx = jEntries.findIndex((x: any) => x.id === e.id); setJVisible((v) => Math.max(v, idx + 1)); setExpandedId(e.id); }}
+                className="w-full text-left"
+              >
+                <span className="text-xs font-display font-bold text-foreground">{e.title}</span>
+                <span className="text-xs font-mono text-muted-foreground"> · {new Date(e.created_at).toLocaleDateString()}</span>
+                <p className="text-xs font-body text-muted-foreground line-clamp-1">{String(e.content ?? "").replace(/\s+/g, " ")}</p>
+              </button>
+            ))}
+          </div>
+        </HudCard>
       )}
 
       <div className="space-y-2">
@@ -363,9 +404,10 @@ export function JournalPage() {
                     )}
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       {(e.tags ?? []).map((t) => (
-                        <span key={t} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5">#{t}</span>
+                        <button key={t} onClick={(ev) => { ev.stopPropagation(); setJTag(t); }} title={`Show only #${t}`} className="text-xs font-mono text-primary/60 border border-primary/20 rounded px-1.5 py-0.5 hover:border-primary/50 hover:text-primary">#{t}</button>
                       ))}
                       {!isExpanded && e.mood && <span className="text-xs font-mono text-muted-foreground ml-auto">mood: {e.mood}</span>}
+                      {!isExpanded && wordsOf(e.content) > 0 && <span className="text-xs font-mono text-muted-foreground">{wordsOf(e.content)} words</span>}
                       {!isExpanded && <span className="text-xs font-mono text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</span>}
                     </div>
                   </div>
@@ -413,6 +455,7 @@ export function VaultCodexPage() {
   const [catFilter, setCatFilter] = useState("all");
   const [vSearch, setVSearch] = useState("");
   const [vImp, setVImp] = useState("all");
+  const [vFilesOnly, setVFilesOnly] = useState(false);
   const [vSort, setVSort] = useState("newest");
   const [vVisible, setVVisible] = useState(40);
   useEffect(() => { setVVisible(40); }, [vSearch, vImp, vSort, catFilter]);
@@ -469,6 +512,7 @@ export function VaultCodexPage() {
   const vq = vSearch.trim().toLowerCase();
   const filtered = vaultEntries
     .filter((e) => (catFilter === "all" || catsOf(e).includes(catFilter)) && (vImp === "all" || e.importance === vImp) &&
+      (!vFilesOnly || (entryMedia[e.id]?.length ?? 0) > 0) &&
       (!vq || [e.title, e.content].some((v) => String(v ?? "").toLowerCase().includes(vq))))
     .sort((a, b) => {
       switch (vSort) {
@@ -951,6 +995,7 @@ export function VaultCodexPage() {
         <select value={vSort} onChange={(e) => setVSort(e.target.value)} className="bg-muted/30 border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none" aria-label="Sort vault">
           <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="importance">Most important</option><option value="title">Title A–Z</option>
         </select>
+        <button onClick={() => setVFilesOnly((v) => !v)} className={`px-2 py-1.5 text-xs font-mono rounded border transition-all ${vFilesOnly ? "bg-primary/10 border-primary/30 text-primary" : "border-border text-muted-foreground"}`}>📎 With files{vFilesOnly ? ` (${filtered.length})` : ""}</button>
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
@@ -1037,6 +1082,7 @@ export function VaultCodexPage() {
                     <span className={`text-xs font-mono uppercase ${importanceColor[e.importance]}`}>{e.importance}</span>
                     <span className="text-xs font-mono text-muted-foreground">{e.category}</span>
                     {media.length > 0 && <span className="text-xs font-mono text-emerald-400">📎 {media.length}</span>}
+                    {String(e.content ?? "").trim() && <span className="text-xs font-mono text-muted-foreground/70">{String(e.content).trim().split(/\s+/).length} words</span>}
                   </div>
                   {e.content && (
                     <p className={`text-xs font-body text-muted-foreground ${isExpanded ? "whitespace-pre-wrap" : "line-clamp-3"}`}>
