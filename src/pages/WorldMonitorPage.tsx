@@ -62,6 +62,18 @@ const FEAR_GREED_COLOR = (v: number) =>
 const FEAR_GREED_LABEL = (v: number) =>
   v <= 25 ? "Extreme Fear" : v <= 45 ? "Fear" : v <= 55 ? "Neutral" : v <= 75 ? "Greed" : "Extreme Greed";
 
+const RISK_LEVELS = ["low", "moderate", "elevated", "high", "critical"] as const;
+/** The brief is AI-written JSON; a reply missing a field used to crash the whole page (risk_level.toUpperCase, key_themes.map). */
+function normalizeBrief(b: any): WorldBrief {
+  return {
+    headline: String(b?.headline ?? "Briefing unavailable"),
+    body: String(b?.body ?? ""),
+    risk_level: (RISK_LEVELS as readonly string[]).includes(b?.risk_level) ? b.risk_level : "low",
+    key_themes: Array.isArray(b?.key_themes) ? b.key_themes.map(String) : [],
+    generated_at: String(b?.generated_at ?? new Date().toISOString()),
+  };
+}
+
 async function callWorldMonitor(action: string, params: Record<string, any> = {}) {
   const { data: { session } } = await supabase.auth.getSession();
   const res = await fetch(`${SB_URL}/functions/v1/mavis-worldmonitor`, {
@@ -299,7 +311,7 @@ export default function WorldMonitorPage() {
           }).catch(() => { /* EONET unreachable — globe still shows edge data */ });
         }
       }
-      if (briefRes.status === "fulfilled") setBrief(briefRes.value);
+      if (briefRes.status === "fulfilled") setBrief(normalizeBrief(briefRes.value));
       if (mktRes.status   === "fulfilled") {
         setTicks(mktRes.value.ticks ?? []);
         if (mktRes.value.fearGreed) setFearGreed(mktRes.value.fearGreed);
