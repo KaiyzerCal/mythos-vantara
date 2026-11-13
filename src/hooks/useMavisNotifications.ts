@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase as _supabase } from "@/integrations/supabase/client";
-import { usePushNotifications } from "./usePushNotifications";
+import { usePushNotifications, isDuplicateNotification } from "./usePushNotifications";
 import { useAuth } from "@/contexts/AuthContext";
 
 const supabase = _supabase as any;
@@ -75,6 +75,9 @@ export function useMavisNotifications() {
 
     const lastCheck = parseInt(localStorage.getItem(LAST_CHECK_KEY) ?? "0", 10);
     if (Date.now() - lastCheck < CHECK_INTERVAL_MS) return;
+    // Claim this window up front. It used to be recorded only after the alerts had fired, so a second run starting in
+    // the meantime (a second tab, a remount, React strict mode) saw "not checked yet" and fired them all again.
+    localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
 
     const runChecks = async () => {
       const now = new Date().toISOString();
@@ -212,6 +215,7 @@ export function useMavisNotifications() {
 
         // Fire notifications in priority order, consuming budget slots
         for (const n of queue) {
+          if (isDuplicateNotification(n.title, n.body)) continue; // already raised recently: don't spend a budget slot on it
           const slotGranted = await canSend();
           if (!slotGranted) break; // Budget exhausted for today
 
@@ -219,13 +223,18 @@ export function useMavisNotifications() {
           await logNotification(n.type, n.title, n.body, n.priority);
         }
 
-        localStorage.setItem(LAST_CHECK_KEY, String(Date.now()));
       } catch {
         // Fail silently — notifications are non-critical
       }
     };
 
-    runChecks();
+    // Across tabs, only one may run the check at a time (Web Locks is atomic; the localStorage claim above covers
+    // browsers without it).
+    if (typeof navigator !== "undefined" && navigator.locks) {
+      void navigator.locks.request("mavis-notif-check", { ifAvailable: true }, async (lock) => { if (lock) await runChecks(); });
+    } else {
+      runChecks();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
