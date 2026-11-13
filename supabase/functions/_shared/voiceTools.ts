@@ -29,6 +29,25 @@ interface VoiceToolSpec {
 
 export const VOICE_TOOL_SPECS: VoiceToolSpec[] = [
   {
+    name: "search_app",
+    description: "Search the operator's own data: journal entries, vault, notes, memories, meetings. Use it when they ask what they wrote or decided before, or to find something of theirs. Answer from the results; if nothing matches, say so.",
+    params: {
+      query: { type: "string", description: "Words or a phrase to look for" },
+      scope: { type: "string", description: "Optional: limit to one area", enum: ["all", "journal", "vault"] },
+    },
+    required: ["query"],
+  },
+  {
+    name: "create_journal",
+    description: "Save a journal entry. Only when the operator asks to log, journal or note something down; put what they said in content.",
+    params: {
+      title: { type: "string", description: "Short title" },
+      content: { type: "string", description: "The entry text, in the operator's words" },
+      mood: { type: "string", description: "Optional one-word mood" },
+    },
+    required: ["title", "content"],
+  },
+  {
     name: "web_search",
     description: "Search the live web for current information: news, prices, scores, weather, facts, or anything you are unsure of or that may have changed. Call it whenever the user asks you to search, look something up, or find out about something, then answer from the result in a sentence or two.",
     params: {

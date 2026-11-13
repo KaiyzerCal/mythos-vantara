@@ -701,25 +701,31 @@ export function VoiceChatOverlay({
     const responses = await Promise.all(calls.map(async (call) => {
       // Search is a read: the model needs the results back to answer with, not just a success flag. It used to go
       // through the quest/skill action executor, which discards the payload, and the tool was not even offered.
-      if (call.name === "web_search") {
+      // Read tools hand their results back to the model. web_search → search_web, search_app → search_app.
+      const READ_TOOLS: Record<string, string> = { web_search: "search_web", search_app: "search_app" };
+      if (READ_TOOLS[call.name]) {
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session?.access_token) throw new Error("Not signed in");
           const { data, error } = await supabase.functions.invoke("mavis-actions", {
-            body: { actions: [{ type: "search_web", params: { query: String(call.args?.query ?? ""), max_results: 5 } }] },
+            body: { actions: [{ type: READ_TOOLS[call.name], params: { ...(call.args ?? {}), query: String(call.args?.query ?? ""), max_results: 5, limit: 5 } }] },
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
           if (error) throw error;
           const r = (data as any)?.results?.[0];
           const d = r?.data ?? {};
           if (r?.success === false || d.error) throw new Error(String(r?.error ?? d.error ?? "Search failed"));
+          // Keep the payload small for the model: a few results, every text field capped.
+          const trim = (x: any) => Object.fromEntries(Object.entries(x ?? {}).filter(([, v]) => typeof v === "string" || typeof v === "number").map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 300) : v]));
           return {
             id: call.id,
             name: call.name,
             response: {
               success: true,
               answer: d.answer ?? null,
-              results: (Array.isArray(d.results) ? d.results : []).slice(0, 4).map((x: any) => ({ title: x.title, snippet: String(x.content ?? "").slice(0, 300), url: x.url })),
+              note: d.note ?? undefined,
+              matched: d.matched ?? undefined,
+              results: (Array.isArray(d.results) ? d.results : []).slice(0, 5).map(trim),
             },
           };
         } catch (err) {
