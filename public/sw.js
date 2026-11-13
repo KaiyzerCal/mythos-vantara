@@ -82,6 +82,8 @@ self.addEventListener("push", (event) => {
       badge: "/icon.svg",
       vibrate: [200, 100, 200],
       data: { url: payload.url },
+      // Same tag replaces the previous notification instead of stacking a duplicate (e.g. server push + retry).
+      tag: payload.tag || `${payload.title}:${payload.body}`,
       actions: [{ action: "open", title: "Open MAVIS" }],
     })
   );
