@@ -14,6 +14,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader, HudCard } from "@/components/SharedUI";
 import { toast } from "sonner";
+import { LiveSystemStatus } from "@/components/LiveSystemStatus";
 
 const SB_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
 
@@ -259,6 +260,8 @@ export function SystemHealthPage() {
         subtitle="Feature diagnostics and autonomous intelligence engine monitor"
         icon={<Activity size={18} />}
       />
+
+      <LiveSystemStatus />
 
       {/* ── Tabs ─────────────────────────────────────────── */}
       <div className="flex items-center gap-1 border-b border-zinc-700/40 pb-0">

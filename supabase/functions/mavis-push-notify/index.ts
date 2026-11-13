@@ -88,6 +88,22 @@ serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // ── Duplicate guard ───────────────────────────────────────────────────
+    // The same alert (same title + body) inside 6h is dropped. Several engines (predictive, ambient, relationship)
+    // can raise the same nudge in overlapping runs. Best-effort: a failure here must never block a real send.
+    try {
+      const since = new Date(Date.now() - 6 * 3600_000).toISOString();
+      const { data: dup } = await supabase
+        .from("notification_log").select("id")
+        .eq("user_id", input.user_id).eq("title", input.title).eq("body", input.body).gte("sent_at", since).limit(1);
+      if (dup && dup.length > 0) {
+        return new Response(
+          JSON.stringify({ sent: 0, failed: 0, skipped: 1, reason: "Duplicate of a notification sent in the last 6h" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } catch (e) { console.warn("dedupe check skipped:", e); }
+
     // ── Env vars for push providers ──────────────────────────────────────────
     const FCM_SERVER_KEY = Deno.env.get("FCM_SERVER_KEY");
     const APNS_KEY_ID = Deno.env.get("APNS_KEY_ID");
@@ -114,12 +130,9 @@ serve(async (req: Request) => {
       );
     }
 
-    if (!tokens || tokens.length === 0) {
-      return new Response(
-        JSON.stringify({ sent: 0, failed: 0, skipped: 0, reason: "No active tokens found" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    // No native (FCM/APNS) tokens is not the end: browser Web Push below has its own subscription table. This used to
+    // return here, so a user with a browser subscription and no phone token never received a server push at all.
+    const nativeTokens = (tokens ?? []) as DevicePushToken[];
 
     let sent = 0;
     let failed = 0;
@@ -127,7 +140,7 @@ serve(async (req: Request) => {
 
     // Pre-build APNS JWT once if needed (valid for up to 60 min)
     let apnsJwt: string | null = null;
-    const iosTokens = (tokens as DevicePushToken[]).filter((t) => t.platform === "ios");
+    const iosTokens = nativeTokens.filter((t) => t.platform === "ios");
     if (iosTokens.length > 0 && apnsConfigured) {
       try {
         apnsJwt = await buildApnsJwt(APNS_KEY_ID!, APNS_TEAM_ID!, APNS_AUTH_KEY!);
@@ -137,7 +150,7 @@ serve(async (req: Request) => {
     }
 
     // ── Process each token ───────────────────────────────────────────────────
-    for (const tokenRow of tokens as DevicePushToken[]) {
+    for (const tokenRow of nativeTokens) {
       const { id: tokenId, token, platform } = tokenRow;
 
       try {
@@ -273,8 +286,15 @@ serve(async (req: Request) => {
       }
     }
 
+    if (sent > 0) {
+      // Remember it so the duplicate guard above can see it. Best-effort.
+      try {
+        await supabase.from("notification_log").insert({ user_id: input.user_id, type: "server_push", title: input.title, body: input.body, priority: 5 });
+      } catch { /* analytics only */ }
+    }
+
     return new Response(
-      JSON.stringify({ sent, failed, skipped }),
+      JSON.stringify({ sent, failed, skipped, ...(nativeTokens.length === 0 ? { note: "No native tokens; Web Push only" } : {}) }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {

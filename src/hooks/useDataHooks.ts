@@ -335,7 +335,9 @@ export function useEnergySystems() {
       { type: "Black Heart", current_value: 100, max_value: 100, color: "#111111", description: "Consciousness = Reality", status: "mastered" },
       { type: "Emerald Flames", current_value: 100, max_value: 100, color: "#08C284", description: "Abraxas + Azaroth fusion", status: "perfect" },
     ].map((e) => ({ ...e, user_id: user.id }));
-    await supabase.from("energy_systems").insert(defaults);
+    // The insert's error used to be discarded, so a rejected seed left the Energy page empty with nothing logged anywhere.
+    const { error: seedError } = await supabase.from("energy_systems").insert(defaults);
+    if (seedError) console.error("[useDataHooks] Seeding default energy systems failed:", seedError.message);
     await fetch();
   }, [user, systems.length, fetch]);
 
