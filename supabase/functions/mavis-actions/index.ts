@@ -6,6 +6,7 @@ import { searchAppData, resolveScope, SEARCHABLE_KEYS } from "../_shared/appSear
 import { reembedRow } from "../_shared/reembedRow.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { suggestSkillLinks } from "../_shared/skillLinker.ts";
+import { getTavilyKey } from "../_shared/tavilyKey.ts";
 
 type MavisAction = {
   type: string;
@@ -2594,7 +2595,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const query = String(p.query ?? p.q ?? "").trim();
       if (!query) return { error: "query required" };
       const maxResults = Number(p.max_results ?? p.num ?? 5);
-      const tavilyKey = Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("TAVILY_KEY") ?? "";
+      const tavilyKey = getTavilyKey();
       if (tavilyKey) {
         const res = await fetch("https://api.tavily.com/search", {
           method: "POST",

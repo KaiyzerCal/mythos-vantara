@@ -18,6 +18,7 @@ import {
 import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
+import { getTavilyKey } from "../_shared/tavilyKey.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -778,7 +779,7 @@ async function callClaude(
 // Results are injected and Claude gives a final response.
 // ─────────────────────────────────────────────────────────────
 
-const TAVILY_KEY = Deno.env.get("TAVILY_API_KEY");
+const TAVILY_KEY = getTavilyKey();
 const SEARCH_REGEX = /:::SEARCH\{([\s\S]*?)\}:::/g;
 
 async function searchWeb(query: string): Promise<string> {

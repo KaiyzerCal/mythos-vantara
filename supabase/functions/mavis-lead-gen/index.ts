@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { getTavilyKey } from "../_shared/tavilyKey.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,7 +12,7 @@ const corsHeaders = {
 const SB_URL        = Deno.env.get("SUPABASE_URL")!;
 const SB_KEY        = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const TAVILY_KEY    = Deno.env.get("TAVILY_API_KEY") ?? "";
+const TAVILY_KEY    = getTavilyKey() ?? "";
 const BROWSER_URL   = Deno.env.get("BROWSER_URL") ?? "";
 const PROVIDER_KEYS = {
   openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "",

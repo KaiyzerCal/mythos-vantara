@@ -699,6 +699,33 @@ export function VoiceChatOverlay({
   // reports every result back so Gemini can confirm verbally.
   const handleLiveToolCalls = useCallback(async (calls: { id: string; name: string; args: Record<string, unknown> }[]) => {
     const responses = await Promise.all(calls.map(async (call) => {
+      // Search is a read: the model needs the results back to answer with, not just a success flag. It used to go
+      // through the quest/skill action executor, which discards the payload, and the tool was not even offered.
+      if (call.name === "web_search") {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) throw new Error("Not signed in");
+          const { data, error } = await supabase.functions.invoke("mavis-actions", {
+            body: { actions: [{ type: "search_web", params: { query: String(call.args?.query ?? ""), max_results: 5 } }] },
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (error) throw error;
+          const r = (data as any)?.results?.[0];
+          const d = r?.data ?? {};
+          if (r?.success === false || d.error) throw new Error(String(r?.error ?? d.error ?? "Search failed"));
+          return {
+            id: call.id,
+            name: call.name,
+            response: {
+              success: true,
+              answer: d.answer ?? null,
+              results: (Array.isArray(d.results) ? d.results : []).slice(0, 4).map((x: any) => ({ title: x.title, snippet: String(x.content ?? "").slice(0, 300), url: x.url })),
+            },
+          };
+        } catch (err) {
+          return { id: call.id, name: call.name, response: { success: false, error: err instanceof Error ? err.message : String(err) } };
+        }
+      }
       const action: ParsedAction = {
         type: call.name,
         payload: { type: call.name, params: call.args ?? {} },

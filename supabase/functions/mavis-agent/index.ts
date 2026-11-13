@@ -9,6 +9,7 @@ import {
 } from "../_shared/providers.ts";
 
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
+import { getTavilyKey } from "../_shared/tavilyKey.ts";
 // ── CORS headers ──────────────────────────────────────────────────────────────
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1806,7 +1807,7 @@ async function handleTool(
         const report: Record<string, unknown> = {};
         const keys = {
           anthropic: !!Deno.env.get("ANTHROPIC_API_KEY"),
-          tavily: !!(Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY")),
+          tavily: !!(getTavilyKey()),
           grok: !!(Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY")),
           telegram: !!(Deno.env.get("TELEGRAM_BOT_TOKEN")),
           openai: !!(Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")),
@@ -3064,7 +3065,7 @@ Deno.serve(async (req) => {
     const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
     const env: Env = {
-      tavilyKey: Deno.env.get("Tavily_API") ?? Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("TAVILY_KEY") ?? "",
+      tavilyKey: getTavilyKey() ?? "",
       grokKey:   Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? Deno.env.get("X_AI_API_KEY") ?? Deno.env.get("GROK_KEY") ?? "",
       openaiKey: Deno.env.get("OPENAI_API_KEY") ?? Deno.env.get("OPENAI_API") ?? Deno.env.get("OPEN_AI_API_KEY") ?? "",
       lovableKey,
