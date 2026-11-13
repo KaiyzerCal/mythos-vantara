@@ -27,6 +27,8 @@ export async function tavilySearch(query: string, key: string): Promise<string> 
 
 export function needsWebSearch(msg: string): boolean {
   const lower = msg.toLowerCase();
+  // "search my journal" is an in-app search (search_app), not a web one.
+  if (/\b(my|the) (journal|vault|notes|quests?|skills?|memory|memories|calendar|inbox|emails?)\b/.test(lower) && /\bsearch\b/.test(lower) && !/\b(web|internet|google|online)\b/.test(lower)) return false;
   return [
     "search for","look up","what is happening","current events","latest news",
     "today's","right now","real-time","search the web","find out about","what's new",
@@ -34,6 +36,7 @@ export function needsWebSearch(msg: string): boolean {
     "google","find me","search the internet","look this up","pull up",
     "what's happening","who is","what is the latest","current price",
     "news about","tell me about the latest","up to date","most recent",
+    "search","latest","news","on the web","internet","price of","how much is","forecast",
   ].some((t) => lower.includes(t));
 }
 

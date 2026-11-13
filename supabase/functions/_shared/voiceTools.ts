@@ -29,6 +29,14 @@ interface VoiceToolSpec {
 
 export const VOICE_TOOL_SPECS: VoiceToolSpec[] = [
   {
+    name: "web_search",
+    description: "Search the live web for current information: news, prices, scores, weather, facts, or anything you are unsure of or that may have changed. Call it whenever the user asks you to search, look something up, or find out about something, then answer from the result in a sentence or two.",
+    params: {
+      query: { type: "string", description: "What to search for, phrased as a search query" },
+    },
+    required: ["query"],
+  },
+  {
     name: "create_quest",
     description: "Create a new quest. Use linked_skill_ids to tie it to one or more skills from the SKILLS/BEYONDER PATHWAYS context so completing it raises their proficiency.",
     params: {

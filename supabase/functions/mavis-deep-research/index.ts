@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback, callWithFallbackStream } from "../_shared/providers.ts";
+import { getTavilyKey } from "../_shared/tavilyKey.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,7 +17,7 @@ const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const GEMINI_KEY    = Deno.env.get("GEMINI_API_KEY") ?? "";
 // TAVILY_API_KEY is canonical (matches mavis-chat's auto web-search); Tavily_API kept as a
 // fallback read since it may already be set under that name in the secrets vault.
-const TAVILY_KEY    = Deno.env.get("TAVILY_API_KEY") ?? Deno.env.get("Tavily_API") ?? "";
+const TAVILY_KEY    = getTavilyKey() ?? "";
 // Self-hosted SearXNG meta-search engine. No API key needed.
 // Deploy: docker run -d -p 8888:8080 searxng/searxng  |  set SEARXNG_URL=http://your-server:8888
 const SEARXNG_URL   = Deno.env.get("SEARXNG_URL") ?? "";

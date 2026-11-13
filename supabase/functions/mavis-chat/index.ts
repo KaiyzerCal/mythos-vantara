@@ -11,6 +11,7 @@ import { searchAppData, formatSearchBlock, type AppSearchHit } from "../_shared/
 import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
+import { getTavilyKey } from "../_shared/tavilyKey.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,7 +55,7 @@ serve(async (req) => {
       OPENAI_API_KEY: !!(Deno.env.get("OPENAI_API_KEY") || Deno.env.get("OPENAI_API")),
       GEMINI_API_KEY: !!Deno.env.get("GEMINI_API_KEY"),
       GROK_API_KEY: !!Deno.env.get("GROK_API_KEY"),
-      TAVILY_API_KEY: !!Deno.env.get("TAVILY_API_KEY"),
+      TAVILY_API_KEY: !!getTavilyKey(),
       JINA_API_KEY: !!Deno.env.get("JINA_API_KEY"),
     };
     const missing = Object.entries(keys).filter(([_, present]) => !present).map(([name]) => name);
@@ -710,7 +711,7 @@ ${telosData
     const grokKey    = Deno.env.get("GROK_API_KEY") ?? "";
     const geminiKey  = Deno.env.get("GEMINI_API_KEY") ?? "";
     const groqKey    = Deno.env.get("GROQ_API_KEY") ?? "";
-    const tavilyKey  = Deno.env.get("TAVILY_API_KEY") ?? "";
+    const tavilyKey  = getTavilyKey() ?? "";
 
     // ── Web search if needed ────────────────────────────────
     let webSearchResults = "";

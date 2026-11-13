@@ -11,6 +11,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
+import { getTavilyKey } from "../_shared/tavilyKey.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -343,7 +344,7 @@ async function executeGoalStep(step: GoalStep, task: Task): Promise<unknown> {
     }
 
     case "web_search": {
-      const tavilyKey = Deno.env.get("TAVILY_API_KEY");
+      const tavilyKey = getTavilyKey();
       if (!tavilyKey) return { error: "TAVILY_API_KEY not set" };
       const res = await fetch("https://api.tavily.com/search", {
         method: "POST",
@@ -1233,7 +1234,7 @@ const handleNoraContentMachine: TaskHandler = async (task) => {
 
   // Optional web research via Tavily
   let researchContext = "";
-  const tavilyKey = Deno.env.get("TAVILY_API_KEY");
+  const tavilyKey = getTavilyKey();
   if (tavilyKey) {
     try {
       const sr = await fetch("https://api.tavily.com/search", {
