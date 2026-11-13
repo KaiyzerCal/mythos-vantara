@@ -23,6 +23,8 @@ import {
 } from "../_shared/providers.ts";
 
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
+import { tavilySearch, needsWebSearch } from "../_shared/webSearch.ts";
+import { getTavilyKey } from "../_shared/tavilyKey.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -740,9 +742,19 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
     // transcripts of every previous conversation. Text chat is unchanged and
     // still gets everything.
     const isVoice = channel === "voice";
+
+    // Live web results when the message asks for them. Persona and council chat had no search path at all, so asking
+    // a council member to look something up (text or voice) could only ever be answered from memory.
+    let webBlock = "";
+    const searchKey = getTavilyKey();
+    if (searchKey && needsWebSearch(String(message ?? ""))) {
+      const found = await tavilySearch(String(message), searchKey);
+      if (found) webBlock = `\n═══ WEB SEARCH (live results — use them, cite the source name briefly) ═══${found}═══ END WEB SEARCH ═══\n`;
+    }
+
     const systemPrompt = isVoice
-      ? buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + settingsBlock + attBlock + CREATIVE_PRACTICE_BLOCK
-      : buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + attBlock + archivedBlock + CREATIVE_PRACTICE_BLOCK;
+      ? buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + settingsBlock + webBlock + attBlock + CREATIVE_PRACTICE_BLOCK
+      : buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + webBlock + attBlock + archivedBlock + CREATIVE_PRACTICE_BLOCK;
 
     // Voice also carries far less history — 50 turns of transcript is both
     // unnecessary for a spoken exchange and a large share of the token count.
