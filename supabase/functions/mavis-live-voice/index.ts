@@ -6,6 +6,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { toGeminiFunctionDeclarations, toOpenAIRealtimeTools } from "../_shared/voiceTools.ts";
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
+import { SPOKEN_STYLE_BLOCK } from "../_shared/speakable.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,7 +50,7 @@ Deno.serve(async (req) => {
   const { socket: clientWs, response } = Deno.upgradeWebSocket(req);
 
   const url          = new URL(req.url);
-  const systemPrompt = (url.searchParams.get("system") ?? "You are MAVIS, a sovereign AI life OS.") + CREATIVE_PRACTICE_BLOCK;
+  const systemPrompt = (url.searchParams.get("system") ?? "You are MAVIS, a sovereign AI life OS.") + CREATIVE_PRACTICE_BLOCK + SPOKEN_STYLE_BLOCK;
   const voiceName    = url.searchParams.get("voice") ?? "Aoede";
   // Fallback chain is driven by the client: gemini first, then provider=openai.
   const provider     = url.searchParams.get("provider") === "openai" ? "openai" : "gemini";
