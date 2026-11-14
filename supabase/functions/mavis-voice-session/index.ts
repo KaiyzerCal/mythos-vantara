@@ -4,6 +4,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { toOpenAIRealtimeTools } from "../_shared/voiceTools.ts";
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
+import { SPOKEN_STYLE_BLOCK } from "../_shared/speakable.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -86,8 +87,8 @@ serve(async (req) => {
   } catch { /* non-fatal — proceed without profile */ }
 
   const instructions = operatorContext
-    ? `${MAVIS_VOICE_INSTRUCTIONS}\n\nOPERATOR CONTEXT: ${operatorContext}${CREATIVE_PRACTICE_BLOCK}`
-    : MAVIS_VOICE_INSTRUCTIONS + CREATIVE_PRACTICE_BLOCK;
+    ? `${MAVIS_VOICE_INSTRUCTIONS}\n\nOPERATOR CONTEXT: ${operatorContext}${CREATIVE_PRACTICE_BLOCK}${SPOKEN_STYLE_BLOCK}`
+    : MAVIS_VOICE_INSTRUCTIONS + CREATIVE_PRACTICE_BLOCK + SPOKEN_STYLE_BLOCK;
 
   // ── Create OpenAI Realtime session ────────────────────────────────────────────
   const sessionRes = await fetch("https://api.openai.com/v1/realtime/sessions", {

@@ -4,6 +4,7 @@ import { X, Mic, Pause, Play, Square } from "lucide-react";
 import { toast } from "sonner";
 import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
+import { toSpeakable, mapSpokenIndex } from "@/lib/speakable";
 import { edgeErrorMessage } from "@/lib/edgeFunctionError";
 import { buildVoiceContext } from "@/mavis/voiceContext";
 import { executeActions } from "@/mavis/actionExecutor";
@@ -195,14 +196,16 @@ export function VoiceChatOverlay({
     setSpokenUpTo(0);
     setPhase("speaking");
 
+    // What is spoken is the cleaned text (no "dash"/"asterisk" read out); what is shown stays as written.
+    const spoken = toSpeakable(text) || text;
     await nativeTtsRangeListenerRef.current?.remove().catch(() => {});
     nativeTtsRangeListenerRef.current = await NativeTextToSpeech.addListener("onRangeStart", (info) => {
-      setSpokenUpTo(info.end);
+      setSpokenUpTo(mapSpokenIndex(info.end, spoken.length, text.length));
       spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
 
     try {
-      await NativeTextToSpeech.speak({ text, lang: "en-US", rate: 0.95, pitch: 1, volume: 1 });
+      await NativeTextToSpeech.speak({ text: spoken, lang: "en-US", rate: 0.95, pitch: 1, volume: 1 });
       setSpokenUpTo(text.length);
     } catch {
       // e.g. ERROR_UTTERANCE, or stop() was called mid-utterance — either way
@@ -236,7 +239,8 @@ export function VoiceChatOverlay({
 
     const doSpeak = () => {
       if (closingRef.current) return;
-      const utterance = new SpeechSynthesisUtterance(text);
+      const spoken = toSpeakable(text) || text; // browsers read symbols literally ("dash", "asterisk"); display keeps the original
+      const utterance = new SpeechSynthesisUtterance(spoken);
       utterance.rate = 0.95;
       utterance.pitch = 1;
       utterance.volume = 1;
@@ -245,7 +249,7 @@ export function VoiceChatOverlay({
 
       utterance.onboundary = (ev: SpeechSynthesisEvent) => {
         if (ev.name === "word") {
-          setSpokenUpTo(ev.charIndex + (ev.charLength ?? 0));
+          setSpokenUpTo(mapSpokenIndex(ev.charIndex + (ev.charLength ?? 0), spoken.length, text.length));
           spokenWordRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
         }
       };

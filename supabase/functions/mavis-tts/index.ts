@@ -7,6 +7,7 @@
 // Set: KOKORO_API_URL=http://your-server:8880
 
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+import { toSpeakable } from "../_shared/speakable.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -121,7 +122,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const rawText = String(body.text ?? "");
-    const text = clean(rawText);
+    // clean() first (it drops *stage directions* entirely), then the shared pass for what it misses: • bullets, arrows, pipes,
+    // URLs, slashes, "&". Without it a symbol like "->" is read out loud.
+    const text = toSpeakable(clean(rawText));
     if (!text) {
       return new Response(
         JSON.stringify({ error: "text required" }),
