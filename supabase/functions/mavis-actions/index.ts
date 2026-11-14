@@ -6,6 +6,7 @@ import { searchAppData, resolveScope, SEARCHABLE_KEYS } from "../_shared/appSear
 import { reembedRow } from "../_shared/reembedRow.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { suggestSkillLinks } from "../_shared/skillLinker.ts";
+import { resolveSkillRefs } from "../_shared/skillRefs.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
 
 type MavisAction = {
@@ -233,35 +234,6 @@ async function resolveId(
   return data.id as string;
 }
 
-// ── linked_skill_ids validator ────────────────────────────
-// Nothing enforced that a quest's linked_skill_ids actually point at real
-// skills — linked_skill_ids is a text[] column, so it can't carry a FK the
-// way skills.parent_skill_id or quests.parent_quest_id do, and there was no
-// app-level check standing in for one. A model that hallucinated a skill
-// name under a never-refuse execution policy could — and did live, 2026-
-// 10-28 — write a well-formed but entirely fabricated UUID straight into a
-// quest with nothing to catch it until a human noticed the skill didn't
-// exist. Every id gets checked against this user's own skills before it's
-// allowed to land. A ref that resolves to NOTHING real throws (same
-// fail-loud posture as resolveId below) so the model sees a real error
-// instead of a silent successful write of garbage; a MIX of real and fake
-// keeps the real ones and drops the fake ones with an activity-log entry,
-// rather than failing an otherwise-legitimate quest over one bad link.
-async function resolveLinkedSkillIds(sb: any, userId: string, ids: string[]): Promise<string[]> {
-  if (ids.length === 0) return [];
-  const { data } = await sb.from("skills").select("id").eq("user_id", userId).in("id", ids);
-  const validSet = new Set((data || []).map((r: any) => r.id as string));
-  const valid = ids.filter((id) => validSet.has(id));
-  const invalid = ids.filter((id) => !validSet.has(id));
-  if (invalid.length > 0 && valid.length === 0) {
-    throw new Error(`linked_skill_ids: none of the provided ids exist in this operator's skills (${invalid.join(", ")}) — these look fabricated. Search SKILLS/BEYONDER PATHWAYS in context for a real id instead of inventing one.`);
-  }
-  if (invalid.length > 0) {
-    await logActivity(sb, userId, "skill_link_rejected", `Dropped ${invalid.length} fabricated skill id(s) from a quest link attempt — not present in your skills: ${invalid.join(", ")}`, 0);
-  }
-  return valid;
-}
-
 // ── Profile fields MAVIS is allowed to update ─────────────
 const PROFILE_ALLOWED = [
   "inscribed_name", "true_name", "titles", "species_lineage", "aura",
@@ -482,22 +454,29 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           return { quest_id: dup.id, deduped: true, linked_skill_ids: [], auto_linked: {} };
         }
       }
-      let linkedSkillIds = await resolveLinkedSkillIds(sb, userId, asStringArray(p.linked_skill_ids));
-      // Every quest-creation path lands here — chat, Telegram, the 12h
-      // digest, council heartbeats, goal engine, meeting transcripts — and
-      // most of them never see the skill list. When the caller didn't link
-      // anything, pick the relevant skills from the operator's full set
-      // server-side (see _shared/skillLinker.ts). auto_link_skills:false
-      // opts out, for a quest the operator explicitly wants unlinked.
+      // Skills may arrive as ids, exact names, or both (linked_skill_ids / linked_skill_names / skills).
+      const skillRefs = [...asStringArray(p.linked_skill_ids), ...asStringArray(p.linked_skill_names), ...asStringArray(p.skills)];
+      const resolvedRefs = await resolveSkillRefs(sb, userId, skillRefs);
+      let linkedSkillIds = resolvedRefs.valid;
+      const droppedSkillRefs = resolvedRefs.dropped;
+      if (droppedSkillRefs.length > 0) {
+        await logActivity(sb, userId, "skill_link_rejected", `Dropped ${droppedSkillRefs.length} unknown skill reference(s) from a quest link attempt — not in your skills: ${droppedSkillRefs.join(", ")}`, 0);
+      }
+      // Every quest-creation path lands here — chat, Telegram, the 12h digest, council heartbeats, goal engine, meeting
+      // transcripts — and most never see the skill list. The matcher (see _shared/skillLinker.ts) picks from the operator's
+      // full set when nothing valid was supplied, AND now also when ANY reference was rejected: a caller that invented
+      // some of its picks can't be trusted on the rest either (live 2026-11-14: two invented ids were dropped, the one
+      // real-but-unrelated id left over (Speed Reading) satisfied the old "anything linked?" check and the matcher never
+      // ran). auto_link_skills:false opts out, for a quest the operator explicitly wants unlinked.
       let autoLinked: Awaited<ReturnType<typeof suggestSkillLinks>> | null = null;
-      if (linkedSkillIds.length === 0 && p.auto_link_skills !== false) {
+      if ((linkedSkillIds.length === 0 || droppedSkillRefs.length > 0) && p.auto_link_skills !== false) {
         try {
           autoLinked = await suggestSkillLinks(sb, userId, {
             title: String(p.title || ""), description: p.description ? String(p.description) : null, category: p.category ? String(p.category) : null,
           });
-          linkedSkillIds = autoLinked.ids;
+          if (autoLinked.ids.length > 0) linkedSkillIds = autoLinked.ids;
         } catch (err) {
-          console.warn("[create_quest] auto skill-link failed, creating unlinked:", err instanceof Error ? err.message : err);
+          console.warn("[create_quest] auto skill-link failed:", err instanceof Error ? err.message : err);
         }
       }
       const { data: newQuest, error } = await sb.from("quests").insert({
@@ -540,7 +519,25 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         await logActivity(sb, userId, "skill_link_auto", `"${String(p.title || "New Quest")}" auto-linked to ${Object.values(autoLinked.labels).join(", ")}${autoLinked.why ? ` — ${autoLinked.why}` : ""}`, 0);
       }
       if (newQuest?.id) reembedRow(sb, "quests", String(newQuest.id), userId);
-      return { quest_id: newQuest?.id ?? null, linked_skill_ids: linkedSkillIds, auto_linked: autoLinked?.labels ?? {} };
+      // Return the skills by NAME. The model writes its reply from this result; it used to get only UUIDs and so described
+      // skills from memory, which is how a chat reply listed three skills while the quest held a different one.
+      let linkedSkills: Array<{ id: string; name: string }> = [];
+      if (linkedSkillIds.length > 0) {
+        const { data: named } = await sb.from("skills").select("id, name").eq("user_id", userId).in("id", linkedSkillIds);
+        linkedSkills = (named || []) as Array<{ id: string; name: string }>;
+      }
+      const usedMatcher = !!(autoLinked && autoLinked.ids.length > 0);
+      return {
+        quest_id: newQuest?.id ?? null,
+        linked_skill_ids: linkedSkillIds,
+        linked_skills: linkedSkills,
+        linked_by: usedMatcher ? "auto-matched" : linkedSkillIds.length > 0 ? "as provided" : "none",
+        dropped_skill_refs: droppedSkillRefs,
+        auto_linked: autoLinked?.labels ?? {},
+        note: droppedSkillRefs.length > 0
+          ? `These skill references do not exist and were not saved: ${droppedSkillRefs.join(", ")}. ${usedMatcher ? "The matcher chose the links instead." : "No skills were linked."} Tell the operator exactly this.`
+          : linkedSkillIds.length === 0 ? "No skills were linked. Tell the operator." : undefined,
+      };
     }
 
     // Returns suggested skill links for a quest that doesn't exist yet —
@@ -618,12 +615,29 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // create_quest has always accepted this; update_quest never did, so an
       // existing quest could never be (re)linked to a skill — including a
       // Beyonder pathway/sequence — after creation.
-      if (p.linked_skill_ids !== undefined) updates.linked_skill_ids = await resolveLinkedSkillIds(sb, userId, asStringArray(p.linked_skill_ids));
+      let questDroppedRefs: string[] = [];
+      if (p.linked_skill_ids !== undefined || p.linked_skill_names !== undefined) {
+        const refs = [...asStringArray(p.linked_skill_ids), ...asStringArray(p.linked_skill_names)];
+        const resolved = await resolveSkillRefs(sb, userId, refs);
+        if (refs.length > 0 && resolved.valid.length === 0) {
+          throw new Error(`linked skills: none of (${refs.join(", ")}) match this operator's skills. Use the exact skill name from the skill list; do not invent ids.`);
+        }
+        questDroppedRefs = resolved.dropped;
+        if (questDroppedRefs.length > 0) {
+          await logActivity(sb, userId, "skill_link_rejected", `Dropped ${questDroppedRefs.length} unknown skill reference(s) from a quest update — not in your skills: ${questDroppedRefs.join(", ")}`, 0);
+        }
+        updates.linked_skill_ids = resolved.valid;
+      }
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");
       if (error) throw error;
       if (!updated || updated.length === 0) throw new Error(`quests: update matched no row for id "${questId}"`);
       reembedRow(sb, "quests", questId, userId);
+      if (updates.linked_skill_ids !== undefined) {
+        const ids = updates.linked_skill_ids as string[];
+        const { data: named } = ids.length ? await sb.from("skills").select("id, name").eq("user_id", userId).in("id", ids) : { data: [] };
+        return { quest_id: questId, linked_skills: named || [], dropped_skill_refs: questDroppedRefs };
+      }
       return;
     }
 
