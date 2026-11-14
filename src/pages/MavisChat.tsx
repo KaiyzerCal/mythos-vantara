@@ -26,6 +26,7 @@ import { useMediaPoller } from "@/hooks/useMediaPoller";
 
 // ── MAVIS modules ───────────────────────────────────────────
 import { buildSystemPromptFromSnapshot } from "@/mavis/buildSystemPrompt";
+import { unbackedSaveClaim } from "@/mavis/claimGuard";
 import { sectionsForActions, routeForActions } from "@/mavis/refreshContract";
 import { useMavisActionHandlers } from "@/mavis/useMavisActionHandlers";
 import { streamChatMessage, streamAgentMessage, streamResearchMessage, invokeAI } from "@/mavis/chatService";
@@ -1383,6 +1384,9 @@ export default function MavisChat() {
       // committed, at the end of this function.
       let navigateTarget: string | null = null;
       let streamResult: Awaited<ReturnType<typeof streamChatMessage>>;
+      // Types of write/read actions the server-side ReAct loop reported as succeeded this turn (also used to check the
+      // reply's "saved" claims against what actually ran).
+      const reactActionTypes: string[] = [];
       if (chatMode === "AGENT") {
         try {
           const agentAttempt = await streamAgentMessage(
@@ -1410,7 +1414,6 @@ export default function MavisChat() {
           abortController.signal,
         );
       } else {
-        const reactActionTypes: string[] = [];
         streamResult = await streamChatMessage(
           content, systemPrompt, history,
           { mode: chatMode, conversationId, appState: compactState, chatKind: "mavis", threadRef: "main", attachmentIds },
@@ -1498,6 +1501,13 @@ export default function MavisChat() {
       }
 
       const actionsExecuted = confirmed.length;
+      // A reply that says "saved/created/updated" when no write action succeeded this turn is a false claim (live
+      // 2026-11-14: three "I've saved the protocol" replies, nothing written). Correct it visibly rather than let it
+      // stand as fact. If the server reports that something ran but not what, don't second-guess it.
+      const succeededTypes = [...reactActionTypes, ...confirmed.map((r) => r.action.type)];
+      const somethingRanUnknown = !!(fnData as any)?.actionsRan && succeededTypes.length === 0;
+      const claimNote = somethingRanUnknown ? null : unbackedSaveClaim(cleanText, succeededTypes);
+      const displayText = claimNote ? `${cleanText}\n\n${claimNote}` : cleanText;
       const agentSources: Array<{ title: string; url: string }> = (fnData as any)?.sources ?? [];
       const agentIterations: number | null = (fnData as any)?.iterations ?? null;
       const imageMediaId: string | null = (fnData as any)?.imageMediaId ?? null;
@@ -1517,7 +1527,7 @@ export default function MavisChat() {
       const assistantMsg = {
         id: `a-${Date.now()}`,
         role: "assistant" as const,
-        content: cleanText,
+        content: displayText,
         mode: chatMode,
         model: (fnData as any)?.provider ?? (fnData as any)?.model ?? null,
         searched: searched || agentSources.length > 0,
@@ -1530,11 +1540,11 @@ export default function MavisChat() {
       };
       // Replace streaming placeholder with the final fully-processed message
       setChatMessages((prev) => prev.filter((m) => m.id !== streamingId).concat(assistantMsg));
-      speakText(cleanText);
+      speakText(claimNote ? "I said that was saved, but nothing was actually saved. Tell me to save it now and I will." : cleanText);
       if (newConvoId) setConversationId(newConvoId);
 
       if (convoId) {
-        await persistMessage({ role: "assistant", content: cleanText, mode: chatMode }, convoId);
+        await persistMessage({ role: "assistant", content: displayText, mode: chatMode }, convoId);
       }
       saveMemoriesFromResponse(content, cleanText);
       goToActionResult(navigateTarget);

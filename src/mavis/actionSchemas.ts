@@ -30,6 +30,8 @@ export const CreateQuestSchema = z.object({
   buff_effects: z.array(z.unknown()).optional(),
   debuff_effects: z.array(z.unknown()).optional(),
   linked_skill_ids: z.array(z.string()).optional(),
+  // Exact skill names (what the model can actually see); resolved server-side. Prefer these over ids.
+  linked_skill_names: z.array(z.string()).optional(),
   parent_quest_id: z.string().uuid().optional(),
   // Real columns (quests.completion_criteria/is_consequence/
   // consequence_quest_id) accepted by the handler's insert but missing here
@@ -100,6 +102,8 @@ export const UpdateQuestSchema = z.object({
   // an existing quest to a Beyonder pathway/sequence (or any skill)
   // afterward, or change which skills a quest advances.
   linked_skill_ids: z.array(z.string()).optional(),
+  // Exact skill names (what the model can actually see); resolved server-side. Prefer these over ids.
+  linked_skill_names: z.array(z.string()).optional(),
   completion_criteria: z.array(z.string()).optional(),
   is_consequence: z.boolean().optional(),
   consequence_quest_id: z.string().uuid().optional(),
