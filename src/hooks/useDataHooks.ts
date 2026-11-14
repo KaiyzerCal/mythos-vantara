@@ -33,12 +33,17 @@ function scheduleAfterFirstPaint(run: () => void): () => void {
 
 function makeHook<T extends { id: string }>(
   tableName: string,
-  options?: { orderColumn?: string; ascending?: boolean; deferInitial?: boolean; limit?: number }
+  // `columns`: explicit select list. Default is every column, which for a table with a large vector `embedding` column
+  // (skills: ~1,350 rows x 1,536 numbers) means pulling megabytes the UI never reads on every load and refetch.
+  options?: { orderColumn?: string; ascending?: boolean; deferInitial?: boolean; limit?: number; columns?: string }
 ) {
   return function useTableData() {
     const { user } = useAuth();
     const [data, setData] = useState<T[]>([]);
     const [loading, setLoading] = useState(true);
+    // Latest rows, readable from callbacks without re-creating them (used to restore a row after a failed write).
+    const dataRef = useRef<T[]>([]);
+    dataRef.current = data;
     const orderColumn = options?.orderColumn ?? "created_at";
     const ascending = options?.ascending ?? false;
     // 500 is plenty for every table except skills, whose Beyonder tree alone
@@ -67,16 +72,24 @@ function makeHook<T extends { id: string }>(
         const rows: unknown[] = [];
         let lastError: unknown = null;
         let offset = 0;
+        let selectList = options?.columns ?? "*";
         while (offset < rowLimit) {
           const pageEnd = Math.min(offset + PAGE_SIZE, rowLimit) - 1;
           const { data: page, error } = await withTransientRetry<{ data: unknown[] | null; error: unknown }>(() =>
             (supabase as any)
               .from(tableName)
-              .select("*")
+              .select(selectList)
               .eq("user_id", user.id)
               .order(orderColumn, { ascending })
               .range(offset, pageEnd)
           );
+          if (error && selectList !== "*") {
+            // The explicit column list was rejected (a column renamed or dropped): fall back to everything rather than
+            // load nothing, which the Skills page would read as "no skills" and re-seed the defaults as duplicates.
+            console.warn(`[useDataHooks] ${tableName}: column list rejected, falling back to select(*)`, error);
+            selectList = "*";
+            continue;
+          }
           if (error) { lastError = error; break; }
           if (page) rows.push(...page);
           if (!page || page.length < pageEnd - offset + 1) break; // short page — no more rows
@@ -115,14 +128,35 @@ function makeHook<T extends { id: string }>(
     }, [user]);
 
     const update = useCallback(async (id: string, input: Partial<T>) => {
+      const previous = dataRef.current.find((row) => row.id === id);
       setData((prev) => prev.map((row) => (row.id === id ? { ...row, ...input } : row)));
       const { error } = await (supabase as any).from(tableName).update({ ...input, updated_at: new Date().toISOString() }).eq("id", id);
-      if (error) {
-        console.error(`[useDataHooks] Error updating ${tableName}:`, error);
-        toast.error(`Failed to save changes — reverting`);
-        await fetch();
+      if (!error) return;
+
+      console.error(`[useDataHooks] Error updating ${tableName}:`, error);
+      const reason = String((error as { message?: string }).message ?? "unknown error").slice(0, 140);
+
+      // An error does not always mean the write was lost: a gateway timeout or dropped connection can reach the client
+      // after the database has already committed it. This used to toast "failed — reverting" and refetch regardless,
+      // for a change that had in fact saved. Read the row back and judge by what is actually stored.
+      const keys = Object.keys(input as Record<string, unknown>);
+      let stored: Record<string, unknown> | null = null;
+      try {
+        const { data: row } = await (supabase as any).from(tableName).select(keys.length ? keys.join(",") : "id").eq("id", id).maybeSingle();
+        stored = row ?? null;
+      } catch { /* couldn't check */ }
+
+      if (stored) {
+        const same = keys.every((k) => JSON.stringify((stored as Record<string, unknown>)[k]) === JSON.stringify((input as Record<string, unknown>)[k]));
+        if (same) { console.warn(`[useDataHooks] ${tableName} update reported "${reason}" but the change is saved.`); return; }
+        // Genuinely not saved: put back what was there (no full refetch needed) and say why.
+        if (previous) setData((prev) => prev.map((row) => (row.id === id ? previous : row)));
+        toast.error(`Couldn't save that change: ${reason}`);
+        return;
       }
-    }, [fetch]);
+      // Couldn't verify either way. Keep what's on screen rather than assert a failure that may not have happened.
+      toast.error(`Couldn't confirm that save (${reason}). Refresh to check.`);
+    }, []);
 
     const remove = useCallback(async (id: string) => {
       setData((prev) => prev.filter((row) => row.id !== id));
@@ -239,7 +273,11 @@ export interface Skill {
   created_at: string;
   updated_at: string;
 }
-export const useSkills = makeHook<Skill>("skills", { deferInitial: true, limit: 5000 });
+// Explicit columns: the table also carries a 1,536-number `embedding` per row that nothing in the UI reads.
+export const useSkills = makeHook<Skill>("skills", {
+  deferInitial: true, limit: 5000,
+  columns: "id,user_id,name,description,category,energy_type,tier,unlocked,cost,proficiency,prerequisites,parent_skill_id,created_at,updated_at",
+});
 
 // ─── ENERGY SYSTEMS ────────────────────────────────────────
 export interface EnergySystem {
