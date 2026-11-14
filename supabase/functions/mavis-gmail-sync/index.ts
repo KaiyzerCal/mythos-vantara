@@ -37,11 +37,11 @@ interface Ingest {
   body: string; snippet: string; labelIds: string[]; receivedAt: string;
 }
 
-/** One normalised message -> gmail_messages (read by triage and the ambient scan), mavis_notes, and contacts.
+/** One normalised message -> gmail_messages (read by triage and the ambient scan) and contacts.
  *  Shared by the direct Google path and the Composio path.
  *
  *  Written against the LIVE tables: gmail_messages is (user_id, gmail_id)-keyed with from_address / body_text, and
- *  mavis_notes / contacts only have PARTIAL unique indexes, which ON CONFLICT cannot target, so those two are
+ *  contacts only has a PARTIAL unique index, which ON CONFLICT cannot target, so it is
  *  look-up-then-insert. Every write's result is checked: the first version of this wrote columns that do not exist,
  *  swallowed the errors, and still reported "synced: N". */
 async function ingest(adminSb: any, uid: string, m: Ingest): Promise<{ contact: boolean; error?: string }> {
@@ -60,19 +60,9 @@ async function ingest(adminSb: any, uid: string, m: Ingest): Promise<{ contact: 
   );
   if (g.error) errors.push(`gmail_messages: ${g.error.message}`);
 
-  const sourceUrl = `gmail:${m.id}`;
-  const note = await adminSb.from("mavis_notes").select("id").eq("user_id", uid).eq("source_url", sourceUrl).maybeSingle();
-  if (!note.data) {
-    const ins = await adminSb.from("mavis_notes").insert({
-      user_id: uid,
-      title: `[Email] ${m.subject.slice(0, 100)}`,
-      content: `From: ${m.from}\nDate: ${m.date}\n\n${m.body.slice(0, 1000)}`,
-      tags: ["email", "gmail", "intel"],
-      properties: { source: "gmail", from: m.from, subject: m.subject, date: m.date, thread_id: m.threadId },
-      source_url: sourceUrl,
-    });
-    if (ins.error) errors.push(`mavis_notes: ${ins.error.message}`);
-  }
+  // Emails are deliberately NOT copied into the knowledge graph (mavis_notes). The Inbox (gmail_messages, above) is their
+  // home; a note per email filled a third of the graph with promotions and password-reset mail, duplicated the Inbox, and
+  // put it all into search and AI context. A note is made only when the operator asks for one.
 
   // A contact per real sender; automated senders are not contacts.
   let contact = false;
