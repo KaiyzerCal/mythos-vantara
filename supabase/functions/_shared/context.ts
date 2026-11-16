@@ -98,7 +98,7 @@ export async function buildSharedTruth(
     tacit,
     learned,
   ] = await Promise.all([
-    safe<any>(sb.from("profiles").select("display_name, title, location, timezone, level, xp").eq("id", userId).maybeSingle(), null),
+    safe<any>(sb.from("profiles").select("display_name, titles, location, timezone, level, xp").eq("id", userId).maybeSingle(), null),
     safe<any>(sb.from("mavis_user_profile").select("profile_md, communication_style, key_context, preferences, topics_of_interest").eq("user_id", userId).maybeSingle(), null),
     safe<any[]>(sb.from("quests").select("title, type, deadline, status").eq("user_id", userId).eq("status", "active").order("deadline", { ascending: true, nullsFirst: false }).limit(8), []),
     // tasks has no priority column; energy_systems stores type/current_value/max_value —
@@ -107,7 +107,7 @@ export async function buildSharedTruth(
     safe<any[]>(sb.from("tasks").select("title, status").eq("user_id", userId).eq("status", "active").order("created_at", { ascending: false }).limit(8), []),
     safe<any[]>(sb.from("energy_systems").select("type, current_value, max_value").eq("user_id", userId).limit(6), []),
     safe<any[]>(sb.from("mavis_goals").select("objective, context").eq("user_id", userId).eq("status", "active").limit(5), []),
-    safe<any[]>(sb.from("approvals").select("id, title, status").eq("user_id", userId).eq("status", "pending").limit(5), []),
+    safe<any[]>(sb.from("approvals").select("id, action_type, action_summary, status").eq("user_id", userId).eq("status", "pending").limit(5), []),
     safe<any[]>(sb.from("mavis_action_queue").select("id, action_type, status").eq("user_id", userId).eq("status", "pending").limit(10), []),
     safe<any[]>(sb.from("mavis_agent_memories").select("content, memory_type, importance").eq("user_id", userId).eq("status", "active").gte("importance", 7).order("created_at", { ascending: false }).limit(5), []),
     safe<any>(sb.from("mavis_world_model").select("summary, trajectory, key_insights, opportunities, risks").eq("user_id", userId).order("created_at", { ascending: false }).limit(1).maybeSingle(), null),
@@ -142,7 +142,7 @@ function renderFromRaw(raw: Record<string, any>, opts: SharedTruthOptions): Shar
   // ── OPERATOR IDENTITY ──────────────────────────────────────────────────────
   const id: string[] = [];
   if (profile?.display_name) id.push(`Name: ${profile.display_name}`);
-  if (profile?.title)        id.push(`Role: ${profile.title}`);
+  if (Array.isArray(profile?.titles) && profile.titles.length) id.push(`Role: ${profile.titles.join(", ")}`);
   if (profile?.location)     id.push(`Location: ${profile.location}`);
   if (profile?.level != null) id.push(`Level ${profile.level}${profile?.xp != null ? ` · ${profile.xp} XP` : ""}`);
   if (userProfile?.profile_md)          id.push(`\nWHO THEY ARE:\n${clip(userProfile.profile_md, 1200)}`);

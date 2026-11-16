@@ -1505,7 +1505,10 @@ export default function MavisChat() {
       // 2026-11-14: three "I've saved the protocol" replies, nothing written). Correct it visibly rather than let it
       // stand as fact. If the server reports that something ran but not what, don't second-guess it.
       const succeededTypes = [...reactActionTypes, ...confirmed.map((r) => r.action.type)];
-      const somethingRanUnknown = !!(fnData as any)?.actionsRan && succeededTypes.length === 0;
+      const agentWrites = ((fnData as any)?.toolsUsed ?? []).filter((t: string) =>
+        ["codexos_action", "save_to_notebook", "save_memory", "create_campaign"].includes(t));
+      const somethingRanUnknown = succeededTypes.length === 0 &&
+        (!!(fnData as any)?.actionsRan || agentWrites.length > 0 || Number((fnData as any)?.actionsQueued) > 0);
       const claimNote = somethingRanUnknown ? null : unbackedSaveClaim(cleanText, succeededTypes);
       const displayText = claimNote ? `${cleanText}\n\n${claimNote}` : cleanText;
       const agentSources: Array<{ title: string; url: string }> = (fnData as any)?.sources ?? [];
