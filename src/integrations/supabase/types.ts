@@ -4748,8 +4748,10 @@ export type Database = {
           id: string
           jsonl_path: string | null
           ollama_triggered: boolean | null
+          openai_job_id: string | null
           pairs_evaluated: number | null
           pairs_passed: number | null
+          trained_model_name: string | null
           user_id: string
         }
         Insert: {
@@ -4758,8 +4760,10 @@ export type Database = {
           id?: string
           jsonl_path?: string | null
           ollama_triggered?: boolean | null
+          openai_job_id?: string | null
           pairs_evaluated?: number | null
           pairs_passed?: number | null
+          trained_model_name?: string | null
           user_id: string
         }
         Update: {
@@ -4768,8 +4772,10 @@ export type Database = {
           id?: string
           jsonl_path?: string | null
           ollama_triggered?: boolean | null
+          openai_job_id?: string | null
           pairs_evaluated?: number | null
           pairs_passed?: number | null
+          trained_model_name?: string | null
           user_id?: string
         }
         Relationships: []
@@ -4834,6 +4840,7 @@ export type Database = {
           id: string
           read_at: string | null
           severity: string
+          source: string | null
           title: string
           user_id: string
         }
@@ -4845,6 +4852,7 @@ export type Database = {
           id?: string
           read_at?: string | null
           severity?: string
+          source?: string | null
           title: string
           user_id: string
         }
@@ -4856,6 +4864,7 @@ export type Database = {
           id?: string
           read_at?: string | null
           severity?: string
+          source?: string | null
           title?: string
           user_id?: string
         }
@@ -5476,9 +5485,9 @@ export type Database = {
           importance_score?: number | null
           last_reviewed_at?: string | null
           role: string
-          session_id: string
+          session_id?: string
           tags?: string[]
-          timestamp: number
+          timestamp?: number
           user_id: string
         }
         Update: {
@@ -6999,7 +7008,9 @@ export type Database = {
           extraction_status: string
           facebook_content: string | null
           generated_image_url: string | null
+          heygen_avatar_id: string | null
           heygen_video_id: string | null
+          heygen_voice_id: string | null
           id: string
           image_status: string
           instagram_content: string | null
@@ -7019,6 +7030,9 @@ export type Database = {
           video_script: string | null
           video_status: string
           video_url: string | null
+          youtube_status: string | null
+          youtube_url: string | null
+          youtube_video_id: string | null
         }
         Insert: {
           article_text?: string | null
@@ -7028,7 +7042,9 @@ export type Database = {
           extraction_status?: string
           facebook_content?: string | null
           generated_image_url?: string | null
+          heygen_avatar_id?: string | null
           heygen_video_id?: string | null
+          heygen_voice_id?: string | null
           id?: string
           image_status?: string
           instagram_content?: string | null
@@ -7048,6 +7064,9 @@ export type Database = {
           video_script?: string | null
           video_status?: string
           video_url?: string | null
+          youtube_status?: string | null
+          youtube_url?: string | null
+          youtube_video_id?: string | null
         }
         Update: {
           article_text?: string | null
@@ -7057,7 +7076,9 @@ export type Database = {
           extraction_status?: string
           facebook_content?: string | null
           generated_image_url?: string | null
+          heygen_avatar_id?: string | null
           heygen_video_id?: string | null
+          heygen_voice_id?: string | null
           id?: string
           image_status?: string
           instagram_content?: string | null
@@ -7077,6 +7098,9 @@ export type Database = {
           video_script?: string | null
           video_status?: string
           video_url?: string | null
+          youtube_status?: string | null
+          youtube_url?: string | null
+          youtube_video_id?: string | null
         }
         Relationships: []
       }
@@ -11840,8 +11864,10 @@ export type Database = {
       }
       video_projects: {
         Row: {
+          content_type: string | null
           created_at: string | null
           duration_seconds: number | null
+          full_clip_recommendation: string | null
           gemini_analysis: Json | null
           id: string
           language: string | null
@@ -11858,8 +11884,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          content_type?: string | null
           created_at?: string | null
           duration_seconds?: number | null
+          full_clip_recommendation?: string | null
           gemini_analysis?: Json | null
           id?: string
           language?: string | null
@@ -11876,8 +11904,10 @@ export type Database = {
           user_id: string
         }
         Update: {
+          content_type?: string | null
           created_at?: string | null
           duration_seconds?: number | null
+          full_clip_recommendation?: string | null
           gemini_analysis?: Json | null
           id?: string
           language?: string | null
@@ -13367,6 +13397,7 @@ export type Database = {
           status_code: number
         }[]
       }
+      mavis_data_retention: { Args: never; Returns: Json }
       mavis_dispatch_event: { Args: { payload: Json }; Returns: undefined }
       mavis_log_cron_run: {
         Args: { p_code: number; p_job_name: string }
