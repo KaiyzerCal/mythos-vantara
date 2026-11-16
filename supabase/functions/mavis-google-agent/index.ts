@@ -779,7 +779,7 @@ Plain text only. Use [PLACEHOLDER] for unknown specifics.
           role:       "assistant",
           content:    newState,
           tags:       [stateKey, "email_watch", "system_state"],
-          importance: 3,
+          importance_score: 3,
         });
       }
 
@@ -946,7 +946,7 @@ Plain text only. Use [PLACEHOLDER] for unknown specifics.
           role:       "assistant",
           content:    newState,
           tags:       [stateKey, "email_smart_triage", "system_state"],
-          importance: 3,
+          importance_score: 3,
         });
       }
 

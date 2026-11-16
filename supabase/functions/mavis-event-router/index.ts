@@ -143,7 +143,6 @@ Rules:
             currency:    String(action.params.currency ?? "USD"),
             source:      String(action.params.source ?? source ?? event_type),
             description: String(action.params.description ?? classification.summary),
-            date:        new Date().toISOString().slice(0, 10),
           });
           // Also trigger world model rebuild after revenue event
           fetch(`${SB_URL}/functions/v1/mavis-world-model`, {

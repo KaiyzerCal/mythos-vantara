@@ -781,11 +781,10 @@ async function handleSocial(userId: string, message: string, target?: string): P
           await supabase.from("mavis_action_queue").insert({
             user_id:       userId,
             action_type:   "social_draft",
-            title:         `${platform.toUpperCase()} Draft Ready`,
-            description:   topic.slice(0, 120),
+            source_context: topic.slice(0, 120),
             status:        "pending",
             autonomy_tier: "approve",
-            payload:       { platform, content, topic },
+            action_payload: { title: `${platform.toUpperCase()} Draft Ready`, description: topic.slice(0, 120), ...({ platform, content, topic }) },
           }).then(undefined, () => {});
           drafts.push(`*${platform.toUpperCase()}:*\n${content}`);
         }
@@ -804,11 +803,10 @@ async function handleSocial(userId: string, message: string, target?: string): P
     await supabase.from("mavis_action_queue").insert({
       user_id:       userId,
       action_type:   "social_draft",
-      title:         "Social Content Draft",
-      description:   topic.slice(0, 120),
+      source_context: topic.slice(0, 120),
       status:        "pending",
       autonomy_tier: "approve",
-      payload:       { content: fallback, topic },
+      action_payload: { title: "Social Content Draft", description: topic.slice(0, 120), ...({ content: fallback, topic }) },
     }).then(undefined, () => {});
     return `📱 *Social Content Draft*\n\n${fallback}\n\n_Saved to Approval Queue._`;
   }
@@ -850,11 +848,10 @@ Respond ONLY as JSON: {"type":"<action_type>","params":{<fields>}}`,
   await supabase.from("mavis_action_queue").insert({
     user_id:       userId,
     action_type:   action.type,
-    title:         `Queued: ${action.type}`,
-    description:   message.slice(0, 120),
+    source_context: message.slice(0, 120),
     status:        "pending",
     autonomy_tier: "approve",
-    payload:       action,
+    action_payload: { title: `Queued: ${action.type}`, description: message.slice(0, 120), ...(action) },
   }).then(undefined, () => {});
   return `📥 Action queued for manual execution: \`${action.type}\``;
 }
@@ -1128,11 +1125,10 @@ If a field is unclear, omit it.`,
     await supabase.from("mavis_action_queue").insert({
       user_id: userId,
       action_type: "calendar_request",
-      title: `Calendar: ${calAction.replace("_", " ")}`,
-      description: message.slice(0, 200),
+      source_context: message.slice(0, 200),
       status: "pending",
       autonomy_tier: "approve",
-      payload: { action: calAction, message },
+      action_payload: { title: `Calendar: ${calAction.replace("_", " ")}`, description: message.slice(0, 200), ...({ action: calAction, message }) },
     }).then(undefined, () => {});
     return `📅 *Calendar Request Queued*\n\n_${message.slice(0, 150)}_\n\nConnect Google Calendar in _/integrations_ to execute automatically.`;
   }
@@ -1161,11 +1157,10 @@ If recipient email isn't clear, set to is empty string.`,
       await supabase.from("mavis_action_queue").insert({
         user_id: userId,
         action_type: "email_request",
-        title: "Email Request",
-        description: message.slice(0, 200),
+        source_context: message.slice(0, 200),
         status: "pending",
         autonomy_tier: "approve",
-        payload: { message },
+        action_payload: { title: "Email Request", description: message.slice(0, 200), ...({ message }) },
       }).then(undefined, () => {});
       return `📧 *Email Request Queued*\n\n_${message.slice(0, 150)}_\n\nCouldn't identify the recipient. Please specify an email address and I'll send it immediately.`;
     }
@@ -1192,11 +1187,10 @@ If recipient email isn't clear, set to is empty string.`,
   await supabase.from("mavis_action_queue").insert({
     user_id: userId,
     action_type: "comms_request",
-    title: "Communications Request",
-    description: message.slice(0, 200),
+    source_context: message.slice(0, 200),
     status: "pending",
     autonomy_tier: "approve",
-    payload: { message },
+    action_payload: { title: "Communications Request", description: message.slice(0, 200), ...({ message }) },
   }).then(undefined, () => {});
 
   return `📬 *Communications Request Queued*\n\n_${message.slice(0, 200)}_\n\nConnect Gmail and Google Calendar in _/integrations_ for automatic execution.`;

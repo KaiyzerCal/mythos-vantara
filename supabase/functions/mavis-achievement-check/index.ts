@@ -169,7 +169,6 @@ serve(async (req) => {
           event_type:  "achievement_unlocked",
           xp_amount:   totalXp,
           description: `Unlocked ${newlyUnlocked.length} achievement(s): ${newlyUnlocked.map(a => a.title).join(", ")}`,
-          metadata:    { achievements: newlyUnlocked },
         });
         // Update profile XP
         const { data: profile } = await sb.from("profiles").select("xp").eq("id", user_id).single();

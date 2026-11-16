@@ -371,8 +371,8 @@ async function execCreateTask(
     .insert({
       user_id: userId,
       title,
-      description: description ?? "",
-      priority,
+      description: `${title}${description ? " — " + description : ""}`,
+      payload: { title, priority, description: description ?? "" },
       type,
       status: "pending",
     })

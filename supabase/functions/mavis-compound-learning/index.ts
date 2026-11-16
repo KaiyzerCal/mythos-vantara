@@ -66,11 +66,12 @@ Return ONLY valid JSON array.`;
       // Upsert into learned preferences
       await sb().from("mavis_learned_preferences").upsert({
         user_id: userId,
-        preference_key: String(pref.key).slice(0, 100),
-        preference_value: String(pref.value).slice(0, 500),
+        preference_type: "learned",
+        key: String(pref.key).slice(0, 100),
+        value: String(pref.value).slice(0, 500),
         confidence: Math.min(1, Math.max(0, Number(pref.confidence ?? 0.7))),
-        last_reinforced: new Date().toISOString(),
-      }, { onConflict: "user_id,preference_key" });
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,preference_type,key" });
 
       // Also sync high-confidence preferences into mavis_tacit for immediate injection
       if (Number(pref.confidence ?? 0) >= 0.8) {

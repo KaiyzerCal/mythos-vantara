@@ -324,7 +324,7 @@ serve(async (req) => {
             role:       "assistant",
             content:    newState,
             tags:       [stateKey, "ig_comments", "system_state"],
-            importance: 3,
+            importance_score: 3,
           });
         }
 

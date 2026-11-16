@@ -299,7 +299,6 @@ async function executeCreateTask(
       deadline: due_date ?? null,
       status: "active",
       type: "task",
-      source: "mavis-agent",
     })
     .select("id")
     .single();

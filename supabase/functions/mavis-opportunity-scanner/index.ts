@@ -243,7 +243,6 @@ Return ONLY valid JSON array, no commentary.`;
       content: memoryContent,
       importance_score: 4,
       tags: ["opportunity", "proactive", "weekly-brief"],
-      source: "mavis-opportunity-scanner",
     }).then(undefined, () => {});
 
     return toInsert.length;

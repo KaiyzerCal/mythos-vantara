@@ -216,7 +216,6 @@ serve(async (req) => {
             title: `[Plan] ${String(ph.phase).slice(0, 120)}`,
             description: String(ph.description ?? "").slice(0, 500),
             status: "active",
-            priority: "medium",
             xp_reward: ph.steps.length * 10,
           })
           .select("id")

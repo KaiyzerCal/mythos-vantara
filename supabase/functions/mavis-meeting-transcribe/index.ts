@@ -144,11 +144,11 @@ serve(async (req) => {
     const { error: notesErr } = await sb.from("meeting_notes").insert({
       user_id:      user.id,
       title,
-      transcript,
+      raw_transcript: transcript,
       summary:      summary ?? "",
       action_items: action_items ?? [],
       decisions:    decisions ?? [],
-      participants,
+      attendees:    Array.isArray(participants) ? participants.map(String) : [],
       created_at:   new Date().toISOString(),
     });
 

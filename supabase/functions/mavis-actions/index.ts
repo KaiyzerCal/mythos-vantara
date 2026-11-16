@@ -1676,7 +1676,6 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
             title: `[Image Prompt] ${prompt.slice(0, 60)}`,
             content: `**Prompt:** ${prompt}\n\n**Aspect Ratio:** ${aspectRatio}\n\n*Awaiting manual image generation.*`,
             category: "image-prompt",
-            tags: ["image-prompt", "ai-generated"],
           }).catch(() => {});
         }
         return { note, prompt, aspect_ratio: aspectRatio };
@@ -2062,10 +2061,10 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const { data, error } = await sb
         .from("mavis_gesture_commands")
         .upsert(
-          { user_id: userId, gesture: p.gesture, action_type: p.action_type, action_payload: p.action_payload ?? {}, hold_ms: p.hold_ms ?? 500, enabled: true },
+          { user_id: userId, gesture: p.gesture, action: p.action_type, action_payload: p.action_payload ?? {}, hold_ms: p.hold_ms ?? 500, enabled: true },
           { onConflict: "user_id,gesture" }
         )
-        .select("gesture, action_type, hold_ms")
+        .select("gesture, action, hold_ms")
         .single();
       if (error) throw error;
       return { ok: true, mapping: data };
@@ -2584,11 +2583,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       await sb.from("mavis_tasks").insert({
         user_id: userId,
         type: "edit_file",
-        title: `Edit: ${path}`,
-        description: description || `Proposed edit to ${path}`,
+        description: `Edit: ${path}${description ? " — " + description : ""}`,
         status: "pending",
-        requires_confirmation: true,
-        params: { path, description, old_content: p.old_content ?? "", new_content: newContent },
+        payload: { title: `Edit: ${path}`, requires_confirmation: true, params: { path, description, old_content: p.old_content ?? "", new_content: newContent } },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).catch(() => {});
@@ -2607,11 +2604,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         await sb.from("mavis_tasks").insert({
           user_id: userId,
           type: "git_operation",
-          title: `Git ${operation}`,
           description: p.message ? `Commit: ${p.message}` : `Git ${operation}`,
           status: "pending",
-          requires_confirmation: true,
-          params: p,
+          payload: { title: `Git ${operation}`, requires_confirmation: true, params: p },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).catch(() => {});

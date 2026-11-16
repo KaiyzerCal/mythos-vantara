@@ -229,7 +229,7 @@ serve(async (req) => {
           role:       "assistant",
           content:    `[STORY] Posted children's story to Telegram (${chatId}): ${story.slice(0, 200)}`,
           tags:       ["story", "children_story", "daily_story", "scheduled_content"],
-          importance: 3,
+          importance_score: 3,
         }).then(undefined, () => {});
 
         return json(results);

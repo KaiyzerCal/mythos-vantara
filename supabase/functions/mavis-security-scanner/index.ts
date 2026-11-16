@@ -419,7 +419,7 @@ serve(async (req) => {
           role:       "assistant",
           content:    `[SECURITY SCAN] ${url} → Grade: ${grade} | Critical: ${criticalCount} | Warnings: ${warningCount}`,
           tags:       ["security_scan", "website_audit", "security"],
-          importance: 5,
+          importance_score: 5,
         }).then(undefined, () => {});
 
         return json(result);
