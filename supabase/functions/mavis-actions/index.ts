@@ -2405,6 +2405,54 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return;
     }
 
+    // Read ONE entry in full, a page at a time. Searching returns excerpts; a long story, protocol or journal entry (the
+    // Paradox Engine files run to 28,000 characters) can only be answered from by reading it. Pass `id` (from a search hit)
+    // or a `title`; `offset` continues where `next_offset` left off.
+    case "read_vault":
+    case "read_journal":
+    case "read_note":
+    case "read_entry": {
+      const scopeWord = action.type === "read_journal" ? "journal" : action.type === "read_note" ? "note"
+        : action.type === "read_vault" ? "vault" : String(p.scope ?? p.kind ?? "vault").toLowerCase();
+      const T = scopeWord.startsWith("journal") ? { table: "journal_entries", cols: "id, title, content, category, created_at", kind: "journal" }
+        : scopeWord.startsWith("note") ? { table: "mavis_notes", cols: "id, title, content, created_at", kind: "note" }
+        : { table: "vault_entries", cols: "id, title, content, category, created_at", kind: "vault" };
+      const entryId = String(p.id ?? p.entry_id ?? p.note_id ?? "").trim();
+      const wantTitle = String(p.title ?? p.query ?? "").trim();
+      if (!entryId && !wantTitle) throw new Error(`${action.type} needs an id (from a search result) or a title`);
+
+      let row: any = null;
+      let others: Array<{ id: string; title: string; chars: number }> = [];
+      if (entryId) {
+        const { data } = await sb.from(T.table).select(T.cols).eq("user_id", userId).eq("id", entryId).maybeSingle();
+        row = data;
+      } else {
+        const { data } = await sb.from(T.table).select(T.cols).eq("user_id", userId)
+          .ilike("title", `%${wantTitle.replace(/[%_\\]/g, (c) => `\\${c}`)}%`).order("created_at", { ascending: false }).limit(12);
+        const rows = (data || []) as any[];
+        // An exact title wins; otherwise the shortest title that contains the words (the most specific match).
+        row = rows.find((r) => String(r.title).toLowerCase() === wantTitle.toLowerCase())
+          ?? [...rows].sort((a, b) => String(a.title).length - String(b.title).length)[0] ?? null;
+        others = rows.filter((r) => r !== row).slice(0, 8).map((r) => ({ id: r.id, title: String(r.title), chars: String(r.content ?? "").length }));
+      }
+      if (!row) throw new Error(`${T.kind}: no entry found for ${entryId ? `id ${entryId}` : `"${wantTitle}"`}`);
+
+      const full = String(row.content ?? "");
+      const offset = Math.max(0, Math.floor(Number(p.offset ?? 0)) || 0);
+      const limit = Math.min(8000, Math.max(500, Math.floor(Number(p.limit ?? 6000)) || 6000));
+      const piece = full.slice(offset, offset + limit);
+      return {
+        kind: T.kind, id: row.id, title: row.title, category: row.category ?? null, created_at: row.created_at ?? null,
+        total_chars: full.length, offset, returned_chars: piece.length,
+        next_offset: offset + limit < full.length ? offset + limit : null,
+        content: piece,
+        other_matches: others,
+        note: offset + limit < full.length
+          ? `This is part of a ${full.length.toLocaleString("en-US")}-character entry. Call again with offset=${offset + limit} to continue; do not guess what the rest says.`
+          : undefined,
+      };
+    }
+
     case "search_app":
     case "search_journal":
     case "search_vault": {

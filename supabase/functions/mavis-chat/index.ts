@@ -8,6 +8,7 @@ import { truncateAtWord } from "../_shared/truncateAtWord.ts";
 import { tavilySearch, needsWebSearch, buildMavisPrompt, formatBeyonderTree } from "./promptBuilder.ts";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock, type AppSearchHit } from "../_shared/appSearch.ts";
+import { recallIntent, subjectTerms, selectPassages, formatSourceEntries, type SourceEntry } from "../_shared/recall.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
 import { fetchAllRows } from "../_shared/pagination.ts";
@@ -759,6 +760,29 @@ ${telosData
       console.warn("[mavis-chat] relevant-records search failed:", (e as Error)?.message);
       return [] as AppSearchHit[];
     });
+
+    // "What does the Paradox Engine story say", "...in my vault": the answer is stored text, and the model must read it rather
+    // than recall it (it invented characters from a different part of the operator's world, 2026-11-16). Deterministic, not
+    // left to the model deciding to call a tool: find the subject words, search the operator's WRITTEN records only (vault,
+    // journal, notes — never chat-derived memories, which would feed MAVIS its own earlier wrong answers back), and hand over
+    // verbatim passages. The "records rule" in the block forbids filling gaps.
+    const sourceEntriesPromise: Promise<string> = recallIntent(lastUserText)
+      ? (async () => {
+          const earlier = [...(messages || [])]
+            .filter((m: any) => m.role === "user" && typeof m.content === "string")
+            .map((m: any) => m.content as string).reverse().slice(1, 5);
+          const terms = subjectTerms(lastUserText, earlier);
+          if (terms.length === 0) return "";
+          const hits = await searchAppData(sb, user.id, terms.join(" "), { scope: "vault,journal,notes", limit: 4, embed: embedText, withContent: true });
+          const entries: SourceEntry[] = hits.map((h) => ({
+            kind: h.kind, title: h.title, category: h.category, created_at: h.created_at,
+            length: h.length ?? String(h.content ?? "").length,
+            // Short entries whole; long ones: their opening (what the document is) plus the passages that mention the subject.
+            passages: selectPassages(String(h.content ?? ""), terms, { max: 3, size: 900, head: 700, wholeBelow: 3500 }),
+          }));
+          return formatSourceEntries(entries, 9000);
+        })().catch((e) => { console.warn("[mavis-chat] recall block failed:", (e as Error)?.message); return ""; })
+      : Promise.resolve("");
 
     if (lastUserMsg && tavilyKey && needsWebSearch(lastUserText)) {
       webSearchResults = await tavilySearch(lastUserText, tavilyKey);
@@ -1699,6 +1723,7 @@ ${telosData
     // there, because missing context is a worse answer but a failed search
     // must never cost the reply itself.
     const relevantRecordsBlock = formatSearchBlock(await relevantRecordsPromise, true);
+    const sourceEntriesBlock = await sourceEntriesPromise;
 
     const fullPrompt = [
       systemWithPersonaMemory,
@@ -1708,6 +1733,7 @@ ${telosData
       timeBlock,
       authoritativeContext,
       relevantRecordsBlock,
+      sourceEntriesBlock,
       councilDebateBlock,
       compressBlock(userModelBlock),
       compressBlock(tacitBlock),

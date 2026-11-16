@@ -31,6 +31,7 @@ import {
   rankEntries,
   termOccurs,
 } from "./entrySearch.ts";
+import { selectPassages } from "./recall.ts";
 
 export interface SearchableTable {
   /** Scope name the model uses, and the label shown on a hit. */
@@ -338,6 +339,10 @@ export interface AppSearchHit {
   excerpt: string;
   category?: string;
   created_at?: string;
+  /** Size of the full entry in characters, so a reader can tell the excerpt is a fragment of a long document. */
+  length?: number;
+  /** The full text. Only present when the caller asked for it (opts.withContent); never serialised into tool results. */
+  content?: string;
 }
 
 /**
@@ -431,6 +436,8 @@ export async function searchAppData(
      * embedText from _shared/embedding.ts.
      */
     embed?: (text: string) => Promise<number[] | null>;
+    /** Also return each hit's full text (for building passages). Off by default: it can be tens of thousands of characters. */
+    withContent?: boolean;
   } = {},
 ): Promise<AppSearchHit[]> {
   const terms = extractTerms(query);
@@ -585,14 +592,21 @@ export async function searchAppData(
   }
 
   // Final order is body-aware now that the bodies are actually here.
-  return rankEntries(full, terms, limit).map((r) => ({
-    kind: r.kind,
-    id: String(r.id).slice(String(r.kind).length + 1),
-    title: r.title,
-    excerpt: String(r.content ?? "").slice(0, 300),
-    category: r.category,
-    created_at: r.created_at,
-  }));
+  return rankEntries(full, terms, limit).map((r) => {
+    const content = String(r.content ?? "");
+    return {
+      kind: r.kind,
+      id: String(r.id).slice(String(r.kind).length + 1),
+      title: r.title,
+      // The part of the entry that mentions the search terms, not just its first 300 characters: for a long document the
+      // opening is often a generic directive, and the model answered from that fragment and invented the rest.
+      excerpt: (selectPassages(content, terms, { max: 1, size: 300 })[0] ?? content).slice(0, 330),
+      category: r.category,
+      created_at: r.created_at,
+      length: content.length,
+      ...(opts.withContent ? { content } : {}),
+    };
+  });
 }
 
 /**
@@ -713,7 +727,9 @@ export function formatSearchBlock(hits: AppSearchHit[], hadQuery: boolean): stri
   const lines = hits.map((h) =>
     `  • [${h.kind}] "${h.title}"${h.category ? ` [${h.category}]` : ""}` +
     `${h.created_at ? ` (${h.created_at.slice(0, 10)})` : ""}` +
-    `${h.excerpt ? ` — ${h.excerpt}` : ""}`,
+    `${h.excerpt ? ` — ${h.excerpt}` : ""}` +
+    // A fragment of a long entry says so, instead of looking like the whole thing.
+    `${h.length && h.length > (h.excerpt?.length ?? 0) + 40 ? ` [excerpt only — the full entry is ${h.length.toLocaleString("en-US")} characters; read it with read_vault/read_journal/read_note before answering from it]` : ""}`,
   );
   return (
     "RELEVANT RECORDS (matched against what the operator just said, searched across their FULL data — " +
