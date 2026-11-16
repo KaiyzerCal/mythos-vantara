@@ -706,7 +706,7 @@ export function VoiceChatOverlay({
       // Search is a read: the model needs the results back to answer with, not just a success flag. It used to go
       // through the quest/skill action executor, which discards the payload, and the tool was not even offered.
       // Read tools hand their results back to the model. web_search → search_web, search_app → search_app.
-      const READ_TOOLS: Record<string, string> = { web_search: "search_web", search_app: "search_app" };
+      const READ_TOOLS: Record<string, string> = { web_search: "search_web", search_app: "search_app", read_entry: "read_entry" };
       if (READ_TOOLS[call.name]) {
         try {
           const { data: { session } } = await supabase.auth.getSession();
@@ -720,6 +720,16 @@ export function VoiceChatOverlay({
           const d = r?.data ?? {};
           if (r?.success === false || d.error) throw new Error(String(r?.error ?? d.error ?? "Search failed"));
           // Keep the payload small for the model: a few results, every text field capped.
+          // Reading an entry returns the text itself (a page of it); every other read is trimmed to short snippets.
+          if (call.name === "read_entry") {
+            return {
+              id: call.id, name: call.name,
+              response: {
+                success: true, title: d.title, kind: d.kind, total_chars: d.total_chars, offset: d.offset, next_offset: d.next_offset ?? null,
+                content: String(d.content ?? "").slice(0, 6500), note: d.note, other_matches: (d.other_matches ?? []).slice(0, 5),
+              },
+            };
+          }
           const trim = (x: any) => Object.fromEntries(Object.entries(x ?? {}).filter(([, v]) => typeof v === "string" || typeof v === "number").map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 300) : v]));
           return {
             id: call.id,
