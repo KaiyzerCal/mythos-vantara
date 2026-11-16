@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
+import { buildRecallBlock } from "../_shared/recallBlock.ts";
 import { embedText } from "../_shared/embedding.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
 import {
@@ -443,6 +444,7 @@ const MAVIS_TOOLS = [
             "Tasks: create_task | complete_task | update_task | delete_task. " +
             "Skills: create_skill | create_subskill | update_skill | delete_skill | create_beyonder_pathway. " +
             "Journal: create_journal | update_journal | delete_journal. " +
+            "READ the operator's own records: search_app | search_vault | search_journal (excerpts only) and read_vault | read_journal | read_note (params: title or id, optional offset; returns ~6,000 characters per page with next_offset). For what a stored story, lore, protocol or journal entry says, READ it and answer only from what you read; never fill gaps from memory. " +
             "Vault: create_vault | update_vault | delete_vault. " +
             "Council: create_council_member | update_council_member | delete_council_member. " +
             "Allies: create_ally | update_ally | delete_ally. " +
@@ -3221,13 +3223,23 @@ Deno.serve(async (req) => {
           .catch(() => "")
       : Promise.resolve("");
 
+    // Recall questions ("what does the Paradox Engine story say"): verbatim passages from the entries plus the records rule, so
+    // the agent (which also serves Telegram) answers from the operator's stored text instead of from imagination.
+    const recallFragmentP: Promise<string> = (goalText && userId)
+      ? buildRecallBlock(
+          supabase, userId, goalText,
+          rawMessages.filter((m: any) => m?.role === "user").slice(0, -1).map((m: any) => flattenContent(m.content)).reverse().slice(0, 4),
+          embedText,
+        ).then((b) => (b ? `\n\n${b}` : ""))
+      : Promise.resolve("");
+
     // Latency budget: none of these enrichment fragments is worth delaying the
     // first token for. If one is slow (embedding cold start, a slow RPC), drop it
     // for this turn rather than letting it gate the whole request.
     const withBudget = (p: Promise<string>, ms: number): Promise<string> =>
       Promise.race([p.catch(() => ""), new Promise<string>((r) => setTimeout(() => r(""), ms))]);
 
-    const [memoryFragment, prefsFragment, specialistFragment, timeFragment, systemSettingsFragment, recordsFragment] =
+    const [memoryFragment, prefsFragment, specialistFragment, timeFragment, systemSettingsFragment, recordsFragment, recallFragment] =
       await Promise.all([
         withBudget(memoryFragmentP, 1500),
         withBudget(prefsFragmentP, 1200),
@@ -3237,10 +3249,11 @@ Deno.serve(async (req) => {
         withBudget(systemSettingsFragmentP, 1200),
         // Two waves of small queries; given the same headroom as shared truth.
         withBudget(recordsFragmentP, 2500),
+        withBudget(recallFragmentP, 3000),
       ]);
     // Memory fragment replaced the base prompt in the original ordering; keep the
     // same final composition: SYSTEM_PROMPT + memory + prefs + specialist + time + settings.
-    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment + timeFragment + systemSettingsFragment + recordsFragment + CREATIVE_PRACTICE_BLOCK;
+    systemWithContext = SYSTEM_PROMPT + memoryFragment + prefsFragment + specialistFragment + timeFragment + systemSettingsFragment + recordsFragment + recallFragment + CREATIVE_PRACTICE_BLOCK;
 
     // Merge client-provided system prompt with MAVIS core context
     const clientSystemPrompt = String(body.systemPrompt ?? "");

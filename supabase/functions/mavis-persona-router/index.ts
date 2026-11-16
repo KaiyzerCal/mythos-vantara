@@ -25,6 +25,7 @@ import {
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 import { tavilySearch, needsWebSearch } from "../_shared/webSearch.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
+import { buildRecallBlock } from "../_shared/recallBlock.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -752,9 +753,18 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
       if (found) webBlock = `\n═══ WEB SEARCH (live results — use them, cite the source name briefly) ═══${found}═══ END WEB SEARCH ═══\n`;
     }
 
+    // Recall questions ("what does the Paradox Engine story say"): a persona is single-turn and cannot call a tool whose
+    // result informs its answer, so the verbatim entries must be in the prompt. Same helper as MAVIS chat, so a persona can't
+    // answer from imagination while MAVIS answers from the entries. Smaller for voice, whose prompt is kept short on purpose.
+    const recallBlock = await buildRecallBlock(
+      supabase, user_id, String(message ?? ""),
+      (history ?? []).filter((h: any) => h.role === "user").map((h: any) => String(h.content ?? "")).reverse().slice(0, 4),
+      embedText, isVoice ? 5000 : 9000,
+    );
+
     const systemPrompt = isVoice
-      ? buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + settingsBlock + webBlock + attBlock + CREATIVE_PRACTICE_BLOCK
-      : buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + webBlock + attBlock + archivedBlock + CREATIVE_PRACTICE_BLOCK;
+      ? buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + settingsBlock + webBlock + recallBlock + attBlock + CREATIVE_PRACTICE_BLOCK
+      : buildSystemPrompt(persona, relState, memoryContext, channel) + timeBlock + appCtx + settingsBlock + webBlock + recallBlock + attBlock + archivedBlock + CREATIVE_PRACTICE_BLOCK;
 
     // Voice also carries far less history — 50 turns of transcript is both
     // unnecessary for a spoken exchange and a large share of the token count.

@@ -38,6 +38,16 @@ export const VOICE_TOOL_SPECS: VoiceToolSpec[] = [
     required: ["query"],
   },
   {
+    name: "read_entry",
+    description: "Read ONE vault, journal or knowledge-graph entry in full (about 6,000 characters at a time). Use it whenever the operator asks what a stored story, lore, protocol or journal entry says: search results are only short excerpts. Search first to find the title, then read it; if the result says there is more (next_offset), read again with that offset before answering. Answer only from what you read, name the entry, and if something is not in it, say so instead of guessing.",
+    params: {
+      scope: { type: "string", description: "Where the entry lives", enum: ["vault", "journal", "note"] },
+      title: { type: "string", description: "Entry title (from a search result)" },
+      offset: { type: "number", description: "Character offset to continue from (next_offset from the previous page)" },
+    },
+    required: ["title"],
+  },
+  {
     name: "create_journal",
     description: "Save a journal entry. Only when the operator asks to log, journal or note something down; put what they said in content.",
     params: {
