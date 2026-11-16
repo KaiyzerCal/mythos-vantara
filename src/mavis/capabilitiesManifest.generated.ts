@@ -93,6 +93,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": "Google Workspace direct executor (Drive/Sheets/Tasks) with OAuth token management",
     "status": "ACTIVE",
     "calledFromFrontend": [
+      "src/components/ApprovalQueue.tsx",
       "src/pages/AgentDashboardPage.tsx"
     ],
     "calledFromBackend": [
@@ -109,7 +110,11 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "purpose": "Primary action router — reads `body.actions[]` array, executes create/update/delete across all CODEXOS tables",
     "status": "ACTIVE",
     "calledFromFrontend": [
+      "src/components/MavisPageControl.tsx",
+      "src/hooks/useQuests.ts",
       "src/mavis/useMavisActionHandlers.ts",
+      "src/mavis/voiceReadTools.ts",
+      "src/pages/FeaturePages.tsx",
       "src/pages/GoalsPage.tsx",
       "src/pages/Inbox.tsx",
       "src/pages/MavisChat.tsx"
@@ -603,7 +608,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
       "src/pages/HealthPage.tsx"
     ],
     "calledFromBackend": [],
-    "isCronTarget": false,
+    "isCronTarget": true,
     "requiresJwt": false,
     "autonomyPathway": null
   },
@@ -922,11 +927,9 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "name": "mavis-council-heartbeat",
     "category": "Chat & Council",
     "purpose": "Keeps council session alive; triggers proactive nudges from council members",
-    "status": "ACTIVE",
+    "status": "CRON_ONLY",
     "calledFromFrontend": [],
-    "calledFromBackend": [
-      "telegram-webhook"
-    ],
+    "calledFromBackend": [],
     "isCronTarget": true,
     "requiresJwt": false,
     "autonomyPathway": null
@@ -1455,6 +1458,17 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     ],
     "isCronTarget": false,
     "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-fun-engine",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "CRON_ONLY",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": true,
+    "requiresJwt": true,
     "autonomyPathway": null
   },
   {
@@ -2752,6 +2766,19 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
+    "name": "mavis-plan-executor",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ACTIVE",
+    "calledFromFrontend": [],
+    "calledFromBackend": [
+      "mavis-autonomy-orchestrator"
+    ],
+    "isCronTarget": false,
+    "requiresJwt": true,
+    "autonomyPathway": null
+  },
+  {
     "name": "mavis-planner",
     "category": "Planning & Autonomous Execution",
     "purpose": "Task/goal planning engine",
@@ -3856,17 +3883,6 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     "autonomyPathway": null
   },
   {
-    "name": "mavis-vault-sync",
-    "category": "Uncategorized",
-    "purpose": null,
-    "status": "ORPHANED",
-    "calledFromFrontend": [],
-    "calledFromBackend": [],
-    "isCronTarget": false,
-    "requiresJwt": true,
-    "autonomyPathway": null
-  },
-  {
     "name": "mavis-vercel-agent",
     "category": "Dev & Code",
     "purpose": "Vercel deployment management",
@@ -4036,6 +4052,17 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
     ],
     "isCronTarget": false,
     "requiresJwt": false,
+    "autonomyPathway": null
+  },
+  {
+    "name": "mavis-watchdog",
+    "category": "Uncategorized",
+    "purpose": null,
+    "status": "ORPHANED",
+    "calledFromFrontend": [],
+    "calledFromBackend": [],
+    "isCronTarget": false,
+    "requiresJwt": true,
     "autonomyPathway": null
   },
   {
