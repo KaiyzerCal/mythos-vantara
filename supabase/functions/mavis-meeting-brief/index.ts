@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
         .from("mavis_meeting_briefs_sent")
         .select("id")
         .eq("user_id", uid)
-        .eq("event_id", eventId)
+        .eq("event_ref", eventId)
         .maybeSingle();
       if (alreadySent) continue;
 
@@ -264,11 +264,14 @@ Deno.serve(async (req) => {
       await sendTelegram(message);
 
       // Record as sent
-      await sb.from("mavis_meeting_briefs_sent").insert({
-        user_id:     uid,
-        event_id:    eventId,
-        event_start: eventStart,
-      }).then(undefined, () => {});
+      // Live columns are (user_id, event_ref, sent_at); the old event_id/event_start names never existed, so
+      // the dedupe lookup errored and every cron run re-sent the same brief.
+      const { error: sentErr } = await sb.from("mavis_meeting_briefs_sent").insert({
+        user_id:   uid,
+        event_ref: eventId,
+        sent_at:   new Date().toISOString(),
+      });
+      if (sentErr) console.error("[meeting-brief] could not record sent brief:", sentErr.message);
 
       briefsSent++;
     }

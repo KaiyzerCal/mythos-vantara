@@ -353,7 +353,7 @@ serve(async (req) => {
             role:       "assistant",
             content:    newState,
             tags:       [stateKey, "gmb_reviews", "system_state"],
-            importance: 3,
+            importance_score: 3,
           });
         }
 

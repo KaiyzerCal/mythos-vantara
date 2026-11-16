@@ -167,20 +167,19 @@ Return ONLY a valid JSON array with no prose:
   for (const ins of insights) {
     if (!ins.title || !ins.insight) continue;
 
-    const { error } = await supabase
-      .from("mavis_insights")
-      .upsert(
-        {
-          user_id:      userId,
-          title:        String(ins.title).slice(0, 200),
-          content:      String(ins.insight).slice(0, 1000),
-          category:     ins.category ?? "opportunity",
-          severity:     ins.severity ?? "info",
-          source:       "pattern_detection",
-          generated_at: generatedAt,
-        },
-        { onConflict: "user_id,title" },
-      );
+    const title = String(ins.title).slice(0, 200);
+    // No unique key on (user_id,title) exists, so upsert's onConflict always errored. Skip a title already stored.
+    const { data: existing } = await supabase.from("mavis_insights").select("id").eq("user_id", userId).eq("title", title).limit(1);
+    if (existing?.length) continue;
+    const { error } = await supabase.from("mavis_insights").insert({
+      user_id:      userId,
+      title,
+      content:      String(ins.insight).slice(0, 1000),
+      category:     ins.category ?? "opportunity",
+      severity:     ins.severity ?? "info",
+      source:       "pattern_detection",
+      generated_at: generatedAt,
+    });
 
     if (!error) inserted++;
     else console.error("[mavis-pattern-insights] upsert error:", error.message);
@@ -202,7 +201,7 @@ serve(async (req) => {
     // Fetch all user profiles
     const { data: profiles, error: profilesErr } = await supabase
       .from("profiles")
-      .select("id, telegram_chat_id")
+      .select("id")
       .limit(200);
 
     if (profilesErr) throw profilesErr;
@@ -223,9 +222,11 @@ serve(async (req) => {
         totalInsights += count;
 
         // Notify via Telegram if user has a chat_id configured and we got insights
-        if (count > 0 && profile.telegram_chat_id) {
+        // profiles has no telegram column; only the operator has a configured chat.
+        const opChat = Deno.env.get("TELEGRAM_OPERATOR_CHAT_ID");
+        if (count > 0 && opChat && profile.id === Deno.env.get("TELEGRAM_OPERATOR_USER_ID")) {
           await sendTelegram(
-            profile.telegram_chat_id,
+            opChat,
             `MAVIS Pattern Report\n\n${count} new insight${count !== 1 ? "s" : ""} detected from your last 30 days.\n\nOpen the app to review them under Insights.`,
           );
         }

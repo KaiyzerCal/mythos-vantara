@@ -25,6 +25,7 @@ import {
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 import { tavilySearch, needsWebSearch } from "../_shared/webSearch.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
+import { unbackedSaveClaim } from "../_shared/claimGuard.ts";
 import { buildRecallBlock } from "../_shared/recallBlock.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -920,7 +921,10 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
 
     // Save messages and update relationship state in parallel.
     // Store the clean response (action blocks stripped) so history stays readable.
-    const response = cleanResponse || rawResponse;
+    const baseResponse = cleanResponse || rawResponse;
+    // Flag "saved/created" claims when no action actually ran this turn.
+    const claimNote = unbackedSaveClaim(baseResponse, actionsExecuted > 0 || proposalsQueued > 0 ? ["write"] : []);
+    const response = claimNote ? `${baseResponse}\n\n${claimNote}` : baseResponse;
     await Promise.all([
       supabase.from("persona_conversations").insert([
         { persona_id, user_id, role: "user", content: message, created_at: userMsgAt },
@@ -939,10 +943,11 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
     // discusses with each persona without the operator having to repeat context.
     (async () => {
       try {
-        const { data: newMirrorMemories } = await supabase.from("mavis_persona_memory").insert([
+        const { data: newMirrorMemories, error: mirrorErr } = await supabase.from("mavis_persona_memory").insert([
           { user_id, persona_id, persona_name: persona.name, role: "user",      content: message.slice(0, 1000),  importance: 1, source: channel },
           { user_id, persona_id, persona_name: persona.name, role: "assistant", content: response.slice(0, 1000), importance: 1, source: channel },
         ]).select("id");
+        if (mirrorErr) console.warn("[persona-router] persona memory mirror failed:", mirrorErr.message);
         for (const row of newMirrorMemories ?? []) reembedRow(supabase, "mavis_persona_memory", String(row.id), user_id);
       } catch { /* non-critical */ }
     })();

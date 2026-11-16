@@ -4,6 +4,7 @@ import { Mic, MicOff, Phone, PhoneOff, Loader2, Volume2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { buildVoiceContext } from "@/mavis/voiceContext";
+import { VOICE_READ_TOOLS, runVoiceReadTool } from "@/mavis/voiceReadTools";
 import { executeActions } from "@/mavis/actionExecutor";
 import type { ParsedAction } from "@/mavis/types";
 
@@ -195,7 +196,9 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
 
     const action: ParsedAction = { type: name, payload: { type: name, params }, raw: argsJson };
     let output: Record<string, unknown>;
-    try {
+    if (VOICE_READ_TOOLS[name]) {
+      output = await runVoiceReadTool(name, params);
+    } else try {
       const [result] = await executeActions([action]);
       output = result.status === "success"
         ? { success: true }

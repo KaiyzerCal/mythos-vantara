@@ -93,7 +93,6 @@ serve(async (req) => {
           url: story.url,
           author: story.by,
         },
-        importance: story.score > 200 ? 7 : story.score > 100 ? 5 : 4,
       }, { onConflict: "user_id,title" });
       hnCount++;
     }

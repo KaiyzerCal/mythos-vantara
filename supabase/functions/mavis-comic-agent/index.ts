@@ -216,7 +216,7 @@ serve(async (req) => {
           role:       "assistant",
           content:    `[COMIC] Posted ${stripLabel} for ${dateLabel}: ${dialogue.slice(0, 200)}`,
           tags:       ["comic", "daily_comic", strip, "scheduled_content"],
-          importance: 3,
+          importance_score: 3,
         }).then(undefined, () => {});
 
         return json(results);

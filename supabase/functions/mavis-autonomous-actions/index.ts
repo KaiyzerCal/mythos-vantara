@@ -192,7 +192,7 @@ async function executeAction(action: Record<string, unknown>): Promise<void> {
         title: payload.title,
         content: payload.content,
         tags: payload.tags ?? [],
-        importance: payload.importance ?? 5,
+        properties: { importance: payload.importance ?? 5 },
       });
       break;
 

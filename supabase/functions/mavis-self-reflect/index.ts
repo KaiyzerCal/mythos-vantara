@@ -120,8 +120,7 @@ Only output the JSON array. No prose.`;
           category:   rule.category,
           key:        `synth_${rule.key}`.slice(0, 60),
           value:      String(rule.value).slice(0, 500),
-          confidence: Math.min(1, Math.max(0, Number(rule.confidence) || 0.7)),
-          metadata:   { synthesized: true, source_count: rule.source_count ?? 1, synthesized_at: new Date().toISOString() },
+          confidence: Math.min(10, Math.max(1, Math.round((Number(rule.confidence) || 0.7) * 10))),
         }, { onConflict: "user_id,key" });
 
       if (!upsertErr) upserted.push(rule.key);

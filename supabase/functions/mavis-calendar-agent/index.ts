@@ -173,7 +173,7 @@ serve(async (req) => {
     await adminSb.from("mavis_memory").insert({
       user_id:    userId,
       content:    `Calendar ${action} on ${calendar_id}: ${JSON.stringify(result).slice(0, 400)}`,
-      importance: 3,
+      importance_score: 3,
       tags:       ["calendar", "google_calendar", action as string],
     }).then(() => {});
 

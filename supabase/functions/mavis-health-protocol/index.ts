@@ -147,7 +147,6 @@ serve(async (req) => {
       role:            "assistant",
       content:         `Health protocol for ${targetDate}: readiness ${protocol.readiness_score}/100. Priority: ${protocol.top_priority}. Training: ${protocol.training_recommendation?.type} ${protocol.training_recommendation?.intensity}.`,
       importance_score: 6,
-      source:          "mavis-health-protocol",
       consolidated:    false,
     }).then(undefined, () => { /* non-critical */ });
 

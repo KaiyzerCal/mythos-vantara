@@ -280,7 +280,7 @@ serve(async (req) => {
           role:       "assistant",
           content:    `[VIDEO NARRATOR] Narrated ${frames.length} frames. Script: ${String(results.script ?? "").slice(0, 200)}`,
           tags:       ["video_narrator", "narration", "tts", "vision"],
-          importance: 4,
+          importance_score: 4,
         }).then(undefined, () => {});
 
         return json(results);
@@ -355,7 +355,7 @@ serve(async (req) => {
           role:       "assistant",
           content:    `[VIDEO NARRATOR] Narrated video (${frames.length} frames). Script: ${String(results.script ?? "").slice(0, 150)}`,
           tags:       ["video_narrator", "narration", "tts", "vision", "video"],
-          importance: 4,
+          importance_score: 4,
         }).then(undefined, () => {});
 
         return json(results);

@@ -87,7 +87,7 @@ serve(async (req) => {
         type:        String(payload.type ?? "api_task"),
         description: String(payload.description ?? ""),
         status:      "pending",
-        metadata:    payload.metadata ?? {},
+        payload:     payload.metadata ?? {},
         created_at:  new Date().toISOString(),
       });
       if (taskErr) throw taskErr;

@@ -344,7 +344,7 @@ serve(async (req) => {
       content:    action === "generate_video"
         ? `Higgsfield video: ${(result as Record<string, unknown>).video_url ?? "processing"} (id: ${(result as Record<string, unknown>).video_id})`
         : `Higgsfield ${action}: ${JSON.stringify(result).slice(0, 200)}`,
-      importance: action === "generate_video" ? 4 : 2,
+      importance_score: action === "generate_video" ? 4 : 2,
       tags:       ["higgsfield", "video_generation", "cinematic", action as string],
     }).then(() => {});
 
