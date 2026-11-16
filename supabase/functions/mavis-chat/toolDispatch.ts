@@ -96,7 +96,7 @@ export async function executeAgentAction(
 export function formatToolResults(results: Array<{ type: string; ok: boolean; result: unknown }>): string {
   return results
     .map((r, i) =>
-      `[ACTION ${i + 1}: ${r.type}]\nStatus: ${r.ok ? "success" : "error"}\n${JSON.stringify(r.result, null, 2).slice(0, 2000)}`
+      `[ACTION ${i + 1}: ${r.type}]\nStatus: ${r.ok ? "success" : "error"}\n${JSON.stringify(r.result, null, 2).slice(0, /^read_/.test(r.type) ? 9000 : 2000)}`
     )
     .join("\n\n");
 }
@@ -169,6 +169,16 @@ export const MAVIS_TOOL_DEFS: MavToolDef[] = [
     params: {
       query: { type: "string", desc: "Words or phrase to search for — not a full question", required: true },
       limit: { type: "number", desc: "Max results (default 5, max 25)" },
+    },
+  },
+  {
+    name: "read_entry",
+    description: "Read ONE vault, journal or knowledge-graph entry IN FULL (a page of ~6,000 characters at a time). Use it whenever the operator asks what a stored story, document, protocol, lore or journal entry says: search results are only excerpts of long entries, and answering from an excerpt means inventing the rest. Give the entry's id (from a search result) or its title. If the result says there is more (next_offset), call again with that offset before answering. Answer only from what you read; if it isn't there, say so.",
+    params: {
+      scope:  { type: "string", desc: "Where the entry lives", enum: ["vault", "journal", "note"] },
+      id:     { type: "string", desc: "Entry id from a search result (preferred)" },
+      title:  { type: "string", desc: "Entry title, if you don't have the id" },
+      offset: { type: "number", desc: "Character offset to continue from (use next_offset from the previous page)" },
     },
   },
   {
@@ -1139,7 +1149,7 @@ export async function resolveActionsNative(
       // journal/vault search to a fragment of its first hit — the tool would
       // appear to work while telling MAVIS almost nothing. Read tools get the
       // same budget the ReAct path's formatToolResults already allows.
-      const budget = call.name.startsWith("search_") ? 2000 : 200;
+      const budget = /^read_/.test(call.name) ? 9000 : call.name.startsWith("search_") ? 2000 : 200;
       lines.push(ok
         ? `✓ ${call.name}(${Object.entries(call.args).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(", ")}): ${JSON.stringify(result).slice(0, budget)}`
         : `✗ ${call.name}: ${JSON.stringify(result).slice(0, 100)}`
