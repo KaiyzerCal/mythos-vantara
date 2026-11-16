@@ -19,6 +19,8 @@ import { fetchAllRows } from "../_shared/pagination.ts";
 import { formatBeyonderTree } from "../_shared/beyonderTree.ts";
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
+import { buildRecallBlock } from "../_shared/recallBlock.ts";
+import { unbackedSaveClaim } from "../_shared/claimGuard.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -2593,8 +2595,14 @@ No "As an AI" hedging. You have opinions — express them.`;
       // ── mavis-agent unavailable — fall back to direct AI call ──
       console.warn("[Telegram] falling back to direct AI call");
 
-      const [context, knowledgeCtx] = await Promise.all([loadContext(), loadKnowledgeContext(inputText)]);
-      const systemPrompt = buildSystemPrompt(context, knowledgeCtx) + CREATIVE_PRACTICE_BLOCK;
+      const earlierUser = (history as Array<{ role: string; content: unknown }>)
+        .filter((m) => m.role === "user").map((m) => String(m.content ?? "")).reverse().slice(0, 4);
+      const [context, knowledgeCtx, recallCtx] = await Promise.all([
+        loadContext(),
+        loadKnowledgeContext(inputText),
+        buildRecallBlock(supabase, OPERATOR_USER_ID, inputText, earlierUser, generateEmbedding),
+      ]);
+      const systemPrompt = buildSystemPrompt(context, knowledgeCtx) + recallCtx + CREATIVE_PRACTICE_BLOCK;
 
       let proactiveSearchContext = "";
       if (TAVILY_KEY) {
@@ -2667,6 +2675,14 @@ No "As an AI" hedging. You have opinions — express them.`;
       }
 
       cleanResponse = stripActions(rawResponse);
+    }
+
+    // A reply that says "saved/created" when no write ran this turn is a false claim — flag it.
+    {
+      const agentWrote = Number(agentData?.actionsQueued ?? 0) > 0 ||
+        (Array.isArray(agentData?.toolsUsed) && agentData.toolsUsed.some((t: string) => /^(queue_action|codexos_action|save_|create_|update_|write_)/.test(String(t))));
+      const note = unbackedSaveClaim(cleanResponse, agentWrote || actionSummary ? ["write"] : []);
+      if (note) cleanResponse += `\n\n${note}`;
     }
 
     // ── Persist MAVIS response and reply ───────────────────────────

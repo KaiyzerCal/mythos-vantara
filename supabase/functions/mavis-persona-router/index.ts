@@ -25,6 +25,7 @@ import {
 import { CREATIVE_PRACTICE_BLOCK } from "../_shared/creativePractice.ts";
 import { tavilySearch, needsWebSearch } from "../_shared/webSearch.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
+import { unbackedSaveClaim } from "../_shared/claimGuard.ts";
 import { buildRecallBlock } from "../_shared/recallBlock.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -920,7 +921,10 @@ ${(vaultMediaRes.data || []).map((v: any) => `  • ${v.file_name} [${v.file_typ
 
     // Save messages and update relationship state in parallel.
     // Store the clean response (action blocks stripped) so history stays readable.
-    const response = cleanResponse || rawResponse;
+    const baseResponse = cleanResponse || rawResponse;
+    // Flag "saved/created" claims when no action actually ran this turn.
+    const claimNote = unbackedSaveClaim(baseResponse, actionsExecuted > 0 || proposalsQueued > 0 ? ["write"] : []);
+    const response = claimNote ? `${baseResponse}\n\n${claimNote}` : baseResponse;
     await Promise.all([
       supabase.from("persona_conversations").insert([
         { persona_id, user_id, role: "user", content: message, created_at: userMsgAt },
