@@ -13,6 +13,9 @@ DECLARE
   cron_totals jsonb := '{}'::jsonb;
   providers jsonb := '[]'::jsonb;
   http_errors jsonb := '[]'::jsonb;
+  freshness jsonb := '[]'::jsonb;
+  spec text[][] := ARRAY[['Predictions','mavis_predictions','created_at'],['Daily scores','mavis_daily_scores','created_at'],['Insights','mavis_insights','generated_at'],['Narrative','mavis_narrative','created_at'],['Relationship health','mavis_relationship_health','created_at'],['World model','mavis_world_model','created_at'],['Opportunities','mavis_opportunities','created_at'],['Persona memory','mavis_persona_memory','created_at'],['Chat memory','mavis_memory','created_at'],['Behavioral signals','mavis_behavioral_signals','created_at']];
+  i int; lw timestamptz; n bigint;
 BEGIN
   SELECT id INTO operator_id FROM public.profiles ORDER BY created_at ASC LIMIT 1;
   IF auth.uid() IS NULL OR operator_id IS NULL OR auth.uid() <> operator_id THEN
@@ -53,7 +56,16 @@ BEGIN
   EXCEPTION WHEN others THEN http_errors := '[]'::jsonb;
   END;
 
-  RETURN jsonb_build_object('generated_at', now(), 'cron_totals', cron_totals, 'cron_failures', cron_failures,
+  -- When did each engine's output table last get a row? A stale one means the engine is not running or not writing.
+  FOR i IN 1..array_length(spec, 1) LOOP
+    BEGIN
+      EXECUTE format('SELECT max(%I), count(*) FROM public.%I', spec[i][3], spec[i][2]) INTO lw, n;
+      freshness := freshness || jsonb_build_object('name', spec[i][1], 'last_write', lw, 'rows', n);
+    EXCEPTION WHEN others THEN NULL;
+    END;
+  END LOOP;
+
+  RETURN jsonb_build_object('generated_at', now(), 'output_freshness', freshness, 'cron_totals', cron_totals, 'cron_failures', cron_failures,
                             'providers_cooling_down', providers, 'http_errors_24h', http_errors);
 END $$;
 REVOKE ALL ON FUNCTION public.mavis_system_health() FROM PUBLIC;

@@ -12,6 +12,7 @@ interface Health {
   cron_failures?: { job: string; failed?: number; runs?: number; last_failure?: string; message?: string }[];
   providers_cooling_down?: { provider: string; unhealthy_until: string; reason?: string }[];
   http_errors_24h?: { status_code: number; n: number }[];
+  output_freshness?: { name: string; last_write?: string | null; rows?: number }[];
 }
 
 const ago = (iso?: string) => {
@@ -49,6 +50,9 @@ export function LiveSystemStatus() {
   const providers = health?.providers_cooling_down ?? [];
   const httpErrors = health?.http_errors_24h ?? [];
   const totals = health?.cron_totals;
+  const freshness = health?.output_freshness ?? [];
+  const staleMs = 8 * 86400000; // weekly engines write at least once a week
+  const isStale = (iso?: string | null) => !iso || Date.now() - new Date(iso).getTime() > staleMs;
   const allClear = !!health && !health.error && failures.length === 0 && providers.length === 0;
 
   return (
@@ -107,6 +111,24 @@ export function LiveSystemStatus() {
                   {p.reason && <p className="text-xs font-mono text-muted-foreground mt-1">{p.reason}</p>}
                 </HudCard>
               ))}
+            </div>
+          )}
+
+          {freshness.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Engine output (last write)</p>
+              <HudCard>
+                <div className="divide-y divide-border/40">
+                  {freshness.map((f) => (
+                    <div key={f.name} className="flex items-center justify-between gap-2 py-1.5 text-xs font-mono">
+                      <span className="text-foreground">{f.name}</span>
+                      <span className={isStale(f.last_write) ? "text-amber-400" : "text-green-400"}>
+                        {f.last_write ? ago(f.last_write) : "never"} · {f.rows ?? 0} rows{isStale(f.last_write) ? " · stale" : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </HudCard>
             </div>
           )}
 
