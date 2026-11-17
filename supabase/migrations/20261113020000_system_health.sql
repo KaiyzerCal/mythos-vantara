@@ -15,6 +15,7 @@ DECLARE
   http_errors jsonb := '[]'::jsonb;
   freshness jsonb := '[]'::jsonb;
   spec text[][] := ARRAY[['Predictions','mavis_predictions','created_at'],['Daily scores','mavis_daily_scores','created_at'],['Insights','mavis_insights','generated_at'],['Narrative','mavis_narrative','created_at'],['Relationship health','mavis_relationship_health','created_at'],['World model','mavis_world_model','created_at'],['Opportunities','mavis_opportunities','created_at'],['Persona memory','mavis_persona_memory','created_at'],['Chat memory','mavis_memory','created_at'],['Behavioral signals','mavis_behavioral_signals','created_at']];
+  busiest jsonb := '[]'::jsonb;
   i int; lw timestamptz; n bigint;
 BEGIN
   SELECT id INTO operator_id FROM public.profiles ORDER BY created_at ASC LIMIT 1;
@@ -57,6 +58,17 @@ BEGIN
   END;
 
   -- When did each engine's output table last get a row? A stale one means the engine is not running or not writing.
+  -- Always-on load: which scheduled jobs wake the backend most often.
+  BEGIN
+    SELECT coalesce(jsonb_agg(row_to_json(t)), '[]'::jsonb) INTO busiest FROM (
+      SELECT j.jobname AS job, j.schedule, count(*) AS runs_24h,
+             round(avg(extract(epoch FROM (d.end_time - d.start_time)))::numeric, 2) AS avg_sec
+      FROM cron.job j JOIN cron.job_run_details d ON d.jobid = j.jobid
+      WHERE d.start_time > now() - interval '24 hours'
+      GROUP BY j.jobname, j.schedule ORDER BY 3 DESC LIMIT 8) t;
+  EXCEPTION WHEN others THEN busiest := '[]'::jsonb;
+  END;
+
   FOR i IN 1..array_length(spec, 1) LOOP
     BEGIN
       EXECUTE format('SELECT max(%I), count(*) FROM public.%I', spec[i][3], spec[i][2]) INTO lw, n;
@@ -65,7 +77,7 @@ BEGIN
     END;
   END LOOP;
 
-  RETURN jsonb_build_object('generated_at', now(), 'output_freshness', freshness, 'cron_totals', cron_totals, 'cron_failures', cron_failures,
+  RETURN jsonb_build_object('generated_at', now(), 'output_freshness', freshness, 'busiest_jobs', busiest, 'cron_totals', cron_totals, 'cron_failures', cron_failures,
                             'providers_cooling_down', providers, 'http_errors_24h', http_errors);
 END $$;
 REVOKE ALL ON FUNCTION public.mavis_system_health() FROM PUBLIC;

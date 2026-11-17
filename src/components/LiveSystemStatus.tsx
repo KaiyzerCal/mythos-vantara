@@ -12,6 +12,7 @@ interface Health {
   cron_failures?: { job: string; failed?: number; runs?: number; last_failure?: string; message?: string }[];
   providers_cooling_down?: { provider: string; unhealthy_until: string; reason?: string }[];
   http_errors_24h?: { status_code: number; n: number }[];
+  busiest_jobs?: { job: string; schedule?: string; runs_24h?: number; avg_sec?: number }[];
   output_freshness?: { name: string; last_write?: string | null; rows?: number }[];
 }
 
@@ -51,6 +52,7 @@ export function LiveSystemStatus() {
   const httpErrors = health?.http_errors_24h ?? [];
   const totals = health?.cron_totals;
   const freshness = health?.output_freshness ?? [];
+  const busiest = health?.busiest_jobs ?? [];
   const staleMs = 8 * 86400000; // weekly engines write at least once a week
   const isStale = (iso?: string | null) => !iso || Date.now() - new Date(iso).getTime() > staleMs;
   const allClear = !!health && !health.error && failures.length === 0 && providers.length === 0;
@@ -111,6 +113,22 @@ export function LiveSystemStatus() {
                   {p.reason && <p className="text-xs font-mono text-muted-foreground mt-1">{p.reason}</p>}
                 </HudCard>
               ))}
+            </div>
+          )}
+
+          {busiest.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Busiest scheduled jobs (24h) · always-on load</p>
+              <HudCard>
+                <div className="divide-y divide-border/40">
+                  {busiest.map((b) => (
+                    <div key={b.job} className="flex items-center justify-between gap-2 py-1.5 text-xs font-mono">
+                      <span className="text-foreground break-all">{b.job}</span>
+                      <span className="text-muted-foreground whitespace-nowrap">{b.runs_24h ?? 0} runs · {b.schedule ?? ""}</span>
+                    </div>
+                  ))}
+                </div>
+              </HudCard>
             </div>
           )}
 
