@@ -1,5 +1,5 @@
 // SKILL: job-search-agent
-// AI-powered job search across multiple platforms via Apify louisdeconinck/ai-job-search-agent.
+// LinkedIn job search via the Apify Actor johnvc/linkedin-jobs-api.
 
 import { registerSkill } from "../_registry";
 import type { SkillHandler } from "../_registry";
@@ -14,13 +14,21 @@ const handler: SkillHandler = async (ctx, input) => {
   const locationMatch = query.match(/\bin\s+([^,]+)/i);
   const jobTitle = query.replace(/\bin\s+[^,]+/i, "").trim();
   const location = locationMatch?.[1]?.trim() ?? "Remote";
+  const remote = /remote/i.test(location);
   try {
     const { data, error } = await supabase.functions.invoke("mavis-apify", {
-      body: { actorId: "louisdeconinck/ai-job-search-agent", input: { jobTitle, location }, timeout: 120 },
+      body: {
+        actorId: "johnvc/linkedin-jobs-api",
+        input: { keyword: jobTitle, ...(remote ? { remote: true } : { location }), maxJobs: 10 },
+        timeout: 120,
+      },
     });
     if (error) throw error;
-    const result = data?.output ?? data?.jobs ?? data;
-    return { skillName: "job-search-agent", output: result ? `💼 **Job Search Results:**\n\n${typeof result === "string" ? result : JSON.stringify(result, null, 2).slice(0, 5000)}` : JSON.stringify(data) };
+    const jobs = (Array.isArray(data?.data) ? data.data : []).filter((j: any) => j?.title);
+    if (!jobs.length) return { skillName: "job-search-agent", output: `No jobs found for "${jobTitle}"${remote ? " (remote)" : ` in ${location}`}.` };
+    const lines = jobs.map((j: any, i: number) =>
+      `${i + 1}. **${j.title}** at ${j.companyName ?? "unknown company"} (${j.location ?? "location not listed"})${j.postedDate ? `, posted ${j.postedDate}` : ""}\n   ${j.jobUrl ?? ""}`);
+    return { skillName: "job-search-agent", output: `💼 **Job Search Results:**\n\n${lines.join("\n")}` };
   } catch (err) {
     return { skillName: "job-search-agent", output: `Job search error: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -28,7 +36,7 @@ const handler: SkillHandler = async (ctx, input) => {
 
 registerSkill({
   name: "job-search-agent",
-  description: "AI job search agent — searches LinkedIn, Indeed, and more for matching positions",
+  description: "Job search agent — searches LinkedIn job listings for matching positions",
   keywords: [
     "job search", "find jobs", "search jobs", "ai job search",
     "job listings", "find positions", "career search",
