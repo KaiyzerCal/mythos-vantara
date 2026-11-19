@@ -55,7 +55,7 @@ Requires `APIFY_API_KEY` in Supabase secrets vault.
 | Actor ID | Use case | Input fields |
 |---|---|---|
 | `code_crafter/leads-finder` | B2B leads (alternative to Apollo/ZoomInfo) | `{ query, industry }` |
-| `louisdeconinck/ai-job-search-agent` | Job search + cover letter gen | `{ jobTitle, location }` |
+| `johnvc/linkedin-jobs-api` | LinkedIn job search (title, company, location, posted date, link) | `{ keyword, location or remote: true, maxJobs }` |
 | `daniil.poletaev/backlink-building-agent` | Backlink outreach automation | `{ website, niche }` |
 | `clearpath/email-finder-api` | Email finder + verifier | `{ domain, name }` |
 | `scraper-mind/all-social-media-email-scraper` | Emails from 40+ platforms | `{ url }` |
