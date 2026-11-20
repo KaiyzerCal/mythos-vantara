@@ -19,13 +19,23 @@ export function SefirotTree({ skills }: { skills: Skill[] }) {
     const beyonder = skills.filter((s) => s.category === "Beyonder");
     const trunk = beyonder.find((s) => s.is_sovereign_trunk && !s.parent_skill_id);
     if (!trunk) return null;
-    const active = (rootId: string) =>
-      beyonder.filter((s) => s.parent_skill_id === rootId && s.unlocked).sort((a, b) => b.tier - a.tier)[0] ?? null;
+    const seqsOf = (rootId: string) => beyonder.filter((s) => s.parent_skill_id === rootId);
+    // Frontier = the end of the unbroken run of unlocked sequences from Seq.9 (tier 1), so a stray unlock higher up
+    // can't move where a pathway says you are.
+    const active = (rootId: string) => {
+      const byTier = new Map(seqsOf(rootId).map((s) => [s.tier, s]));
+      let cur: Skill | null = null;
+      for (let t = 1; t <= 10; t++) { const s = byTier.get(t); if (!s || !s.unlocked) break; cur = s; }
+      return cur;
+    };
+    // Progress already banked on sequences above the frontier (a head start; capped at 99% until they unlock).
+    const banked = (rootId: string, frontierTier: number) =>
+      seqsOf(rootId).filter((s) => s.tier > frontierTier && s.proficiency > 0).length;
     const roots = beyonder.filter((s) => !s.parent_skill_id && s.id !== trunk.id);
     const groups = GROUPS.map((g) => ({
       ...g,
       limbs: roots.filter((r) => (g.key === "other" ? !r.body_mapping : r.body_mapping === g.key))
-        .map((r) => ({ root: r, seq: active(r.id) })).sort((a, b) => a.root.name.localeCompare(b.root.name)),
+        .map((r) => { const seq = active(r.id); return { root: r, seq, banked: banked(r.id, seq?.tier ?? 0) }; }).sort((a, b) => a.root.name.localeCompare(b.root.name)),
     })).filter((g) => g.limbs.length > 0);
     return { trunk, trunkSeq: active(trunk.id), groups };
   }, [skills]);
@@ -54,7 +64,7 @@ export function SefirotTree({ skills }: { skills: Skill[] }) {
                     <line x1={gx} y1={gy} x2={lx} y2={ly} stroke={g.color} strokeOpacity={0.35} />
                     <circle cx={lx} cy={ly} r={4.5} fill="none" stroke={g.color} strokeWidth={1.5} />
                     <circle cx={lx} cy={ly} r={4.5 * Math.max(0.15, pct / 100)} fill={g.color} />
-                    <title>{`${pretty(l.root.name)}${l.seq ? ` - ${l.seq.name} ${pct}%` : ""}`}</title>
+                    <title>{`${pretty(l.root.name)}${l.seq ? ` - current: Seq.${10 - l.seq.tier} ${l.seq.name} ${pct}%` : ""}${l.banked ? ` · ${l.banked} higher sequence${l.banked === 1 ? "" : "s"} with banked progress` : ""}`}</title>
                   </g>
                 );
               })}
@@ -64,7 +74,7 @@ export function SefirotTree({ skills }: { skills: Skill[] }) {
         <circle cx={c} cy={c} r={30} fill="#0b0b10" stroke="#fbbf24" strokeWidth={2} />
         <circle cx={c} cy={c} r={22} fill="#000" />
         <text x={c} y={c - 4} textAnchor="middle" fontSize="8" fill="#fbbf24" fontWeight="bold">BLACK SUN</text>
-        <text x={c} y={c + 8} textAnchor="middle" fontSize="7" fill="#fbbf24" opacity={0.85}>{model.trunkSeq ? `${model.trunkSeq.name} ${model.trunkSeq.proficiency}%` : "Sovereign Trunk"}</text>
+        <text x={c} y={c + 8} textAnchor="middle" fontSize="7" fill="#fbbf24" opacity={0.85}>{model.trunkSeq ? `Seq.${10 - model.trunkSeq.tier} ${model.trunkSeq.name} ${model.trunkSeq.proficiency}%` : "Sovereign Trunk"}</text>
       </svg>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs font-mono">
         {model.groups.map((g) => (
@@ -73,12 +83,16 @@ export function SefirotTree({ skills }: { skills: Skill[] }) {
             {g.limbs.map((l) => (
               <p key={l.root.id} className="flex justify-between gap-2">
                 <span className="text-foreground">{pretty(l.root.name)}</span>
-                <span className="text-muted-foreground">{l.seq ? `${l.seq.name} ${l.seq.proficiency}%` : "locked"}</span>
+                <span className="text-muted-foreground text-right">
+                  {l.seq ? `Seq.${10 - l.seq.tier} ${l.seq.name} ${l.seq.proficiency}%` : "locked"}
+                  {l.banked > 0 && <span className="opacity-60"> · +{l.banked} banked</span>}
+                </span>
               </p>
             ))}
           </div>
         ))}
       </div>
+      <p className="text-[11px] font-mono text-muted-foreground text-center">Each limb shows the sequence you are on now. "Banked" is progress already earned on higher sequences; it unlocks when you reach them.</p>
       <p className="text-xs font-display italic text-primary/70 text-center">"Let no limb believe itself severed from the spine."</p>
     </div>
   );

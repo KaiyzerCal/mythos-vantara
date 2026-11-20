@@ -45,10 +45,33 @@ export function isAscensionRitual(quest: { category?: unknown; title?: unknown }
   return /ascension[\s_-]*ritual/i.test(`${quest.category ?? ""} ${quest.title ?? ""}`);
 }
 
-/** The trunk's active sequence: its highest-tier unlocked direct child (Seq.9 = tier 1 ... Seq.0 = tier 10). */
+/**
+ * A pathway's frontier: the furthest sequence reached by an unbroken run of unlocked sequences starting at Seq.9 (tier 1).
+ * Contiguous on purpose: a stray unlock further up (a hand edit) must not move where the pathway says you are.
+ */
+export function frontierSequence(sequences: SefSkill[]): SefSkill | null {
+  const byTier = new Map<number, SefSkill>();
+  for (const s of sequences) if (s.tier != null) byTier.set(s.tier, s);
+  let cur: SefSkill | null = null;
+  for (let t = 1; t <= 10; t++) {
+    const s = byTier.get(t);
+    if (!s || !s.unlocked) break;
+    cur = s;
+  }
+  return cur;
+}
+
+/** The trunk's active sequence = its frontier. */
 export function activeTrunkSequence(trunkId: string, all: SefSkill[]): SefSkill | null {
-  const seqs = all.filter((s) => s.parent_skill_id === trunkId && s.unlocked);
-  return seqs.sort((a, b) => (b.tier ?? 0) - (a.tier ?? 0))[0] ?? null;
+  return frontierSequence(all.filter((s) => s.parent_skill_id === trunkId));
+}
+
+/**
+ * Locked Beyonder skills may bank progress (a head start from real experience) but never finish: they stop at 99% so a
+ * locked sequence can never "master" itself and unlock the tiers above it out of order.
+ */
+export function capForLocked(after: number, unlocked: boolean | null | undefined, isBeyonder: boolean): number {
+  return isBeyonder && unlocked === false ? Math.min(99, after) : after;
 }
 
 /** May a saturated (100%) auxiliary sequence at `tier` unlock its next sequence? */
@@ -64,6 +87,7 @@ export interface SefirotPlan {
   all: SefSkill[];
   auxRoots: SefSkill[];      // distinct non-trunk pathways touched by the linked skills
   fragmented: boolean;
+  lockedLinked: SefSkill[];  // linked Beyonder skills that are still locked
 }
 
 const COLS = "id, name, tier, proficiency, unlocked, parent_skill_id, is_sovereign_trunk, body_mapping";
@@ -86,7 +110,8 @@ export async function planSefirot(sb: any, userId: string, skillIds: string[]): 
       if (root && root.id !== trunk.id) roots.set(root.id, root);
     }
     const auxRoots = [...roots.values()];
-    return { trunk, byId, all, auxRoots, fragmented: isFragmented(auxRoots) };
+    const lockedLinked = skillIds.map((id) => byId.get(id)).filter((x): x is SefSkill => !!x && x.unlocked === false);
+    return { trunk, byId, all, auxRoots, fragmented: isFragmented(auxRoots), lockedLinked };
   } catch (e) {
     console.warn("[sefirot] plan failed:", e instanceof Error ? e.message : e);
     return null;
@@ -156,11 +181,27 @@ export async function releaseSaturatedLimbs(
   return released;
 }
 
-/** Create/update-time check so the dilution warning is shown when the quest is written, not only when it completes. */
+export function lockedLinkNote(plan: SefirotPlan | null): string | null {
+  if (!plan || plan.lockedLinked.length === 0) return null;
+  const names = plan.lockedLinked.map((s) => s.name).join(", ");
+  const current = plan.auxRoots.map((r) => {
+    const f = frontierSequence(plan.all.filter((s) => s.parent_skill_id === r.id));
+    return f ? `${r.name.replace(/_/g, " ")}: ${f.name}` : null;
+  }).filter(Boolean).join("; ");
+  return `Locked sequence linked (${names}). Locked sequences can only bank progress up to 99% and do not advance your position. Link the current sequence instead${current ? ` (${current})` : ""}.`;
+}
+
+/** Create/update-time check so warnings are shown when the quest is written, not only when it completes. */
 export async function dilutionWarning(sb: any, userId: string, skillIds: string[], known?: SefirotPlan | null): Promise<string | null> {
   const plan = known !== undefined ? known : await planSefirot(sb, userId, skillIds);
-  if (!plan || !plan.fragmented) return null;
-  return `Dilution warning: this quest touches ${focusGroupCount(plan.auxRoots)} unrelated pathways (${plan.auxRoots.map((r) => r.name.replace(/_/g, " ")).join(", ")}). More than ${FRAGMENT_THRESHOLD} costs "Fragmented Focus: -15% Digestion Yield" on completion. Link the Black Sun sequence plus 1-2 auxiliary limbs.`;
+  if (!plan) return null;
+  const parts: string[] = [];
+  if (plan.fragmented) {
+    parts.push(`Dilution warning: this quest touches ${focusGroupCount(plan.auxRoots)} unrelated pathways (${plan.auxRoots.map((r) => r.name.replace(/_/g, " ")).join(", ")}). More than ${FRAGMENT_THRESHOLD} costs "Fragmented Focus: -15% Digestion Yield" on completion. Link the Black Sun sequence plus 1-2 auxiliary limbs.`);
+  }
+  const locked = lockedLinkNote(plan);
+  if (locked) parts.push(locked);
+  return parts.length ? parts.join(" ") : null;
 }
 
 /** Pure: which skill should be added as the primary axis, if any? Only when an auxiliary limb is linked and no trunk skill is. */

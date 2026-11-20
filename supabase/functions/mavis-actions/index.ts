@@ -10,7 +10,7 @@ import { resolveSkillRefs } from "../_shared/skillRefs.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
 import {
   planSefirot, payConvergence, releaseSaturatedLimbs, pathwayRoot, applyYield, focusGroupCount, isAscensionRitual,
-  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, type SefSkill,
+  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, capForLocked, type SefSkill,
 } from "../_shared/sefirot.ts";
 
 type MavisAction = {
@@ -125,14 +125,14 @@ async function bumpLinkedSkillProficiency(
   if (plan?.fragmented) {
     await logActivity(sb, userId, "debuff_applied", `Debuff: Fragmented Focus -15% Digestion Yield (${focusGroupCount(plan.auxRoots)} unrelated pathways on one quest)`, 0);
   }
-  const { data: skills } = await sb.from("skills").select("id, name, proficiency, tier, parent_skill_id").in("id", skillIds).eq("user_id", userId);
+  const { data: skills } = await sb.from("skills").select("id, name, proficiency, tier, parent_skill_id, unlocked, category").in("id", skillIds).eq("user_id", userId);
   const auxGains = new Map<string, number>(); // auxiliary pathway id -> proficiency just earned
   const trunkRoots = new Set<string>();
   let trunkReached: SefSkill | null = null;
   const gated: string[] = [];
   await Promise.all((skills || []).map(async (skill: any) => {
     const before = Number(skill.proficiency || 0);
-    const after = Math.min(100, before + gain);
+    const after = Math.max(before, capForLocked(Math.min(100, before + gain), skill.unlocked, skill.category === "Beyonder"));
     if (plan) {
       const root = pathwayRoot(skill.id, plan.byId);
       if (root && root.id !== plan.trunk!.id) auxGains.set(root.id, Math.max(auxGains.get(root.id) ?? 0, after - before));
