@@ -270,13 +270,15 @@ export interface Skill {
   proficiency: number;
   prerequisites: string[];
   parent_skill_id: string | null;
+  is_sovereign_trunk?: boolean;
+  body_mapping?: string | null;
   created_at: string;
   updated_at: string;
 }
 // Explicit columns: the table also carries a 1,536-number `embedding` per row that nothing in the UI reads.
 export const useSkills = makeHook<Skill>("skills", {
   deferInitial: true, limit: 5000,
-  columns: "id,user_id,name,description,category,energy_type,tier,unlocked,cost,proficiency,prerequisites,parent_skill_id,created_at,updated_at",
+  columns: "id,user_id,name,description,category,energy_type,tier,unlocked,cost,proficiency,prerequisites,parent_skill_id,is_sovereign_trunk,body_mapping,created_at,updated_at",
 });
 
 // ─── ENERGY SYSTEMS ────────────────────────────────────────

@@ -8,6 +8,10 @@ import { embedText } from "../_shared/embedding.ts";
 import { suggestSkillLinks } from "../_shared/skillLinker.ts";
 import { resolveSkillRefs } from "../_shared/skillRefs.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
+import {
+  planSefirot, payConvergence, releaseSaturatedLimbs, pathwayRoot, applyYield, focusGroupCount, isAscensionRitual,
+  isGatedLimbSequence, limbMayAdvance, dilutionWarning, type SefSkill,
+} from "../_shared/sefirot.ts";
 
 type MavisAction = {
   type: string;
@@ -106,13 +110,34 @@ function computeProficiencyGain(xpReward: number, difficulty: string): number {
 // reaches 100 is "mastered" — any skill gated on it (prerequisites
 // contains its id) unlocks, which is how tier-gated trees (e.g. the
 // Beyonder pathway/sequence skills) advance from repeated quest completion.
-async function bumpLinkedSkillProficiency(sb: any, userId: string, skillIds: string[], xpReward: number, difficulty: string) {
-  if (skillIds.length === 0) return;
-  const gain = computeProficiencyGain(xpReward, difficulty);
-  const { data: skills } = await sb.from("skills").select("id, name, proficiency").in("id", skillIds).eq("user_id", userId);
+async function bumpLinkedSkillProficiency(
+  sb: any, userId: string, skillIds: string[], xpReward: number, difficulty: string,
+  quest: { category?: unknown; title?: unknown } = {},
+): Promise<Record<string, unknown> | null> {
+  if (skillIds.length === 0) return null;
+  // Sefirot Anchor Protocol: auxiliary pathways feed the Black Sun trunk, a quest spread over too many unrelated
+  // pathways loses yield, and a saturated limb waits at the gate. See _shared/sefirot.ts.
+  const plan = await planSefirot(sb, userId, skillIds);
+  const ritual = isAscensionRitual(quest);
+  const baseGain = computeProficiencyGain(xpReward, difficulty);
+  const gain = applyYield(baseGain, !!plan?.fragmented);
+  const log = (type: string, text: string) => logActivity(sb, userId, type, text, 0);
+  if (plan?.fragmented) {
+    await logActivity(sb, userId, "debuff_applied", `Debuff: Fragmented Focus -15% Digestion Yield (${focusGroupCount(plan.auxRoots)} unrelated pathways on one quest)`, 0);
+  }
+  const { data: skills } = await sb.from("skills").select("id, name, proficiency, tier, parent_skill_id").in("id", skillIds).eq("user_id", userId);
+  const auxGains = new Map<string, number>(); // auxiliary pathway id -> proficiency just earned
+  const trunkRoots = new Set<string>();
+  let trunkReached: SefSkill | null = null;
+  const gated: string[] = [];
   for (const skill of skills || []) {
     const before = Number(skill.proficiency || 0);
     const after = Math.min(100, before + gain);
+    if (plan) {
+      const root = pathwayRoot(skill.id, plan.byId);
+      if (root && root.id !== plan.trunk!.id) auxGains.set(root.id, Math.max(auxGains.get(root.id) ?? 0, after - before));
+      else if (root) trunkRoots.add(skill.id);
+    }
     if (after === before) continue;
     await sb.from("skills").update({ proficiency: after, updated_at: new Date().toISOString() }).eq("id", skill.id).eq("user_id", userId);
     // "skill_up" matches the existing ActivityLogPage.tsx event vocabulary
@@ -120,6 +145,19 @@ async function bumpLinkedSkillProficiency(sb: any, userId: string, skillIds: str
     await logActivity(sb, userId, "skill_up", `${skill.name} proficiency: ${before}% -> ${after}%`, 0);
 
     if (after >= 100) {
+      const inTree = plan?.byId.get(skill.id);
+      if (inTree) inTree.proficiency = after;
+      // Limb saturation: an auxiliary sequence at 100% only unlocks its next sequence once the trunk has reached
+      // the same tier (equilibrium) or this quest is an Ascension Ritual.
+      if (plan && inTree && isGatedLimbSequence(inTree, plan)) {
+        const trunkSeqs = plan.all.filter((t) => t.parent_skill_id === plan.trunk!.id);
+        if (!limbMayAdvance(Number(inTree.tier ?? skill.tier ?? 0), trunkSeqs, ritual)) {
+          gated.push(skill.name);
+          await logActivity(sb, userId, "skill_up", `${skill.name} reached Limb Saturation - it waits for the Black Sun to reach the same tier, or an Ascension Ritual`, 0);
+          continue;
+        }
+      }
+      if (plan && inTree && inTree.parent_skill_id === plan.trunk!.id) trunkReached = inTree;
       const { data: unlockable } = await sb.from("skills").select("id, name")
         .eq("user_id", userId).eq("unlocked", false).contains("prerequisites", [skill.id]);
       for (const u of unlockable || []) {
@@ -130,6 +168,23 @@ async function bumpLinkedSkillProficiency(sb: any, userId: string, skillIds: str
       }
     }
   }
+  // Sovereign convergence: 33% of each auxiliary gain also flows into the Black Sun's active sequence.
+  const conv = await payConvergence(sb, userId, plan, auxGains, log);
+  if (conv.reachedHundred) {
+    trunkReached = conv.reachedHundred;
+    const { data: unlockable } = await sb.from("skills").select("id, name")
+      .eq("user_id", userId).eq("unlocked", false).contains("prerequisites", [conv.reachedHundred.id]);
+    for (const u of unlockable || []) {
+      await sb.from("skills").update({ unlocked: true, updated_at: new Date().toISOString() }).eq("id", u.id).eq("user_id", userId);
+      await logActivity(sb, userId, "skill_created", `${u.name} unlocked (mastered ${conv.reachedHundred.name})`, 0);
+    }
+  }
+  const released = trunkReached ? await releaseSaturatedLimbs(sb, userId, plan, trunkReached, log) : [];
+  if (!plan || (auxGains.size === 0 && !plan.fragmented && gated.length === 0)) return null;
+  return {
+    convergence_into: conv.into, convergence_points: conv.dividend,
+    fragmented_focus: plan.fragmented, limb_saturated: gated, limbs_released: released,
+  };
 }
 
 // Every reward a quest can carry besides XP and linked-skill proficiency
@@ -527,7 +582,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         linkedSkills = (named || []) as Array<{ id: string; name: string }>;
       }
       const usedMatcher = !!(autoLinked && autoLinked.ids.length > 0);
+      const sefirotWarning = await dilutionWarning(sb, userId, linkedSkillIds);
       return {
+        sefirot_warning: sefirotWarning ?? undefined,
         quest_id: newQuest?.id ?? null,
         linked_skill_ids: linkedSkillIds,
         linked_skills: linkedSkills,
@@ -636,14 +693,14 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (updates.linked_skill_ids !== undefined) {
         const ids = updates.linked_skill_ids as string[];
         const { data: named } = ids.length ? await sb.from("skills").select("id, name").eq("user_id", userId).in("id", ids) : { data: [] };
-        return { quest_id: questId, linked_skills: named || [], dropped_skill_refs: questDroppedRefs };
+        return { quest_id: questId, linked_skills: named || [], dropped_skill_refs: questDroppedRefs, sefirot_warning: (await dilutionWarning(sb, userId, ids)) ?? undefined };
       }
       return;
     }
 
     case "complete_quest": {
       const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
-      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title, linked_skill_ids, difficulty, real_world_mapping, codex_points_reward, buff_effects, debuff_effects, loot_rewards").eq("id", questId).eq("user_id", userId).maybeSingle();
+      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title, category, linked_skill_ids, difficulty, real_world_mapping, codex_points_reward, buff_effects, debuff_effects, loot_rewards").eq("id", questId).eq("user_id", userId).maybeSingle();
       if (findErr) throw findErr;
       if (!quest) throw new Error(`quests: no quest found for id "${questId}"`);
       const { data: updated, error: updErr } = await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", questId).eq("user_id", userId).select("id");
@@ -651,9 +708,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (!updated || updated.length === 0) throw new Error(`quests: complete matched no row for id "${questId}"`);
       await awardXP(sb, userId, Number(quest.xp_reward || 0));
       await logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}`, Number(quest.xp_reward || 0));
-      await bumpLinkedSkillProficiency(sb, userId, asStringArray(quest.linked_skill_ids), Number(quest.xp_reward || 0), String(quest.difficulty || "Normal"));
+      const sefirot = await bumpLinkedSkillProficiency(sb, userId, asStringArray(quest.linked_skill_ids), Number(quest.xp_reward || 0), String(quest.difficulty || "Normal"), { category: (quest as any).category, title: quest.title });
       await applyQuestCompletionRewards(sb, userId, quest);
-      return;
+      return sefirot ? { sefirot } : undefined;
     }
 
     case "delete_quest": {
