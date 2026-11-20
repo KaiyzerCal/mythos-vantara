@@ -10871,6 +10871,7 @@ export type Database = {
       }
       skills: {
         Row: {
+          body_mapping: string | null
           category: string
           cost: number
           created_at: string
@@ -10878,6 +10879,7 @@ export type Database = {
           embedding: string | null
           energy_type: string
           id: string
+          is_sovereign_trunk: boolean
           name: string
           parent_skill_id: string | null
           prerequisites: string[]
@@ -10888,6 +10890,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          body_mapping?: string | null
           category?: string
           cost?: number
           created_at?: string
@@ -10895,6 +10898,7 @@ export type Database = {
           embedding?: string | null
           energy_type?: string
           id?: string
+          is_sovereign_trunk?: boolean
           name: string
           parent_skill_id?: string | null
           prerequisites?: string[]
@@ -10905,6 +10909,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          body_mapping?: string | null
           category?: string
           cost?: number
           created_at?: string
@@ -10912,6 +10917,7 @@ export type Database = {
           embedding?: string | null
           energy_type?: string
           id?: string
+          is_sovereign_trunk?: boolean
           name?: string
           parent_skill_id?: string | null
           prerequisites?: string[]
