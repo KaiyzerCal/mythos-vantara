@@ -58,7 +58,7 @@ describe("limb saturation gate", () => {
     const trunkSeq = sk("tseq", { parent_skill_id: "trunk" });
     const all = [trunk, aux, seq, ability, trunkSeq];
     const byId = new Map(all.map((s) => [s.id, s]));
-    const plan = { trunk, byId, all, auxRoots: [aux], fragmented: false } as SefirotPlan;
+    const plan = { trunk, byId, all, auxRoots: [aux], fragmented: false, lockedLinked: [] } as SefirotPlan;
     expect(pathwayRoot("ab", byId)?.id).toBe("aux");
     expect(isGatedLimbSequence(seq, plan)).toBe(true);
     expect(isGatedLimbSequence(ability, plan)).toBe(false);
@@ -75,7 +75,7 @@ describe("primary axis auto-link", () => {
   const tseq = sk("tseq", { parent_skill_id: "trunk", tier: 1, proficiency: 12 });
   const all = [trunk, aux, seq, tseq];
   const byId = new Map(all.map((s) => [s.id, s]));
-  const plan = (auxRoots: SefSkill[]) => ({ trunk, byId, all, auxRoots, fragmented: false }) as SefirotPlan;
+  const plan = (auxRoots: SefSkill[]) => ({ trunk, byId, all, auxRoots, fragmented: false, lockedLinked: [] }) as SefirotPlan;
   it("adds the trunk's active sequence when only a limb is linked", () => {
     expect(primaryAxisToAdd(["seq"], plan([aux]))?.id).toBe("tseq");
   });
@@ -83,5 +83,31 @@ describe("primary axis auto-link", () => {
     expect(primaryAxisToAdd(["seq", "tseq"], plan([aux]))).toBeNull();
     expect(primaryAxisToAdd(["other"], plan([]))).toBeNull();
     expect(primaryAxisToAdd(["seq"], null)).toBeNull();
+  });
+});
+
+import { frontierSequence, capForLocked, lockedLinkNote } from "../../../supabase/functions/_shared/sefirot";
+describe("frontier and locked-skill cap", () => {
+  const seqs = (...u: boolean[]) => u.map((unlocked, i) => sk(`s${i + 1}`, { tier: i + 1, unlocked }));
+  it("frontier is the end of the unbroken unlocked run from Seq.9", () => {
+    expect(frontierSequence(seqs(true, true, false, false))?.id).toBe("s2");
+    expect(frontierSequence(seqs(true, false, true, true))?.id).toBe("s1"); // stray unlocks above a gap are ignored
+    expect(frontierSequence(seqs(false, true))).toBeNull();
+  });
+  it("locked Beyonder skills stop at 99%, everything else is unchanged", () => {
+    expect(capForLocked(100, false, true)).toBe(99);
+    expect(capForLocked(60, false, true)).toBe(60);
+    expect(capForLocked(100, true, true)).toBe(100);
+    expect(capForLocked(100, false, false)).toBe(100);
+  });
+  it("explains a locked link and names the current sequence", () => {
+    const aux = sk("aux", { name: "Black_Emperor" });
+    const cur = sk("cur", { name: "Lawyer", parent_skill_id: "aux", tier: 1 });
+    const lockedSeq = sk("lk", { name: "Barbarian", parent_skill_id: "aux", tier: 2, unlocked: false });
+    const plan = { trunk: sk("t"), byId: new Map(), all: [aux, cur, lockedSeq], auxRoots: [aux], fragmented: false, lockedLinked: [lockedSeq] } as unknown as SefirotPlan;
+    const note = lockedLinkNote(plan) ?? "";
+    expect(note).toContain("Barbarian");
+    expect(note).toContain("Black Emperor: Lawyer");
+    expect(lockedLinkNote({ ...plan, lockedLinked: [] } as SefirotPlan)).toBeNull();
   });
 });
