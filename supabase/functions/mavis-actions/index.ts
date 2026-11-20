@@ -10,7 +10,7 @@ import { resolveSkillRefs } from "../_shared/skillRefs.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
 import {
   planSefirot, payConvergence, releaseSaturatedLimbs, pathwayRoot, applyYield, focusGroupCount, isAscensionRitual,
-  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, capForLocked, parseBodyMapping, BODY_MAPPING_PROMPT, type SefSkill,
+  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, capForLocked, parseBodyMapping, BODY_MAPPING_PROMPT, rebuildPlan, splitLimbLinks, limbProposalNote, activeTrunkSequence, swapRootsForFrontier, type SefSkill, type LimbProposal,
 } from "../_shared/sefirot.ts";
 
 type MavisAction = {
@@ -556,9 +556,15 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         }
       }
       // Sefirot: a quest on an auxiliary limb is anchored to the Black Sun's current sequence (the primary axis).
-      const sefPlan = await planSefirot(sb, userId, linkedSkillIds); // read the tree once for both the anchor and the warning
+      const sefPlan0 = await planSefirot(sb, userId, linkedSkillIds); // read the tree once and reuse it below
+      // The operator picks the limb: auxiliary-limb links wait for confirmation (limb_confirmed:true) and come back as a proposal.
+      const swappedIds = swapRootsForFrontier(linkedSkillIds, sefPlan0).ids;
+      const limbSplit = splitLimbLinks(swappedIds, sefPlan0, p.limb_confirmed === true);
+      linkedSkillIds = limbSplit.keep;
+      const sefPlan = rebuildPlan(sefPlan0, linkedSkillIds);
       const anchored = await withPrimaryAxis(sb, userId, linkedSkillIds, sefPlan);
       linkedSkillIds = anchored.ids;
+      const limbProposalMsg = limbProposalNote(limbSplit.proposed, sefPlan0 && sefPlan0.trunk ? (activeTrunkSequence(sefPlan0.trunk.id, sefPlan0.all)?.name ?? null) : null);
       const { data: newQuest, error } = await sb.from("quests").insert({
         user_id: userId,
         title: String(p.title || "New Quest"),
@@ -610,6 +616,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const sefirotWarning = await dilutionWarning(sb, userId, linkedSkillIds, sefPlan);
       return {
         sefirot_warning: sefirotWarning ?? undefined,
+        limb_proposal: limbSplit.proposed.length > 0 ? { options: limbSplit.proposed, instruction: limbProposalMsg } : undefined,
         primary_axis_added: anchored.added ?? undefined,
         pathways_resolved_to_current_sequence: anchored.swapped.length > 0 ? anchored.swapped : undefined,
         quest_id: newQuest?.id ?? null,
@@ -660,6 +667,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         throw new Error("auto_link_quest_skills: pass quest_id (or quest_name), or all_unlinked:true");
       }
       const linked: Array<{ quest_id: string; title: string; skills: string[] }> = [];
+      const limbProposals: Array<{ quest_id: string; title: string; proposed: LimbProposal[] }> = [];
       // Four at a time: each is an embedding plus a model call, and a batch
       // of 25 one-by-one runs past the platform's 150s request limit.
       const todo = targets.filter((q) => p.replace || !q.linked_skill_ids || q.linked_skill_ids.length === 0);
@@ -668,7 +676,12 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           try {
             const r = await suggestSkillLinks(sb, userId, { title: q.title, description: q.description, category: q.category });
             if (r.ids.length === 0) return;
-            const anchoredA = await withPrimaryAxis(sb, userId, r.ids);
+            // Limbs are the operator's call: save the non-limb links now and report the matched limbs as proposals.
+            const planA = await planSefirot(sb, userId, r.ids);
+            const splitA = splitLimbLinks(swapRootsForFrontier(r.ids, planA).ids, planA, p.limb_confirmed === true);
+            if (splitA.proposed.length > 0) limbProposals.push({ quest_id: q.id, title: q.title, proposed: splitA.proposed });
+            if (splitA.keep.length === 0) return;
+            const anchoredA = await withPrimaryAxis(sb, userId, splitA.keep, rebuildPlan(planA, splitA.keep));
             await sb.from("quests").update({ linked_skill_ids: anchoredA.ids, updated_at: new Date().toISOString() }).eq("id", q.id).eq("user_id", userId);
             await logActivity(sb, userId, "skill_link_auto", `"${q.title}" auto-linked to ${Object.values(r.labels).join(", ")}`, 0);
             linked.push({ quest_id: q.id, title: q.title, skills: Object.values(r.labels) });
@@ -681,6 +694,8 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return {
         checked: todo.length, linked_count: linked.length, no_match: noMatch,
         next_offset: Math.max(0, Number(p.offset || 0)) + noMatch, linked,
+        limb_proposals: limbProposals.length > 0 ? limbProposals : undefined,
+        note: limbProposals.length > 0 ? "Auxiliary limbs were NOT linked: they are proposals for the operator to confirm. Present them, then use update_quest with link_mode:'add', limb_confirmed:true." : undefined,
       };
     }
 
@@ -702,6 +717,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // Beyonder pathway/sequence — after creation.
       let questDroppedRefs: string[] = [];
       let questLinkNotes = "";
+      let limbProposalU = "";
       if (p.linked_skill_ids !== undefined || p.linked_skill_names !== undefined) {
         const refs = [...asStringArray(p.linked_skill_ids), ...asStringArray(p.linked_skill_names)];
         const resolved = await resolveSkillRefs(sb, userId, refs);
@@ -721,8 +737,15 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           const { data: cur } = await sb.from("quests").select("linked_skill_ids").eq("id", questId).eq("user_id", userId).maybeSingle();
           linkIds = Array.from(new Set([...(Array.isArray(cur?.linked_skill_ids) ? cur!.linked_skill_ids as string[] : []), ...linkIds]));
         }
-        const anchoredU = await withPrimaryAxis(sb, userId, linkIds);
+        const planU0 = await planSefirot(sb, userId, linkIds);
+        const splitU = splitLimbLinks(swapRootsForFrontier(linkIds, planU0).ids, planU0, p.limb_confirmed === true);
+        // Limbs already saved on the quest are not proposals; only newly requested ones wait for confirmation.
+        const existingIds = new Set(linkIds.filter((id) => !resolved.valid.includes(id)));
+        const proposedU: LimbProposal[] = splitU.proposed.filter((l) => !existingIds.has(l.skill_id));
+        const keptU = [...splitU.keep, ...splitU.proposed.filter((l) => existingIds.has(l.skill_id)).map((l) => l.skill_id)];
+        const anchoredU = await withPrimaryAxis(sb, userId, keptU, rebuildPlan(planU0, keptU));
         updates.linked_skill_ids = anchoredU.ids;
+        limbProposalU = limbProposalNote(proposedU, planU0 && planU0.trunk ? (activeTrunkSequence(planU0.trunk.id, planU0.all)?.name ?? null) : null) ?? "";
         questLinkNotes = [
           questDroppedRefs.length > 0 ? `These references do not exist and were not saved: ${questDroppedRefs.join(", ")}. Existing links were kept. Pass skills by exact NAME in linked_skill_names; never type ids yourself.` : "",
           anchoredU.swapped.length > 0 ? `Pathway names were resolved to the current sequence: ${anchoredU.swapped.map((x) => `${x.from} -> ${x.to}`).join(", ")}.` : "",
@@ -737,7 +760,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (updates.linked_skill_ids !== undefined) {
         const ids = updates.linked_skill_ids as string[];
         const { data: named } = ids.length ? await sb.from("skills").select("id, name").eq("user_id", userId).in("id", ids) : { data: [] };
-        return { quest_id: questId, linked_skills: named || [], dropped_skill_refs: questDroppedRefs, note: questLinkNotes || undefined, sefirot_warning: (await dilutionWarning(sb, userId, ids)) ?? undefined };
+        return { quest_id: questId, linked_skills: named || [], dropped_skill_refs: questDroppedRefs, note: [questLinkNotes, limbProposalU].filter(Boolean).join(" ") || undefined, sefirot_warning: (await dilutionWarning(sb, userId, ids)) ?? undefined };
       }
       return;
     }
