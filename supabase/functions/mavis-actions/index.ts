@@ -10,7 +10,7 @@ import { resolveSkillRefs } from "../_shared/skillRefs.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
 import {
   planSefirot, payConvergence, releaseSaturatedLimbs, pathwayRoot, applyYield, focusGroupCount, isAscensionRitual,
-  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, capForLocked, type SefSkill,
+  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, capForLocked, parseBodyMapping, BODY_MAPPING_PROMPT, type SefSkill,
 } from "../_shared/sefirot.ts";
 
 type MavisAction = {
@@ -456,7 +456,22 @@ async function createBeyonderPathway(sb: any, userId: string, p: Record<string, 
     // Searchable right away rather than after the next 5-minute embed run.
     reembedRow(sb, "skills", String(root.id), userId);
     for (const r of seqIns) reembedRow(sb, "skills", String(r.id), userId);
-    return { pathway_id: root.id, sequences: seqIns.length, abilities: abIns.length };
+    // Sefirot: tag the new pathway with the body part it extends so it joins the right focus group and tree branch.
+    // Best effort; an untagged pathway still works, it just counts as its own focus group until tagged.
+    let bodyMapping: string | null = null;
+    try {
+      const keys = {
+        openai: Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY") ?? "", claude: Deno.env.get("ANTHROPIC_API_KEY") ?? "",
+        grok: Deno.env.get("GROK_API_KEY") ?? Deno.env.get("XAI_API_KEY") ?? "", gemini: Deno.env.get("GEMINI_API_KEY") ?? "",
+        groq: Deno.env.get("GROQ_API_KEY") ?? "",
+      };
+      const reply = (await callWithFallback("gemini", [{ role: "user", content: `Pathway: ${name}\nDescription: ${desc}\nSequences: ${seqs.map((q) => q.name).join(", ")}` }], BODY_MAPPING_PROMPT, keys)).content;
+      bodyMapping = parseBodyMapping(reply);
+      if (bodyMapping) await sb.from("skills").update({ body_mapping: bodyMapping }).eq("id", root.id).eq("user_id", userId);
+    } catch (e) {
+      console.warn("[create_beyonder_pathway] auto body-mapping failed:", e instanceof Error ? e.message : e);
+    }
+    return { pathway_id: root.id, sequences: seqIns.length, abilities: abIns.length, body_mapping: bodyMapping ?? "untagged (tag it to place it in the Sefirot tree)" };
   } catch (err) {
     await cleanup(); // never leave a half-built pathway behind
     throw err;

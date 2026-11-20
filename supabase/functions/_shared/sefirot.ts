@@ -244,3 +244,19 @@ export async function withPrimaryAxis(sb: any, userId: string, skillIds: string[
     return { ids: skillIds, added: null, swapped: [] };
   }
 }
+
+export const BODY_MAPPINGS = ["kinetic_limb", "skeletal_law", "ocular_sense", "primal_magnetism", "quantum_drift"] as const;
+export type BodyMapping = (typeof BODY_MAPPINGS)[number];
+
+/** Pull a valid body-mapping tag out of a model reply; null if there isn't exactly a recognisable one. */
+export function parseBodyMapping(reply: string): BodyMapping | null {
+  const text = String(reply ?? "").toLowerCase();
+  const hits = BODY_MAPPINGS.filter((t) => text.includes(t));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+export const BODY_MAPPING_PROMPT =
+  "Classify a Beyonder pathway by the part of the Black Sun Monarch's body it extends. Answer with exactly one tag and nothing else:\n" +
+  "kinetic_limb (martial force, physical power, endurance, hunger, storms, war), skeletal_law (structure, law, order, rules, craft, bones, decay and ending), " +
+  "ocular_sense (perception, knowledge, light, stars, secrets, insight), primal_magnetism (life, nature, nurture, desire, allure, emotion, blood), " +
+  "quantum_drift (chance, deception, doors and travel, chaos, dreams, shifting identity).";

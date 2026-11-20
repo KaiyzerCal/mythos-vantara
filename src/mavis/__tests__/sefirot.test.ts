@@ -130,3 +130,13 @@ describe("pathway names resolve to the current sequence", () => {
     expect(swapRootsForFrontier(["x"], null).ids).toEqual(["x"]);
   });
 });
+
+import { parseBodyMapping } from "../../../supabase/functions/_shared/sefirot";
+describe("auto body-mapping", () => {
+  it("accepts a single recognisable tag and rejects anything else", () => {
+    expect(parseBodyMapping("kinetic_limb")).toBe("kinetic_limb");
+    expect(parseBodyMapping(" Quantum_Drift. ")).toBe("quantum_drift");
+    expect(parseBodyMapping("either ocular_sense or skeletal_law")).toBeNull();
+    expect(parseBodyMapping("I cannot say")).toBeNull();
+  });
+});
