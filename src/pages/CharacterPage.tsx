@@ -3,6 +3,7 @@ import { Crown, Copy, User, Zap, Star, Shield, Activity, Package, Swords, BookOp
 import { useAppData } from "@/contexts/AppDataContext";
 import { PageHeader, HudCard, ProgressBar, StatBadge, RankBadge, EnergyBar } from "@/components/SharedUI";
 import { AvatarUploader } from "@/components/AvatarUploader";
+import { SefirotTree } from "@/components/SefirotTree";
 import { RANK_COLORS, calculateXPForLevel } from "@/types/rpg";
 import { useState } from "react";
 
@@ -609,6 +610,16 @@ export default function CharacterPage() {
                 +{energySystems.length - 6} more — see Energy page
               </p>
             )}
+          </HudCard>
+        </motion.div>
+      )}
+
+      {/* ── Sovereign Sefirot Tree ── */}
+      {skills.some((s) => s.is_sovereign_trunk) && (
+        <motion.div {...fadeIn(0.15)}>
+          <HudCard>
+            <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-2">Sovereign Sefirot Tree</p>
+            <SefirotTree skills={skills} />
           </HudCard>
         </motion.div>
       )}
