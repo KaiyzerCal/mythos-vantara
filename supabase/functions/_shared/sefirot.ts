@@ -72,6 +72,9 @@ const COLS = "id, name, tier, proficiency, unlocked, parent_skill_id, is_soverei
 export async function planSefirot(sb: any, userId: string, skillIds: string[]): Promise<SefirotPlan | null> {
   try {
     if (skillIds.length === 0) return null;
+    // Most quests link no Beyonder skill at all; a one-row-per-link check avoids reading the whole ~1,100-row tree for them.
+    const { data: linked } = await sb.from("skills").select("category").eq("user_id", userId).in("id", skillIds);
+    if (!(linked ?? []).some((r: any) => r.category === "Beyonder")) return null;
     const { data } = await sb.from("skills").select(COLS).eq("user_id", userId).eq("category", "Beyonder").limit(2000);
     const all = (data ?? []) as SefSkill[];
     const trunk = all.find((s) => s.is_sovereign_trunk && !s.parent_skill_id) ?? null;
@@ -154,8 +157,8 @@ export async function releaseSaturatedLimbs(
 }
 
 /** Create/update-time check so the dilution warning is shown when the quest is written, not only when it completes. */
-export async function dilutionWarning(sb: any, userId: string, skillIds: string[]): Promise<string | null> {
-  const plan = await planSefirot(sb, userId, skillIds);
+export async function dilutionWarning(sb: any, userId: string, skillIds: string[], known?: SefirotPlan | null): Promise<string | null> {
+  const plan = known !== undefined ? known : await planSefirot(sb, userId, skillIds);
   if (!plan || !plan.fragmented) return null;
   return `Dilution warning: this quest touches ${focusGroupCount(plan.auxRoots)} unrelated pathways (${plan.auxRoots.map((r) => r.name.replace(/_/g, " ")).join(", ")}). More than ${FRAGMENT_THRESHOLD} costs "Fragmented Focus: -15% Digestion Yield" on completion. Link the Black Sun sequence plus 1-2 auxiliary limbs.`;
 }
@@ -171,9 +174,9 @@ export function primaryAxisToAdd(skillIds: string[], plan: SefirotPlan | null): 
  * Anchor the quest to the Black Sun: when it is linked to an auxiliary limb but not to the trunk, add the trunk's current
  * sequence so it earns full proficiency plus the convergence dividend. Never throws; returns the ids unchanged on any problem.
  */
-export async function withPrimaryAxis(sb: any, userId: string, skillIds: string[]): Promise<{ ids: string[]; added: string | null }> {
+export async function withPrimaryAxis(sb: any, userId: string, skillIds: string[], known?: SefirotPlan | null): Promise<{ ids: string[]; added: string | null }> {
   try {
-    const plan = await planSefirot(sb, userId, skillIds);
+    const plan = known !== undefined ? known : await planSefirot(sb, userId, skillIds);
     const primary = primaryAxisToAdd(skillIds, plan);
     if (!primary) return { ids: skillIds, added: null };
     return { ids: [...skillIds, primary.id], added: primary.name };

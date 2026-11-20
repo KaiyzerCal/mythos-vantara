@@ -156,6 +156,59 @@ serve(async (req) => {
     const { data: profile } = await sb.from("profiles").select("*").eq("id", user.id).single();
     if (!profile) throw new Error("Profile not found");
 
+    // Independent per-user reads, started now so they overlap the big batch below instead of each waiting its turn
+    // (they used to run one after another, ~8 extra round trips before the model was even called). Each resolves to
+    // {data:null} on a network failure; the original try/catch blocks at the use sites are unchanged.
+    const _early = <T,>(q: PromiseLike<T>) => Promise.resolve(q).catch(() => ({ data: null, error: null }) as unknown as T);
+    const earlyTacit = _early(sb
+        .from("mavis_tacit")
+        .select("category,key,value,confidence")
+        .eq("user_id", user.id)
+        .order("confidence", { ascending: false })
+        .limit(60));
+    const earlyPosts = _early(sb
+        .from("mavis_social_posts")
+        .select("content, platform, status, scheduled_at")
+        .eq("user_id", user.id)
+        .in("status", ["queued", "scheduled", "requires_confirmation"])
+        .order("scheduled_at", { ascending: true })
+        .limit(10));
+    const earlyUserModel = _early(sb
+        .from("mavis_user_model")
+        .select("personality_summary,communication_style,core_values,primary_goals,working_style,triggers,raw_synthesis,confidence_score")
+        .eq("user_id", user.id)
+        .maybeSingle());
+    const earlyActiveSkills = _early(sb
+        .from("mavis_custom_skills")
+        .select("name, trigger_phrase, system_prompt")
+        .eq("user_id", user.id)
+        .eq("enabled", true)
+        .not("trigger_phrase", "is", null));
+    const earlySoTemplates = _early(sb
+          .from("standing_order_templates")
+          .select("name, instructions")
+          .eq("user_id", user.id)
+          .in("status", ["active", "pinned"])
+          .order("status", { ascending: false }) // pinned first
+          .limit(12));
+    const earlyConfigRows = _early(sb
+          .from("mavis_agent_config")
+          .select("section, content, sort_order")
+          .eq("user_id", user.id)
+          .eq("enabled", true)
+          .order("sort_order", { ascending: true }));
+    const earlyWm = _early(sb
+        .from("mavis_world_model")
+        .select("summary, trajectory, key_insights, opportunities, risks")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle());
+    const earlyPlans = _early(sb.from("mavis_plans")
+        .select("id,title,goal,steps,current_step,status,last_session_summary")
+        .eq("user_id", user.id).eq("status", "active")
+        .order("updated_at", { ascending: false }).limit(3));
+
     // ── PULL APP DATA SERVER-SIDE (compact summaries by default, deep detail on demand) ──
     const lastUserMsgEarly = [...(messages || [])].reverse().find((m: any) => m.role === "user");
     const q = (lastUserMsgEarly?.content || "").toLowerCase();
@@ -268,12 +321,7 @@ serve(async (req) => {
     // every request so she never forgets what the operator has taught her.
     let tacitBlock = "";
     try {
-      const { data: tacitData } = await sb
-        .from("mavis_tacit")
-        .select("category,key,value,confidence")
-        .eq("user_id", user.id)
-        .order("confidence", { ascending: false })
-        .limit(60);
+      const { data: tacitData } = await earlyTacit;
 
       if (tacitData?.length) {
         const tacit = tacitData as any[];
@@ -310,13 +358,7 @@ serve(async (req) => {
     // Scheduler tab — queued/upcoming social posts. Previously read by no chat
     // surface at all.
     try {
-      const { data: posts } = await sb
-        .from("mavis_social_posts")
-        .select("content, platform, status, scheduled_at")
-        .eq("user_id", user.id)
-        .in("status", ["queued", "scheduled", "requires_confirmation"])
-        .order("scheduled_at", { ascending: true })
-        .limit(10);
+      const { data: posts } = await earlyPosts;
       if (posts && (posts as any[]).length > 0) {
         const postLines = (posts as any[]).map((p) => `  • [${p.platform}/${p.status}]${p.scheduled_at ? ` ${p.scheduled_at}` : ""} — ${String(p.content ?? "").slice(0, 100)}`);
         tacitBlock += `\n\n═══ SCHEDULER — queued/upcoming posts ═══\n${postLines.join("\n")}\n═══ END SCHEDULER ═══`;
@@ -341,11 +383,7 @@ serve(async (req) => {
     // Injected as <memory-context> block — stripped from visible output via client.
     let userModelBlock = "";
     try {
-      const { data: userModel } = await sb
-        .from("mavis_user_model")
-        .select("personality_summary,communication_style,core_values,primary_goals,working_style,triggers,raw_synthesis,confidence_score")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      const { data: userModel } = await earlyUserModel;
 
       if (userModel?.personality_summary) {
         const um = userModel as any;
@@ -986,12 +1024,7 @@ ${telosData
     // inject the skill's system_prompt into the context so MAVIS uses it.
     let skillInjection = "";
     try {
-      const { data: activeSkills } = await sb
-        .from("mavis_custom_skills")
-        .select("name, trigger_phrase, system_prompt")
-        .eq("user_id", user.id)
-        .eq("enabled", true)
-        .not("trigger_phrase", "is", null);
+      const { data: activeSkills } = await earlyActiveSkills;
       if (activeSkills?.length) {
         const lowerMsg = lastUserText.toLowerCase();
         const matched = (activeSkills as any[]).find((s: any) =>
@@ -1010,13 +1043,7 @@ ${telosData
     const isCouncilMode = (mode ?? "").toUpperCase() === "COUNCIL";
     {
       try {
-        const { data: soTemplates } = await sb
-          .from("standing_order_templates")
-          .select("name, instructions")
-          .eq("user_id", user.id)
-          .in("status", ["active", "pinned"])
-          .order("status", { ascending: false }) // pinned first
-          .limit(12);
+        const { data: soTemplates } = await earlySoTemplates;
         if (soTemplates && (soTemplates as any[]).length > 0) {
           const soLines = (soTemplates as any[]).map((t: any) => {
             const instr = String(t.instructions ?? "").slice(0, 400);
@@ -1034,12 +1061,7 @@ ${telosData
     let agentConfigBlock = "";
     if (!isCouncilMode) {
       try {
-        const { data: configRows, error: cfgErr } = await sb
-          .from("mavis_agent_config")
-          .select("section, content, sort_order")
-          .eq("user_id", user.id)
-          .eq("enabled", true)
-          .order("sort_order", { ascending: true });
+        const { data: configRows, error: cfgErr } = await earlyConfigRows;
 
         if (!cfgErr && configRows !== null && (configRows as any[]).length === 0) {
           // First boot — seed defaults so MAVIS has a living constitution from day one
@@ -1622,13 +1644,7 @@ ${telosData
     // AI-synthesized snapshot of operator's current life state — built by mavis-world-model.
     let worldModelBlock = "";
     try {
-      const { data: wm } = await sb
-        .from("mavis_world_model")
-        .select("summary, trajectory, key_insights, opportunities, risks")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data: wm } = await earlyWm;
       if (wm) {
         const insights   = Array.isArray(wm.key_insights)   ? (wm.key_insights as string[]).slice(0, 3).join(" | ")   : "";
         const opps       = Array.isArray(wm.opportunities)   ? (wm.opportunities as string[]).slice(0, 2).join(" | ")  : "";
@@ -1640,10 +1656,7 @@ ${telosData
     // ── Active plans injection ──────────────────────────────────────────────
     let plansBlock = "";
     try {
-      const { data: activePlans } = await sb.from("mavis_plans")
-        .select("id,title,goal,steps,current_step,status,last_session_summary")
-        .eq("user_id", user.id).eq("status", "active")
-        .order("updated_at", { ascending: false }).limit(3);
+      const { data: activePlans } = await earlyPlans;
       if (activePlans?.length) {
         plansBlock = `\n═══ ACTIVE PLANS (multi-session goals MAVIS is executing) ═══\n` +
           (activePlans as any[]).map((plan: any) => {

@@ -130,7 +130,7 @@ async function bumpLinkedSkillProficiency(
   const trunkRoots = new Set<string>();
   let trunkReached: SefSkill | null = null;
   const gated: string[] = [];
-  for (const skill of skills || []) {
+  await Promise.all((skills || []).map(async (skill: any) => {
     const before = Number(skill.proficiency || 0);
     const after = Math.min(100, before + gain);
     if (plan) {
@@ -138,7 +138,7 @@ async function bumpLinkedSkillProficiency(
       if (root && root.id !== plan.trunk!.id) auxGains.set(root.id, Math.max(auxGains.get(root.id) ?? 0, after - before));
       else if (root) trunkRoots.add(skill.id);
     }
-    if (after === before) continue;
+    if (after === before) return;
     await sb.from("skills").update({ proficiency: after, updated_at: new Date().toISOString() }).eq("id", skill.id).eq("user_id", userId);
     // "skill_up" matches the existing ActivityLogPage.tsx event vocabulary
     // (Zap icon, "Skill Up" label) rather than introducing a new unmapped type.
@@ -154,7 +154,7 @@ async function bumpLinkedSkillProficiency(
         if (!limbMayAdvance(Number(inTree.tier ?? skill.tier ?? 0), trunkSeqs, ritual)) {
           gated.push(skill.name);
           await logActivity(sb, userId, "skill_up", `${skill.name} reached Limb Saturation - it waits for the Black Sun to reach the same tier, or an Ascension Ritual`, 0);
-          continue;
+          return;
         }
       }
       if (plan && inTree && inTree.parent_skill_id === plan.trunk!.id) trunkReached = inTree;
@@ -167,7 +167,7 @@ async function bumpLinkedSkillProficiency(
         await logActivity(sb, userId, "skill_created", `${u.name} unlocked (mastered ${skill.name})`, 0);
       }
     }
-  }
+  }));
   // Sovereign convergence: 33% of each auxiliary gain also flows into the Black Sun's active sequence.
   const conv = await payConvergence(sb, userId, plan, auxGains, log);
   if (conv.reachedHundred) {
@@ -535,7 +535,8 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         }
       }
       // Sefirot: a quest on an auxiliary limb is anchored to the Black Sun's current sequence (the primary axis).
-      const anchored = await withPrimaryAxis(sb, userId, linkedSkillIds);
+      const sefPlan = await planSefirot(sb, userId, linkedSkillIds); // read the tree once for both the anchor and the warning
+      const anchored = await withPrimaryAxis(sb, userId, linkedSkillIds, sefPlan);
       linkedSkillIds = anchored.ids;
       const { data: newQuest, error } = await sb.from("quests").insert({
         user_id: userId,
@@ -585,7 +586,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         linkedSkills = (named || []) as Array<{ id: string; name: string }>;
       }
       const usedMatcher = !!(autoLinked && autoLinked.ids.length > 0);
-      const sefirotWarning = await dilutionWarning(sb, userId, linkedSkillIds);
+      const sefirotWarning = await dilutionWarning(sb, userId, linkedSkillIds, sefPlan);
       return {
         sefirot_warning: sefirotWarning ?? undefined,
         primary_axis_added: anchored.added ?? undefined,
@@ -712,10 +713,14 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const { data: updated, error: updErr } = await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", questId).eq("user_id", userId).select("id");
       if (updErr) throw updErr;
       if (!updated || updated.length === 0) throw new Error(`quests: complete matched no row for id "${questId}"`);
-      await awardXP(sb, userId, Number(quest.xp_reward || 0));
-      await logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}`, Number(quest.xp_reward || 0));
-      const sefirot = await bumpLinkedSkillProficiency(sb, userId, asStringArray(quest.linked_skill_ids), Number(quest.xp_reward || 0), String(quest.difficulty || "Normal"), { category: (quest as any).category, title: quest.title });
-      await applyQuestCompletionRewards(sb, userId, quest);
+      // These four touch different rows/columns (profile xp, activity log, skills, rewards), so they run together;
+      // they used to run one after another, which made completing a quest the slowest action (~8s average).
+      const [, , sefirot] = await Promise.all([
+        awardXP(sb, userId, Number(quest.xp_reward || 0)),
+        logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}`, Number(quest.xp_reward || 0)),
+        bumpLinkedSkillProficiency(sb, userId, asStringArray(quest.linked_skill_ids), Number(quest.xp_reward || 0), String(quest.difficulty || "Normal"), { category: (quest as any).category, title: quest.title }),
+        applyQuestCompletionRewards(sb, userId, quest),
+      ]);
       return sefirot ? { sefirot } : undefined;
     }
 
