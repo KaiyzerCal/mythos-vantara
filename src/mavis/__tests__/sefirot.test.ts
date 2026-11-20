@@ -66,3 +66,22 @@ describe("limb saturation gate", () => {
     expect(isGatedLimbSequence(trunkSeq, plan)).toBe(false);
   });
 });
+
+import { primaryAxisToAdd } from "../../../supabase/functions/_shared/sefirot";
+describe("primary axis auto-link", () => {
+  const trunk = sk("trunk", { is_sovereign_trunk: true });
+  const aux = sk("aux");
+  const seq = sk("seq", { parent_skill_id: "aux", tier: 1 });
+  const tseq = sk("tseq", { parent_skill_id: "trunk", tier: 1, proficiency: 12 });
+  const all = [trunk, aux, seq, tseq];
+  const byId = new Map(all.map((s) => [s.id, s]));
+  const plan = (auxRoots: SefSkill[]) => ({ trunk, byId, all, auxRoots, fragmented: false }) as SefirotPlan;
+  it("adds the trunk's active sequence when only a limb is linked", () => {
+    expect(primaryAxisToAdd(["seq"], plan([aux]))?.id).toBe("tseq");
+  });
+  it("adds nothing when a trunk skill is already linked, when no limb is linked, or without a plan", () => {
+    expect(primaryAxisToAdd(["seq", "tseq"], plan([aux]))).toBeNull();
+    expect(primaryAxisToAdd(["other"], plan([]))).toBeNull();
+    expect(primaryAxisToAdd(["seq"], null)).toBeNull();
+  });
+});

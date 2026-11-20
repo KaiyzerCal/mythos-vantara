@@ -10,7 +10,7 @@ import { resolveSkillRefs } from "../_shared/skillRefs.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
 import {
   planSefirot, payConvergence, releaseSaturatedLimbs, pathwayRoot, applyYield, focusGroupCount, isAscensionRitual,
-  isGatedLimbSequence, limbMayAdvance, dilutionWarning, type SefSkill,
+  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, type SefSkill,
 } from "../_shared/sefirot.ts";
 
 type MavisAction = {
@@ -534,6 +534,9 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           console.warn("[create_quest] auto skill-link failed:", err instanceof Error ? err.message : err);
         }
       }
+      // Sefirot: a quest on an auxiliary limb is anchored to the Black Sun's current sequence (the primary axis).
+      const anchored = await withPrimaryAxis(sb, userId, linkedSkillIds);
+      linkedSkillIds = anchored.ids;
       const { data: newQuest, error } = await sb.from("quests").insert({
         user_id: userId,
         title: String(p.title || "New Quest"),
@@ -585,6 +588,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const sefirotWarning = await dilutionWarning(sb, userId, linkedSkillIds);
       return {
         sefirot_warning: sefirotWarning ?? undefined,
+        primary_axis_added: anchored.added ?? undefined,
         quest_id: newQuest?.id ?? null,
         linked_skill_ids: linkedSkillIds,
         linked_skills: linkedSkills,
@@ -641,7 +645,8 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           try {
             const r = await suggestSkillLinks(sb, userId, { title: q.title, description: q.description, category: q.category });
             if (r.ids.length === 0) return;
-            await sb.from("quests").update({ linked_skill_ids: r.ids, updated_at: new Date().toISOString() }).eq("id", q.id).eq("user_id", userId);
+            const anchoredA = await withPrimaryAxis(sb, userId, r.ids);
+            await sb.from("quests").update({ linked_skill_ids: anchoredA.ids, updated_at: new Date().toISOString() }).eq("id", q.id).eq("user_id", userId);
             await logActivity(sb, userId, "skill_link_auto", `"${q.title}" auto-linked to ${Object.values(r.labels).join(", ")}`, 0);
             linked.push({ quest_id: q.id, title: q.title, skills: Object.values(r.labels) });
           } catch (err) {
@@ -683,7 +688,8 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         if (questDroppedRefs.length > 0) {
           await logActivity(sb, userId, "skill_link_rejected", `Dropped ${questDroppedRefs.length} unknown skill reference(s) from a quest update — not in your skills: ${questDroppedRefs.join(", ")}`, 0);
         }
-        updates.linked_skill_ids = resolved.valid;
+        const anchoredU = await withPrimaryAxis(sb, userId, resolved.valid);
+        updates.linked_skill_ids = anchoredU.ids;
       }
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");

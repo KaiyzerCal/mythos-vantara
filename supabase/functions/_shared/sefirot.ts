@@ -159,3 +159,25 @@ export async function dilutionWarning(sb: any, userId: string, skillIds: string[
   if (!plan || !plan.fragmented) return null;
   return `Dilution warning: this quest touches ${focusGroupCount(plan.auxRoots)} unrelated pathways (${plan.auxRoots.map((r) => r.name.replace(/_/g, " ")).join(", ")}). More than ${FRAGMENT_THRESHOLD} costs "Fragmented Focus: -15% Digestion Yield" on completion. Link the Black Sun sequence plus 1-2 auxiliary limbs.`;
 }
+
+/** Pure: which skill should be added as the primary axis, if any? Only when an auxiliary limb is linked and no trunk skill is. */
+export function primaryAxisToAdd(skillIds: string[], plan: SefirotPlan | null): SefSkill | null {
+  if (!plan || !plan.trunk || plan.auxRoots.length === 0) return null;
+  if (skillIds.some((id) => pathwayRoot(id, plan.byId)?.id === plan.trunk!.id)) return null; // a trunk skill is already linked
+  return activeTrunkSequence(plan.trunk.id, plan.all);
+}
+
+/**
+ * Anchor the quest to the Black Sun: when it is linked to an auxiliary limb but not to the trunk, add the trunk's current
+ * sequence so it earns full proficiency plus the convergence dividend. Never throws; returns the ids unchanged on any problem.
+ */
+export async function withPrimaryAxis(sb: any, userId: string, skillIds: string[]): Promise<{ ids: string[]; added: string | null }> {
+  try {
+    const plan = await planSefirot(sb, userId, skillIds);
+    const primary = primaryAxisToAdd(skillIds, plan);
+    if (!primary) return { ids: skillIds, added: null };
+    return { ids: [...skillIds, primary.id], added: primary.name };
+  } catch {
+    return { ids: skillIds, added: null };
+  }
+}
