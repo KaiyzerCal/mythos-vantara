@@ -1,0 +1,4 @@
+-- Applied live 2026-11-22. Three open quests linked a Beyonder pathway ROOT ("Black Sun", "Demoness") instead of the sequence
+-- the operator is on, and a bad chat update had also wiped two non-Beyonder links from "Tactical Liquidity".
+-- Roots were swapped for the current sequence (Torchbearer / Assassin); Tactical Liquidity also got Opportunist (Error limb) and
+-- its two non-Beyonder skills back (Tolerance Mastery, Financial Intelligence). Data only; completed quests were left alone.

@@ -279,7 +279,13 @@ async function resolveId(
   nameColumn = "name",
   userColumn = "user_id"
 ): Promise<string> {
-  if (idParam) return String(idParam);
+  if (idParam && !nameParam) return String(idParam);
+  if (idParam && nameParam) {
+    // A model can mistype a 36-character id while the name beside it is right. Trust the id only if it exists;
+    // otherwise fall through to the name instead of failing the whole action.
+    const { data: byId } = await sb.from(table).select("id").eq("id", String(idParam)).eq(userColumn, userId).maybeSingle();
+    if (byId?.id) return String(idParam);
+  }
   if (!nameParam) throw new Error(`${table}: no id or ${nameColumn} provided to identify the entry`);
   // ilike without wildcards is an exact (case-insensitive) match — casual
   // references like "the Tax Documents entry" never matched a longer real
@@ -590,6 +596,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       return {
         sefirot_warning: sefirotWarning ?? undefined,
         primary_axis_added: anchored.added ?? undefined,
+        pathways_resolved_to_current_sequence: anchored.swapped.length > 0 ? anchored.swapped : undefined,
         quest_id: newQuest?.id ?? null,
         linked_skill_ids: linkedSkillIds,
         linked_skills: linkedSkills,
@@ -679,6 +686,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       // existing quest could never be (re)linked to a skill — including a
       // Beyonder pathway/sequence — after creation.
       let questDroppedRefs: string[] = [];
+      let questLinkNotes = "";
       if (p.linked_skill_ids !== undefined || p.linked_skill_names !== undefined) {
         const refs = [...asStringArray(p.linked_skill_ids), ...asStringArray(p.linked_skill_names)];
         const resolved = await resolveSkillRefs(sb, userId, refs);
@@ -689,8 +697,22 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
         if (questDroppedRefs.length > 0) {
           await logActivity(sb, userId, "skill_link_rejected", `Dropped ${questDroppedRefs.length} unknown skill reference(s) from a quest update — not in your skills: ${questDroppedRefs.join(", ")}`, 0);
         }
-        const anchoredU = await withPrimaryAxis(sb, userId, resolved.valid);
+        // Linking replaces the list, so a reference the model got wrong used to wipe the quest's good links (live
+        // 2026-11-20: Financial Intelligence and Tolerance Mastery were lost that way). Merge with the existing links
+        // when the call is an add, or when any reference was rejected; replace_links:true forces a replace.
+        let linkIds = resolved.valid;
+        const merge = p.replace_links !== true && (p.link_mode === "add" || p.add_skills === true || questDroppedRefs.length > 0);
+        if (merge) {
+          const { data: cur } = await sb.from("quests").select("linked_skill_ids").eq("id", questId).eq("user_id", userId).maybeSingle();
+          linkIds = Array.from(new Set([...(Array.isArray(cur?.linked_skill_ids) ? cur!.linked_skill_ids as string[] : []), ...linkIds]));
+        }
+        const anchoredU = await withPrimaryAxis(sb, userId, linkIds);
         updates.linked_skill_ids = anchoredU.ids;
+        questLinkNotes = [
+          questDroppedRefs.length > 0 ? `These references do not exist and were not saved: ${questDroppedRefs.join(", ")}. Existing links were kept. Pass skills by exact NAME in linked_skill_names; never type ids yourself.` : "",
+          anchoredU.swapped.length > 0 ? `Pathway names were resolved to the current sequence: ${anchoredU.swapped.map((x) => `${x.from} -> ${x.to}`).join(", ")}.` : "",
+          anchoredU.added ? `Added the Black Sun's current sequence (${anchoredU.added}) as the primary axis.` : "",
+        ].filter(Boolean).join(" ");
       }
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");
@@ -700,7 +722,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (updates.linked_skill_ids !== undefined) {
         const ids = updates.linked_skill_ids as string[];
         const { data: named } = ids.length ? await sb.from("skills").select("id, name").eq("user_id", userId).in("id", ids) : { data: [] };
-        return { quest_id: questId, linked_skills: named || [], dropped_skill_refs: questDroppedRefs, sefirot_warning: (await dilutionWarning(sb, userId, ids)) ?? undefined };
+        return { quest_id: questId, linked_skills: named || [], dropped_skill_refs: questDroppedRefs, note: questLinkNotes || undefined, sefirot_warning: (await dilutionWarning(sb, userId, ids)) ?? undefined };
       }
       return;
     }

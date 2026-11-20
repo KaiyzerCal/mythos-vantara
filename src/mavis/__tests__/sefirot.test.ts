@@ -111,3 +111,22 @@ describe("frontier and locked-skill cap", () => {
     expect(lockedLinkNote({ ...plan, lockedLinked: [] } as SefirotPlan)).toBeNull();
   });
 });
+
+import { swapRootsForFrontier } from "../../../supabase/functions/_shared/sefirot";
+describe("pathway names resolve to the current sequence", () => {
+  const trunk = sk("trunk", { is_sovereign_trunk: true, name: "Black Sun" });
+  const aux = sk("aux", { name: "Demoness" });
+  const all = [trunk, aux,
+    sk("t9", { parent_skill_id: "trunk", tier: 1, name: "Torchbearer" }), sk("t8", { parent_skill_id: "trunk", tier: 2, unlocked: false }),
+    sk("a9", { parent_skill_id: "aux", tier: 1, name: "Assassin" }), sk("a8", { parent_skill_id: "aux", tier: 2, unlocked: false })];
+  const plan = { trunk, byId: new Map(all.map((s) => [s.id, s])), all, auxRoots: [aux], fragmented: false, lockedLinked: [] } as SefirotPlan;
+  it("swaps roots for their frontier sequence and keeps everything else", () => {
+    const r = swapRootsForFrontier(["trunk", "aux", "other-skill"], plan);
+    expect(r.ids).toEqual(["t9", "a9", "other-skill"]);
+    expect(r.swapped).toEqual([{ from: "Black Sun", to: "Torchbearer" }, { from: "Demoness", to: "Assassin" }]);
+  });
+  it("leaves ids alone with no plan or already-sequence ids", () => {
+    expect(swapRootsForFrontier(["a9"], plan).ids).toEqual(["a9"]);
+    expect(swapRootsForFrontier(["x"], null).ids).toEqual(["x"]);
+  });
+});
