@@ -76,6 +76,10 @@ export function SefirotTree({ skills }: { skills: Skill[] }) {
         <text x={c} y={c - 4} textAnchor="middle" fontSize="8" fill="#fbbf24" fontWeight="bold">BLACK SUN</text>
         <text x={c} y={c + 8} textAnchor="middle" fontSize="7" fill="#fbbf24" opacity={0.85}>{model.trunkSeq ? `Seq.${10 - model.trunkSeq.tier} ${model.trunkSeq.name} ${model.trunkSeq.proficiency}%` : "Sovereign Trunk"}</text>
       </svg>
+      <p className="flex justify-between gap-2 text-xs font-mono">
+        <span className="uppercase tracking-widest" style={{ color: "#fbbf24" }}>Black Sun · Sovereign Trunk</span>
+        <span className="text-foreground text-right">{model.trunkSeq ? `Seq.${10 - model.trunkSeq.tier} ${model.trunkSeq.name} ${model.trunkSeq.proficiency}%` : "locked"}</span>
+      </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs font-mono">
         {model.groups.map((g) => (
           <div key={g.key}>
