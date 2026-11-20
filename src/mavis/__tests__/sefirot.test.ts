@@ -140,3 +140,28 @@ describe("auto body-mapping", () => {
     expect(parseBodyMapping("I cannot say")).toBeNull();
   });
 });
+
+import { splitLimbLinks, rebuildPlan, limbProposalNote } from "../../../supabase/functions/_shared/sefirot";
+describe("limb proposals", () => {
+  const trunk = sk("trunk", { is_sovereign_trunk: true, name: "Black Sun" });
+  const aux = sk("aux", { name: "Black_Emperor" });
+  const all = [trunk, aux, sk("t9", { parent_skill_id: "trunk", tier: 1, name: "Torchbearer" }), sk("law", { parent_skill_id: "aux", tier: 1, name: "Lawyer", proficiency: 47 })];
+  const plan = { trunk, byId: new Map(all.map((s) => [s.id, s])), all, auxRoots: [aux], fragmented: false, lockedLinked: [] } as SefirotPlan;
+  it("holds limbs back until confirmed, keeps trunk and non-Beyonder skills", () => {
+    const r = splitLimbLinks(["t9", "law", "finance"], plan, false);
+    expect(r.keep).toEqual(["t9", "finance"]);
+    expect(r.proposed).toEqual([{ pathway: "Black Emperor", skill_id: "law", skill: "Lawyer", proficiency: 47 }]);
+  });
+  it("passes everything through once confirmed", () => {
+    const r = splitLimbLinks(["t9", "law"], plan, true);
+    expect(r.keep).toEqual(["t9", "law"]);
+    expect(r.proposed).toEqual([]);
+  });
+  it("rebuilds the plan for the kept ids and words the proposal", () => {
+    expect(rebuildPlan(plan, ["t9", "finance"])?.auxRoots).toEqual([]);
+    const note = limbProposalNote(splitLimbLinks(["law"], plan, false).proposed, "Torchbearer") ?? "";
+    expect(note).toContain("wait for a yes");
+    expect(note).toContain("Black Emperor: Lawyer (47%)");
+    expect(limbProposalNote([], null)).toBeNull();
+  });
+});

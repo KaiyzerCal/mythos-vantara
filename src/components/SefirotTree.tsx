@@ -85,14 +85,13 @@ export function SefirotTree({ skills }: { skills: Skill[] }) {
                 <span className="text-foreground">{pretty(l.root.name)}</span>
                 <span className="text-muted-foreground text-right">
                   {l.seq ? `Seq.${10 - l.seq.tier} ${l.seq.name} ${l.seq.proficiency}%` : "locked"}
-                  {l.banked > 0 && <span className="opacity-60"> · +{l.banked} banked</span>}
-                </span>
+                  </span>
               </p>
             ))}
           </div>
         ))}
       </div>
-      <p className="text-[11px] font-mono text-muted-foreground text-center">Each limb shows the sequence you are on now. "Banked" is progress already earned on higher sequences; it unlocks when you reach them.</p>
+      <p className="text-[11px] font-mono text-muted-foreground text-center">Each limb shows the sequence you are on now.</p>
       <p className="text-xs font-display italic text-primary/70 text-center">"Let no limb believe itself severed from the spine."</p>
     </div>
   );

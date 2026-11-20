@@ -260,3 +260,42 @@ export const BODY_MAPPING_PROMPT =
   "kinetic_limb (martial force, physical power, endurance, hunger, storms, war), skeletal_law (structure, law, order, rules, craft, bones, decay and ending), " +
   "ocular_sense (perception, knowledge, light, stars, secrets, insight), primal_magnetism (life, nature, nurture, desire, allure, emotion, blood), " +
   "quantum_drift (chance, deception, doors and travel, chaos, dreams, shifting identity).";
+
+/** Re-derive a plan for a different set of linked ids from the tree already read (no new query). */
+export function rebuildPlan(plan: SefirotPlan | null, skillIds: string[]): SefirotPlan | null {
+  if (!plan || !plan.trunk) return plan;
+  const roots = new Map<string, SefSkill>();
+  for (const id of skillIds) {
+    const root = pathwayRoot(id, plan.byId);
+    if (root && root.id !== plan.trunk.id) roots.set(root.id, root);
+  }
+  const auxRoots = [...roots.values()];
+  const lockedLinked = skillIds.map((id) => plan.byId.get(id)).filter((x): x is SefSkill => !!x && x.unlocked === false);
+  return { ...plan, auxRoots, fragmented: isFragmented(auxRoots), lockedLinked };
+}
+
+export interface LimbProposal { pathway: string; skill_id: string; skill: string; proficiency: number }
+
+/**
+ * Limbs are the operator's call: split the links into what is saved now (trunk, non-Beyonder) and the auxiliary-limb
+ * skills that must wait for the operator to confirm. Confirmed calls pass everything through.
+ */
+export function splitLimbLinks(ids: string[], plan: SefirotPlan | null, confirmed: boolean): { keep: string[]; proposed: LimbProposal[] } {
+  if (confirmed || !plan || !plan.trunk) return { keep: ids, proposed: [] };
+  const keep: string[] = [];
+  const proposed: LimbProposal[] = [];
+  for (const id of ids) {
+    const root = pathwayRoot(id, plan.byId);
+    if (root && root.id !== plan.trunk.id) {
+      const sk = plan.byId.get(id)!;
+      proposed.push({ pathway: root.name.replace(/_/g, " "), skill_id: id, skill: sk.name, proficiency: Number(sk.proficiency ?? 0) });
+    } else keep.push(id);
+  }
+  return { keep, proposed };
+}
+
+export function limbProposalNote(proposed: LimbProposal[], trunkSeqName: string | null): string | null {
+  if (proposed.length === 0) return null;
+  const list = proposed.map((l) => `${l.pathway}: ${l.skill} (${l.proficiency}%)`).join("; ");
+  return `LIMB NOT YET LINKED. Propose this to the operator and wait for a yes: Black Sun ${trunkSeqName ?? "current sequence"} (trunk) plus ${list}. Say it is a proposal, not saved. After they confirm (or name a different limb), call update_quest with link_mode:"add", limb_confirmed:true and linked_skill_names set to the confirmed limb skill name(s).`;
+}
