@@ -204,6 +204,25 @@ export async function dilutionWarning(sb: any, userId: string, skillIds: string[
   return parts.length ? parts.join(" ") : null;
 }
 
+/**
+ * A pathway name ("Black Sun", "Demoness") means "the sequence I'm on in that pathway". The root row itself carries no
+ * progression, so swap each linked Beyonder pathway root for that pathway's current (frontier) sequence.
+ */
+export function swapRootsForFrontier(ids: string[], plan: SefirotPlan | null): { ids: string[]; swapped: { from: string; to: string }[] } {
+  if (!plan) return { ids, swapped: [] };
+  const out: string[] = [];
+  const swapped: { from: string; to: string }[] = [];
+  for (const id of ids) {
+    const sk = plan.byId.get(id);
+    if (sk && !sk.parent_skill_id) {
+      const f = frontierSequence(plan.all.filter((x) => x.parent_skill_id === sk.id));
+      if (f) { swapped.push({ from: sk.name, to: f.name }); if (!out.includes(f.id)) out.push(f.id); continue; }
+    }
+    if (!out.includes(id)) out.push(id);
+  }
+  return { ids: out, swapped };
+}
+
 /** Pure: which skill should be added as the primary axis, if any? Only when an auxiliary limb is linked and no trunk skill is. */
 export function primaryAxisToAdd(skillIds: string[], plan: SefirotPlan | null): SefSkill | null {
   if (!plan || !plan.trunk || plan.auxRoots.length === 0) return null;
@@ -215,13 +234,13 @@ export function primaryAxisToAdd(skillIds: string[], plan: SefirotPlan | null): 
  * Anchor the quest to the Black Sun: when it is linked to an auxiliary limb but not to the trunk, add the trunk's current
  * sequence so it earns full proficiency plus the convergence dividend. Never throws; returns the ids unchanged on any problem.
  */
-export async function withPrimaryAxis(sb: any, userId: string, skillIds: string[], known?: SefirotPlan | null): Promise<{ ids: string[]; added: string | null }> {
+export async function withPrimaryAxis(sb: any, userId: string, skillIds: string[], known?: SefirotPlan | null): Promise<{ ids: string[]; added: string | null; swapped: { from: string; to: string }[] }> {
   try {
     const plan = known !== undefined ? known : await planSefirot(sb, userId, skillIds);
-    const primary = primaryAxisToAdd(skillIds, plan);
-    if (!primary) return { ids: skillIds, added: null };
-    return { ids: [...skillIds, primary.id], added: primary.name };
+    const sw = swapRootsForFrontier(skillIds, plan);
+    const primary = primaryAxisToAdd(sw.ids, plan);
+    return { ids: primary ? [...sw.ids, primary.id] : sw.ids, added: primary?.name ?? null, swapped: sw.swapped };
   } catch {
-    return { ids: skillIds, added: null };
+    return { ids: skillIds, added: null, swapped: [] };
   }
 }
