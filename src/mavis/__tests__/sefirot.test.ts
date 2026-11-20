@@ -165,3 +165,17 @@ describe("limb proposals", () => {
     expect(limbProposalNote([], null)).toBeNull();
   });
 });
+
+import { limbLabels, LIMB_CONFIRMATION_REQUIRED } from "../../../supabase/functions/_shared/sefirot";
+describe("auto-linked limbs", () => {
+  const trunk = sk("trunk", { is_sovereign_trunk: true, name: "Black Sun" });
+  const aux = sk("aux", { name: "Black_Emperor" });
+  const all = [trunk, aux, sk("t9", { parent_skill_id: "trunk", tier: 1, name: "Torchbearer" }), sk("law", { parent_skill_id: "aux", tier: 1, name: "Lawyer" })];
+  const plan = { trunk, byId: new Map(all.map((s) => [s.id, s])), all, auxRoots: [aux], fragmented: false, lockedLinked: [] } as SefirotPlan;
+  it("limbs save without confirmation and are labelled for the reply", () => {
+    expect(LIMB_CONFIRMATION_REQUIRED).toBe(false);
+    expect(splitLimbLinks(["t9", "law"], plan, true).keep).toEqual(["t9", "law"]);
+    expect(limbLabels(["t9", "law", "fin"], plan)).toEqual(["Black Emperor: Lawyer"]);
+    expect(limbLabels(["law"], null)).toEqual([]);
+  });
+});

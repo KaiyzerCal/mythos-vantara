@@ -10,7 +10,7 @@ import { resolveSkillRefs } from "../_shared/skillRefs.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
 import {
   planSefirot, payConvergence, releaseSaturatedLimbs, pathwayRoot, applyYield, focusGroupCount, isAscensionRitual,
-  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, capForLocked, parseBodyMapping, BODY_MAPPING_PROMPT, rebuildPlan, splitLimbLinks, limbProposalNote, activeTrunkSequence, swapRootsForFrontier, type SefSkill, type LimbProposal,
+  isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, capForLocked, parseBodyMapping, BODY_MAPPING_PROMPT, rebuildPlan, splitLimbLinks, limbProposalNote, activeTrunkSequence, swapRootsForFrontier, LIMB_CONFIRMATION_REQUIRED, limbLabels, type SefSkill, type LimbProposal,
 } from "../_shared/sefirot.ts";
 
 type MavisAction = {
@@ -559,7 +559,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const sefPlan0 = await planSefirot(sb, userId, linkedSkillIds); // read the tree once and reuse it below
       // The operator picks the limb: auxiliary-limb links wait for confirmation (limb_confirmed:true) and come back as a proposal.
       const swappedIds = swapRootsForFrontier(linkedSkillIds, sefPlan0).ids;
-      const limbSplit = splitLimbLinks(swappedIds, sefPlan0, p.limb_confirmed === true);
+      const limbSplit = splitLimbLinks(swappedIds, sefPlan0, (p.limb_confirmed === true || !LIMB_CONFIRMATION_REQUIRED));
       linkedSkillIds = limbSplit.keep;
       const sefPlan = rebuildPlan(sefPlan0, linkedSkillIds);
       const anchored = await withPrimaryAxis(sb, userId, linkedSkillIds, sefPlan);
@@ -616,6 +616,8 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       const sefirotWarning = await dilutionWarning(sb, userId, linkedSkillIds, sefPlan);
       return {
         sefirot_warning: sefirotWarning ?? undefined,
+        limbs_auto_linked: limbLabels(linkedSkillIds, sefPlan0).length > 0 ? limbLabels(linkedSkillIds, sefPlan0) : undefined,
+        limb_note: limbLabels(linkedSkillIds, sefPlan0).length > 0 ? "The limb was linked automatically. Tell the operator which limb you linked and that they can change it any time (update_quest, link_mode add or replace_links)." : undefined,
         limb_proposal: limbSplit.proposed.length > 0 ? { options: limbSplit.proposed, instruction: limbProposalMsg } : undefined,
         primary_axis_added: anchored.added ?? undefined,
         pathways_resolved_to_current_sequence: anchored.swapped.length > 0 ? anchored.swapped : undefined,
@@ -678,7 +680,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
             if (r.ids.length === 0) return;
             // Limbs are the operator's call: save the non-limb links now and report the matched limbs as proposals.
             const planA = await planSefirot(sb, userId, r.ids);
-            const splitA = splitLimbLinks(swapRootsForFrontier(r.ids, planA).ids, planA, p.limb_confirmed === true);
+            const splitA = splitLimbLinks(swapRootsForFrontier(r.ids, planA).ids, planA, (p.limb_confirmed === true || !LIMB_CONFIRMATION_REQUIRED));
             if (splitA.proposed.length > 0) limbProposals.push({ quest_id: q.id, title: q.title, proposed: splitA.proposed });
             if (splitA.keep.length === 0) return;
             const anchoredA = await withPrimaryAxis(sb, userId, splitA.keep, rebuildPlan(planA, splitA.keep));
@@ -738,7 +740,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           linkIds = Array.from(new Set([...(Array.isArray(cur?.linked_skill_ids) ? cur!.linked_skill_ids as string[] : []), ...linkIds]));
         }
         const planU0 = await planSefirot(sb, userId, linkIds);
-        const splitU = splitLimbLinks(swapRootsForFrontier(linkIds, planU0).ids, planU0, p.limb_confirmed === true);
+        const splitU = splitLimbLinks(swapRootsForFrontier(linkIds, planU0).ids, planU0, (p.limb_confirmed === true || !LIMB_CONFIRMATION_REQUIRED));
         // Limbs already saved on the quest are not proposals; only newly requested ones wait for confirmation.
         const existingIds = new Set(linkIds.filter((id) => !resolved.valid.includes(id)));
         const proposedU: LimbProposal[] = splitU.proposed.filter((l) => !existingIds.has(l.skill_id));
@@ -751,6 +753,8 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
           anchoredU.swapped.length > 0 ? `Pathway names were resolved to the current sequence: ${anchoredU.swapped.map((x) => `${x.from} -> ${x.to}`).join(", ")}.` : "",
           anchoredU.added ? `Added the Black Sun's current sequence (${anchoredU.added}) as the primary axis.` : "",
         ].filter(Boolean).join(" ");
+        const autoLabels = limbLabels(anchoredU.ids.filter((id) => resolved.valid.includes(id)), planU0);
+        if (autoLabels.length > 0) questLinkNotes = `${questLinkNotes} Limb linked: ${autoLabels.join(", ")}. The operator can change it any time.`.trim();
       }
       updates.updated_at = new Date().toISOString();
       const { data: updated, error } = await sb.from("quests").update(updates).eq("id", questId).eq("user_id", userId).select("id");

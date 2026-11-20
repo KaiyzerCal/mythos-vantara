@@ -299,3 +299,21 @@ export function limbProposalNote(proposed: LimbProposal[], trunkSeqName: string 
   const list = proposed.map((l) => `${l.pathway}: ${l.skill} (${l.proficiency}%)`).join("; ");
   return `LIMB NOT YET LINKED. Propose this to the operator and wait for a yes: Black Sun ${trunkSeqName ?? "current sequence"} (trunk) plus ${list}. Say it is a proposal, not saved. After they confirm (or name a different limb), call update_quest with link_mode:"add", limb_confirmed:true and linked_skill_names set to the confirmed limb skill name(s).`;
 }
+
+/**
+ * Limbs link automatically; the operator edits them afterwards. (A confirm-first mode exists in splitLimbLinks: set this
+ * true to hold limbs back until a call carries limb_confirmed:true.)
+ */
+export const LIMB_CONFIRMATION_REQUIRED = false;
+
+/** "Pathway: Sequence" labels for the auxiliary-limb skills among these ids, so the reply can say which limbs were linked. */
+export function limbLabels(ids: string[], plan: SefirotPlan | null): string[] {
+  if (!plan || !plan.trunk) return [];
+  const out: string[] = [];
+  for (const id of ids) {
+    const root = pathwayRoot(id, plan.byId);
+    const sk = plan.byId.get(id);
+    if (root && sk && root.id !== plan.trunk.id) out.push(`${root.name.replace(/_/g, " ")}: ${sk.name}`);
+  }
+  return out;
+}
