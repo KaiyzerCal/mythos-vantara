@@ -5,6 +5,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+import { extractLocalText } from "../_shared/localExtract.ts";
+import { localLibs } from "../_shared/localExtractLibs.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -246,7 +248,18 @@ serve(async (req) => {
   let extractedText = "";
 
   // Extract text based on file type
-  if (ext === "pdf") {
+  if (["pdf", "docx", "xlsx", "pptx"].includes(ext)) {
+    // Read the text locally first: free and independent of AI credits. Scans and unreadable files fall through below.
+    try {
+      const r = await fetch(fileUrl);
+      if (r.ok) extractedText = (await extractLocalText(await r.arrayBuffer(), "", `${fileName.replace(/\.[^.]+$/, "")}.${ext}`, localLibs)) ?? "";
+    } catch (err) {
+      console.warn("[mavis-doc-extract] local extraction failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  if (extractedText) {
+    // done: nothing more to do for this file
+  } else if (ext === "pdf") {
     const geminiText = await extractPdfWithGemini(fileUrl);
     if (geminiText) {
       extractedText = geminiText;
