@@ -8,6 +8,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 import { reembedRow } from "../_shared/reembedRow.ts";
+import { extractLocalText, localKind } from "../_shared/localExtract.ts";
+import { localLibs } from "../_shared/localExtractLibs.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -291,7 +293,53 @@ async function describeWithAI(buf: ArrayBuffer, mime: string, fileName: string, 
     }
   }
 
-  throw new Error(`No AI provider succeeded for ${fileName} (${mime})`);
+  // ── PDF fallbacks: Claude reads PDFs natively, and so does GPT-4o-mini via file input ────────────
+  if (mime === "application/pdf") {
+    if (claudeKey) {
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": claudeKey, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001", max_tokens: 4096,
+            messages: [{ role: "user", content: [
+              { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } },
+              { type: "text", text: prompt },
+            ] }],
+          }),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (res.ok) {
+          const j = await res.json();
+          const text = (j.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("").trim();
+          if (text.length > 10) return text.slice(0, 60000);
+        } else console.warn(`[claude pdf] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      } catch (e: any) { console.warn("[claude pdf] failed:", e.message); }
+    }
+    if (openaiKey) {
+      try {
+        const res = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+          body: JSON.stringify({
+            model: "gpt-4o-mini", max_tokens: 4096,
+            messages: [{ role: "user", content: [
+              { type: "text", text: prompt },
+              { type: "file", file: { filename: fileName.replace(/[^\w.\- ]/g, "_"), file_data: `data:application/pdf;base64,${b64}` } },
+            ] }],
+          }),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (res.ok) {
+          const j = await res.json();
+          const text = String(j.choices?.[0]?.message?.content ?? "").trim();
+          if (text.length > 10) return text.slice(0, 60000);
+        } else console.warn(`[openai pdf] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      } catch (e: any) { console.warn("[openai pdf] failed:", e.message); }
+    }
+  }
+
+  throw new Error(`No AI provider could read ${fileName} (${mime}). The AI providers are out of credit or rate-limited right now, and this file has no readable text layer. Retry once credits are available.`);
 }
 
 Deno.serve(async (req) => {
@@ -401,13 +449,19 @@ Deno.serve(async (req) => {
         extracted = `[PDF too large — ${(size / 1024 / 1024).toFixed(1)} MB]`;
       } else {
         const buf = await blob.arrayBuffer();
-        extracted = await describeWithAI(
+        // Text-layer PDFs (most letters, contracts, exports) are read locally: free, instant, and independent of AI credits.
+        const local = await extractLocalText(buf, "application/pdf", attachment.file_name, localLibs);
+        extracted = local ?? await describeWithAI(
           buf,
           "application/pdf",
           attachment.file_name,
           `Extract all readable text and key visual information from this PDF. Include headings, body text, captions, table contents, and a brief description of any diagrams or images. Preserve the logical flow. File: ${attachment.file_name}`,
         );
       }
+    } else if (localKind(attachment.mime_type, attachment.file_name)) {
+      // Word, Excel and PowerPoint files: the text is inside the file, no AI needed.
+      const local = await extractLocalText(await blob.arrayBuffer(), attachment.mime_type, attachment.file_name, localLibs);
+      extracted = local ?? `[${attachment.file_name}: no readable text found in this file.]`;
     } else {
       // Try reading as UTF-8 text for unknown types (handles .csv, .md, .ts, etc. served as octet-stream)
       try {
@@ -436,7 +490,7 @@ Deno.serve(async (req) => {
 
     // Auto-create Knowledge Graph note(s) for non-trivial extracted content.
     // Large documents are chunked so semantic search can recall specific sections.
-    if (extracted.length > 100 && kind !== "other") {
+    if (extracted.length > 100 && (kind !== "other" || !!localKind(attachment.mime_type, attachment.file_name))) {
       (async () => {
         try {
           const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -449,7 +503,7 @@ Deno.serve(async (req) => {
             pdf:   ["attachment", "document"],
             text:  ["attachment", "document"],
           };
-          const tags = tagMap[kind] ?? ["attachment"];
+          const tags = tagMap[kind] ?? ["attachment", "document"];
 
           const CHUNK_SIZE    = 3500;
           const CHUNK_OVERLAP = 300;
