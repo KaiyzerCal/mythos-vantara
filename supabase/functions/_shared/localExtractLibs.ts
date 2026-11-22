@@ -4,5 +4,5 @@ import type { LocalLibs } from "./localExtract.ts";
 
 export const localLibs: LocalLibs = {
   loadUnzip: async () => (await import("https://esm.sh/fflate@0.8.2")).unzipSync as any,
-  loadPdf: async () => (await import("npm:unpdf@0.12.1")).extractText as any,
+  loadPdf: async () => (await import("https://esm.sh/unpdf@0.12.1")).extractText as any,
 };
