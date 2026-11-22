@@ -1527,12 +1527,30 @@ ${telosData
       } else {
         q = q.eq("chat_kind", "mavis");
       }
-      const { data: atts } = await q;
+      let { data: atts } = await q;
+      // A message is often sent the moment a file finishes uploading, while text extraction is still running (a few
+      // seconds). Wait for it instead of telling the model the file is "still being processed" (live 2026-11-22: MAVIS
+      // answered "I don't see any files" for two PDFs that finished extracting seconds later).
+      const stillRunning = (rows: any[] | null) => (rows ?? []).filter((a: any) => a.processing_status === "pending" || a.processing_status === "processing");
+      if (stillRunning(atts).length > 0) {
+        const waitIds = stillRunning(atts).map((a: any) => a.id);
+        const deadline = Date.now() + 25_000;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const { data: fresh } = await sb.from("chat_attachments")
+            .select("id,file_name,mime_type,file_url,extracted_text,processing_status,created_at").in("id", waitIds);
+          if (stillRunning(fresh).length === 0) {
+            const byId = new Map((fresh ?? []).map((r: any) => [r.id, r]));
+            atts = (atts ?? []).map((a: any) => byId.get(a.id) ?? a);
+            break;
+          }
+        }
+      }
       if (atts && atts.length > 0) {
         attachmentsBlock = "\n═══ FILES UPLOADED TO THIS CHAT (read & analyze) ═══\n" +
           (atts as any[]).map((a: any) => {
             const status = a.processing_status === "done" ? "" : ` [${a.processing_status}]`;
-            const txt = (a.extracted_text || "").slice(0, 6000);
+            const txt = String(a.extracted_text || "").slice(0, 18000) + (String(a.extracted_text || "").length > 18000 ? "\n[…document continues; ask to read the rest]" : ""); // letters/contracts run 10-15k characters
             // extracted_text is a real AI-generated description/transcript/OCR produced at
             // upload time by mavis-attachment-process (Gemini/Claude/GPT-4o vision cascade for
             // images, Gemini Files API for video, native PDF reading) — this is the actual
