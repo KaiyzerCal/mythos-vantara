@@ -1056,7 +1056,7 @@ async function handleTool(
           query,
           sources_searched: googleConnected ? ["mavis_contacts", "google_contacts"] : ["mavis_contacts"],
           note: !googleConnected
-            ? "Google Contacts not connected — searched MAVIS in-app contacts only. Connect via /integrations to also search your Google network."
+            ? "Google Contacts is not connected, so only MAVIS's in-app contacts were searched (people you email are added there automatically). Google Contacts needs your own Google Cloud OAuth client; Composio has no managed option for it."
             : undefined,
         };
       }
@@ -1427,6 +1427,10 @@ async function handleTool(
 
       // ── read_google_tasks ─────────────────────────────────────────────────
       case "read_google_tasks": {
+        { // Google Tasks through Composio when that is where the account is connected.
+          const cx = await viaComposio(supabase, userId, "read_google_tasks", input as Record<string, unknown>).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+          if (cx !== undefined) return cx;
+        }
         const { data: integration } = await supabase
           .from("mavis_user_integrations")
           .select("config")

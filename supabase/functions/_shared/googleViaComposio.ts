@@ -150,6 +150,51 @@ export async function calendarList(uid: string, p: Record<string, unknown>) {
   return { events, count: events.length, total: events.length };
 }
 
+// ── Google Tasks ──────────────────────────────────────────────────────────
+async function defaultTaskList(uid: string, p: Record<string, unknown>): Promise<string> {
+  const given = String(p.tasklist_id ?? "").trim();
+  if (given) return given;
+  const lists = await composioRun(uid, "GOOGLETASKS_LIST_TASK_LISTS", {});
+  const first = ((lists?.items ?? lists?.tasklists ?? lists?.task_lists ?? []) as any[])[0];
+  return String(first?.id ?? "@default");
+}
+const mapTask = (t: any) => ({ id: t.id, title: t.title, status: t.status, due: t.due ?? null, notes: t.notes ?? null, completed: t.completed ?? null });
+
+export async function tasksList(uid: string, p: Record<string, unknown>) {
+  const tasklist_id = await defaultTaskList(uid, p);
+  const data = await composioRun(uid, "GOOGLETASKS_LIST_TASKS", {
+    tasklist_id, showCompleted: Boolean(p.show_completed ?? false), maxResults: Math.min(Number(p.max_results ?? 20), 100),
+  });
+  const tasks = ((data?.items ?? data?.tasks ?? []) as any[]).map(mapTask);
+  return { tasks, total: tasks.length, tasklist_id };
+}
+
+export async function taskCreate(uid: string, p: Record<string, unknown>) {
+  const title = String(p.title ?? "").trim();
+  if (!title) throw new Error("title required");
+  const tasklist_id = await defaultTaskList(uid, p);
+  const data = await composioRun(uid, "GOOGLETASKS_INSERT_TASK", {
+    tasklist_id, title, status: "needsAction",
+    ...(p.notes ? { notes: String(p.notes) } : {}), ...(p.due ? { due: new Date(String(p.due)).toISOString() } : {}),
+  });
+  return { task_id: data?.id ?? null, title, tasklist_id };
+}
+
+async function taskPatch(uid: string, p: Record<string, unknown>, changes: Record<string, unknown>) {
+  const task_id = String(p.task_id ?? p.id ?? "").trim();
+  if (!task_id) throw new Error("task_id required");
+  const tasklist_id = await defaultTaskList(uid, p);
+  const cur = await composioRun(uid, "GOOGLETASKS_GET_TASK", { tasklist_id, task_id });
+  const data = await composioRun(uid, "GOOGLETASKS_PATCH_TASK", {
+    tasklist_id, task_id, title: String(changes.title ?? cur?.title ?? "Task"), status: String(changes.status ?? cur?.status ?? "needsAction"),
+    ...(changes.notes !== undefined ? { notes: String(changes.notes) } : {}), ...(changes.due ? { due: new Date(String(changes.due)).toISOString() } : {}),
+  });
+  return { task_id, title: data?.title ?? changes.title ?? cur?.title, status: data?.status ?? changes.status ?? cur?.status };
+}
+export const taskComplete = (uid: string, p: Record<string, unknown>) => taskPatch(uid, p, { status: "completed" });
+export const taskUpdate = (uid: string, p: Record<string, unknown>) =>
+  taskPatch(uid, p, { ...(p.title ? { title: p.title } : {}), ...(p.notes !== undefined ? { notes: p.notes } : {}), ...(p.due ? { due: p.due } : {}), ...(p.status ? { status: p.status } : {}) });
+
 type Handler = (uid: string, p: Record<string, unknown>) => Promise<unknown>;
 // action type -> [Composio toolkit, direct-OAuth provider in mavis_user_integrations, handler]
 const ROUTES: Record<string, [string, string, Handler]> = {
@@ -167,6 +212,11 @@ const ROUTES: Record<string, [string, string, Handler]> = {
   read_emails: ["gmail", "gmail", gmailList],
   get_calendar_events: ["googlecalendar", "google_calendar", calendarList],
   read_calendar: ["googlecalendar", "google_calendar", calendarList],
+  list_google_tasks: ["googletasks", "google_tasks", tasksList],
+  read_google_tasks: ["googletasks", "google_tasks", tasksList],
+  create_google_task: ["googletasks", "google_tasks", taskCreate],
+  complete_google_task: ["googletasks", "google_tasks", taskComplete],
+  update_google_task: ["googletasks", "google_tasks", taskUpdate],
 };
 
 export function composioHandles(actionType: string): boolean {
