@@ -6,6 +6,7 @@ export const GOOGLE_SHEET = "application/vnd.google-apps.spreadsheet";
 export const COMPOSIO_GOOGLE_ACTIONS = [
   "search_drive_files", "search_drive", "list_drive_files", "get_file_info", "read_drive_file", "read_file", "read_document", "read_doc",
   "read_sheet", "read_sheet_range", "get_emails", "read_emails", "get_calendar_events", "read_calendar",
+  "list_google_tasks", "read_google_tasks", "create_google_task", "complete_google_task", "update_google_task",
 ] as const;
 
 export const q1 = (s: string) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");

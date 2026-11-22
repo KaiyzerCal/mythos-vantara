@@ -277,7 +277,7 @@ serve(async (req) => {
         // that gate on these statuses (Calendar, ...) open. Direct OAuth wins when both exist.
         const viaComposio: string[] = [];
         const toolkits = await composioToolkits(userId);
-        for (const [provider, toolkit] of [["gmail", "gmail"], ["google_calendar", "googlecalendar"], ["gdrive", "googledrive"]] as const) {
+        for (const [provider, toolkit] of [["gmail", "gmail"], ["google_calendar", "googlecalendar"], ["gdrive", "googledrive"], ["google_tasks", "googletasks"]] as const) {
           if (!statuses[provider] && toolkits.has(toolkit)) { statuses[provider] = true; viaComposio.push(provider); }
         }
 
