@@ -1445,10 +1445,10 @@ async function loadAppContext(uid: string): Promise<string> {
     // shown.
     const [profileRes, journalRes, vaultRes, energyRes, ritualsRes, memoriesRes, fullQuests, fullSkills] =
       await Promise.all([
-        sb.from("profiles").select("full_name,level,rank,form,xp,xp_to_next_level,str,agi,int,vit,wis,cha,lck,arc_story").eq("id", uid).maybeSingle(),
+        sb.from("profiles").select("inscribed_name,level,rank,current_form,xp,xp_to_next_level,stat_str,stat_agi,stat_int,stat_vit,stat_wis,stat_cha,stat_lck,arc_story").eq("id", uid).maybeSingle(),
         sb.from("journal_entries").select("title,content,category,mood,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
         sb.from("vault_entries").select("title,content,category,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(5),
-        sb.from("energy_systems").select("type,current,max,status").eq("user_id", uid).limit(4),
+        sb.from("energy_systems").select("type,current_value,max_value,status").eq("user_id", uid).limit(4),
         sb.from("rituals").select("name,type,streak,last_completed").eq("user_id", uid).order("streak", { ascending: false }).limit(6),
         sb.from("mavis_memory").select("content,importance_score").eq("user_id", uid).eq("role", "user").order("importance_score", { ascending: false }).limit(6),
         fetchAllRows(sb, "quests", "id,title,type,status,progress_current,progress_target,description,linked_skill_ids", uid),
@@ -1460,8 +1460,8 @@ async function loadAppContext(uid: string): Promise<string> {
     // Profile
     const pr = profileRes.data as any;
     if (pr) {
-      lines.push(`Profile: ${pr.full_name ?? "Operator"} — Lv${pr.level ?? 1} ${pr.rank ?? ""} | Form: ${pr.form ?? "—"}`);
-      lines.push(`Stats: STR:${pr.str ?? 0} AGI:${pr.agi ?? 0} INT:${pr.int ?? 0} VIT:${pr.vit ?? 0} WIS:${pr.wis ?? 0} CHA:${pr.cha ?? 0} LCK:${pr.lck ?? 0}`);
+      lines.push(`Profile: ${pr.inscribed_name ?? "Operator"} — Lv${pr.level ?? 1} ${pr.rank ?? ""} | Form: ${pr.current_form ?? "—"}`);
+      lines.push(`Stats: STR:${pr.stat_str ?? 0} AGI:${pr.stat_agi ?? 0} INT:${pr.stat_int ?? 0} VIT:${pr.stat_vit ?? 0} WIS:${pr.stat_wis ?? 0} CHA:${pr.stat_cha ?? 0} LCK:${pr.stat_lck ?? 0}`);
       lines.push(`XP: ${pr.xp ?? 0}/${pr.xp_to_next_level ?? 1000}${pr.arc_story ? ` | Arc: ${String(pr.arc_story).slice(0, 80)}` : ""}`);
     }
 
@@ -1518,7 +1518,7 @@ async function loadAppContext(uid: string): Promise<string> {
     // Energy
     const energy = (energyRes.data ?? []) as any[];
     if (energy.length) {
-      lines.push(`\nENERGY: ${energy.map((e: any) => `${e.type}:${e.current}/${e.max}[${e.status ?? "—"}]`).join("  ")}`);
+      lines.push(`\nENERGY: ${energy.map((e: any) => `${e.type}:${e.current_value}/${e.max_value}[${e.status ?? "—"}]`).join("  ")}`);
     }
 
     // Rituals

@@ -46,3 +46,7 @@ journal.md         ← session audit trail
 Researcher → Strategist → Writer → Editor
 
 Full chain doc: `.claude/skills/pipeline-deliverable.md`
+
+## Edge-function regression tests
+
+- Test Deno entrypoint helpers by extracting their named function declarations with the TypeScript parser and injecting dependencies; this exercises production logic without starting webhooks or requiring production credentials.

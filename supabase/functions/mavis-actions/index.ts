@@ -141,13 +141,14 @@ async function bumpLinkedSkillProficiency(
     }
     if (after === before) return;
     await sb.from("skills").update({ proficiency: after, updated_at: new Date().toISOString() }).eq("id", skill.id).eq("user_id", userId);
+    // Convergence runs after every direct gain; keep its shared tree current even below mastery.
+    const inTree = plan?.byId.get(skill.id);
+    if (inTree) inTree.proficiency = after;
     // "skill_up" matches the existing ActivityLogPage.tsx event vocabulary
     // (Zap icon, "Skill Up" label) rather than introducing a new unmapped type.
     await logActivity(sb, userId, "skill_up", `${skill.name} proficiency: ${before}% -> ${after}%`, 0);
 
     if (after >= 100) {
-      const inTree = plan?.byId.get(skill.id);
-      if (inTree) inTree.proficiency = after;
       // Limb saturation: an auxiliary sequence at 100% only unlocks its next sequence once the trunk has reached
       // the same tier (equilibrium) or this quest is an Ascension Ritual.
       if (plan && inTree && isGatedLimbSequence(inTree, plan)) {
