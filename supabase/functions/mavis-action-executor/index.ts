@@ -5,6 +5,7 @@
 // Auth: Bearer JWT. Only executes queue items belonging to the authenticated user.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { viaComposio } from "../_shared/googleViaComposio.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
@@ -1304,6 +1305,10 @@ async function routeActionType(
   userId: string,
   adminSb: ReturnType<typeof createClient>,
 ): Promise<Record<string, unknown>> {
+  // The operator's Google accounts are authorized through Composio, not direct OAuth: read through it when that's the
+  // connection that exists, otherwise fall through to the direct-OAuth implementations below.
+  const viaCx = await viaComposio(adminSb, userId, actionType, actionPayload);
+  if (viaCx !== undefined) return viaCx as Record<string, unknown>;
   switch (actionType) {
     // ── Existing ──────────────────────────────────────────────────────────────
     case "draft_email":

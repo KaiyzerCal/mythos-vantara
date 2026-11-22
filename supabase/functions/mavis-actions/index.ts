@@ -8,6 +8,7 @@ import { embedText } from "../_shared/embedding.ts";
 import { suggestSkillLinks } from "../_shared/skillLinker.ts";
 import { resolveSkillRefs } from "../_shared/skillRefs.ts";
 import { getTavilyKey } from "../_shared/tavilyKey.ts";
+import { viaComposio, composioHandles } from "../_shared/googleViaComposio.ts";
 import {
   planSefirot, payConvergence, releaseSaturatedLimbs, pathwayRoot, applyYield, focusGroupCount, isAscensionRitual,
   isGatedLimbSequence, limbMayAdvance, dilutionWarning, withPrimaryAxis, capForLocked, parseBodyMapping, BODY_MAPPING_PROMPT, rebuildPlan, splitLimbLinks, limbProposalNote, activeTrunkSequence, swapRootsForFrontier, LIMB_CONFIRMATION_REQUIRED, limbLabels, type SefSkill, type LimbProposal,
@@ -3026,6 +3027,13 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
     }
 
     default: {
+      // Google reads (Drive, Docs, Sheets, Gmail, Calendar): chat advertises these tools but they had no handler here, so every
+      // call died as "Unknown MAVIS action" and MAVIS reported Google as disconnected. The accounts are authorized through Composio.
+      if (composioHandles(action.type)) {
+        const cx = await viaComposio(sb, userId, action.type, p);
+        if (cx !== undefined) return cx;
+        throw new Error(`Google is not connected for "${action.type}". Connect the account in Settings > Integrations (Connect an app), then try again.`);
+      }
       // Activepieces fallback — dispatch to a configured flow for any action type
       // not handled natively. Set ACTIVEPIECES_BASE_URL and ACTIVEPIECES_FLOWS (JSON
       // map of actionType → flow ID) in Supabase secrets to enable.

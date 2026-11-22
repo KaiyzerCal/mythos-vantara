@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { viaComposio } from "../_shared/googleViaComposio.ts";
 import { buildSharedTruth } from "../_shared/context.ts";
 import { searchAppData, formatSearchBlock } from "../_shared/appSearch.ts";
 import { buildRecallBlock } from "../_shared/recallBlock.ts";
@@ -810,6 +811,10 @@ async function handleTool(
 
       // ── read_emails ───────────────────────────────────────────────────────
       case "read_emails": {
+        { // Google reads go through Composio when that is where the account is connected.
+          const cx = await viaComposio(supabase, userId, "read_emails", input as Record<string, unknown>).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+          if (cx !== undefined) return cx;
+        }
         const query = input.query ? String(input.query) : undefined;
         const maxResults = Math.min(Number(input.max_results ?? 10), 30);
 
@@ -872,6 +877,10 @@ async function handleTool(
 
       // ── read_calendar ─────────────────────────────────────────────────────
       case "read_calendar": {
+        { // Google reads go through Composio when that is where the account is connected.
+          const cx = await viaComposio(supabase, userId, "read_calendar", input as Record<string, unknown>).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+          if (cx !== undefined) return cx;
+        }
         const daysAhead = Number(input.days_ahead ?? 7);
         const maxResults = Number(input.max_results ?? 20);
 
@@ -1229,6 +1238,10 @@ async function handleTool(
 
       // ── search_drive ──────────────────────────────────────────────────────
       case "search_drive": {
+        { // Google reads go through Composio when that is where the account is connected.
+          const cx = await viaComposio(supabase, userId, "search_drive", input as Record<string, unknown>).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+          if (cx !== undefined) return cx;
+        }
         const query = String(input.query ?? "");
         const fileType = input.file_type ? String(input.file_type) : "any";
         const maxResults = Math.min(Number(input.max_results ?? 10), 30);
@@ -1272,6 +1285,10 @@ async function handleTool(
 
       // ── read_drive_file ───────────────────────────────────────────────────
       case "read_drive_file": {
+        { // Google reads go through Composio when that is where the account is connected.
+          const cx = await viaComposio(supabase, userId, "read_drive_file", input as Record<string, unknown>).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+          if (cx !== undefined) return cx;
+        }
         const { data: integration } = await supabase
           .from("mavis_user_integrations")
           .select("config")
@@ -1351,6 +1368,10 @@ async function handleTool(
 
       // ── read_sheet_range ──────────────────────────────────────────────────
       case "read_sheet_range": {
+        { // Google reads go through Composio when that is where the account is connected.
+          const cx = await viaComposio(supabase, userId, "read_sheet_range", input as Record<string, unknown>).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+          if (cx !== undefined) return cx;
+        }
         const { data: integration } = await supabase
           .from("mavis_user_integrations")
           .select("config")
