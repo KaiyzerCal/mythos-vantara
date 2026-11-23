@@ -10880,8 +10880,10 @@ export type Database = {
           energy_type: string
           id: string
           is_sovereign_trunk: boolean
+          last_trained_at: string
           name: string
           parent_skill_id: string | null
+          peak_proficiency: number
           prerequisites: string[]
           proficiency: number
           tier: number
@@ -10899,8 +10901,10 @@ export type Database = {
           energy_type?: string
           id?: string
           is_sovereign_trunk?: boolean
+          last_trained_at?: string
           name: string
           parent_skill_id?: string | null
+          peak_proficiency?: number
           prerequisites?: string[]
           proficiency?: number
           tier?: number
@@ -10918,8 +10922,10 @@ export type Database = {
           energy_type?: string
           id?: string
           is_sovereign_trunk?: boolean
+          last_trained_at?: string
           name?: string
           parent_skill_id?: string | null
+          peak_proficiency?: number
           prerequisites?: string[]
           proficiency?: number
           tier?: number
@@ -13266,6 +13272,7 @@ export type Database = {
         Returns: number
       }
       cron_unschedule: { Args: { p_jobname: string }; Returns: boolean }
+      decay_idle_limbs: { Args: never; Returns: number }
       decay_old_memories: {
         Args: { p_days_threshold?: number; p_user_id: string }
         Returns: number
