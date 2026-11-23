@@ -821,7 +821,7 @@ ${telosData
       const foundUrls = lastUserText.match(URL_RE);
       if (foundUrls?.length) {
         const target = foundUrls[0].replace(/[.,;!?)]+$/, "");
-        const isYouTube   = /(?:youtube\.com\/watch|youtu\.be\/)/.test(target);
+        const isYouTube   = /(?:youtube\.com\/(?:watch|shorts|live)|youtu\.be\/)/.test(target);
         const isShortForm = /tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com|instagram\.com\/(reel|p)\/|twitter\.com|x\.com\/\w+\/status\//i.test(target);
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
         const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

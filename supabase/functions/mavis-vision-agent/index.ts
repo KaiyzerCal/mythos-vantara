@@ -799,7 +799,7 @@ Reply ONLY with JSON: {"action": "click|type|navigate|scroll|done|error", "selec
         if (!GEMINI_KEY) return json({ error: "GEMINI_API_KEY required for YouTube visual analysis" }, 400);
 
         const ytUrl = String(body.url ?? "");
-        if (!ytUrl || !/(?:youtube\.com\/watch|youtu\.be\/)/.test(ytUrl))
+        if (!ytUrl || !/(?:youtube\.com\/(?:watch|shorts|live)|youtu\.be\/)/.test(ytUrl))
           return json({ error: "url must be a valid YouTube URL" }, 400);
 
         const ytPrompt = String(body.prompt ?? `You are watching a YouTube video. Provide a comprehensive analysis:

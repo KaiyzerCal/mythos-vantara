@@ -3089,6 +3089,31 @@ Deno.serve(async (req) => {
       return json({ error: "goal or messages required" }, 400);
     }
 
+    // YouTube links: normal chat reads a pasted video before the model sees it; agent mode had no such step, so it
+    // answered "youtube_agent unavailable". Gemini watches the video natively (captions-free), so hand its analysis
+    // to the model as context on the latest user turn. Best effort; a failure just leaves the message as it was.
+    {
+      const last = messages[messages.length - 1];
+      const YT_RE = /https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?[^\s]*v=|shorts\/|live\/)|youtu\.be\/)[A-Za-z0-9_-]{11}[^\s<>"')]*/i;
+      const ytUrl = last?.role === "user" && typeof last.content === "string" ? last.content.match(YT_RE)?.[0] : undefined;
+      if (ytUrl) {
+        try {
+          const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-vision-agent`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
+            body: JSON.stringify({ userId, action: "analyze_youtube", url: ytUrl }),
+            signal: AbortSignal.timeout(40000),
+          });
+          if (r.ok) {
+            const g = await r.json();
+            if (g?.analysis) last.content = `${last.content}\n\n═══ YOUTUBE VIDEO (already analysed for you — use this, do not say you cannot watch it) ═══\nURL: ${ytUrl}\n${String(g.analysis).slice(0, 12000)}\n═══ END YOUTUBE CONTENT ═══`;
+          }
+        } catch (err) {
+          console.warn("[mavis-agent] YouTube pre-analysis failed:", err instanceof Error ? err.message : err);
+        }
+      }
+    }
+
     const claudeKey = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
     const lovableKey = Deno.env.get("LOVABLE_API_KEY") ?? "";
 
