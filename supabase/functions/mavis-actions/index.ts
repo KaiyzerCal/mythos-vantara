@@ -635,6 +635,59 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       };
     }
 
+    // Many quests in one call. A single mavis-agent turn is capped (~5 rounds, ~10 actions), so a
+    // "quest for every pathway" request used to stall partway. Each item is a normal create_quest
+    // (dedup, root->current-sequence swap, trunk anchoring, limb auto-link all apply). A failure on one
+    // item never aborts the rest. Convenience fields per item: `pathway` (a Beyonder pathway name; resolves
+    // to your current sequence there) and `non_beyonder_skills` (exact skill names).
+    case "create_quests_bulk": {
+      const items = Array.isArray(p.quests) ? (p.quests as Record<string, unknown>[]) : [];
+      if (items.length === 0) throw new Error("create_quests_bulk requires a non-empty quests array");
+      const MAX = 40;
+      const batch = items.slice(0, MAX);
+      const created: Array<{ title: string; quest_id: string | null; linked: string[] }> = [];
+      const deduped: string[] = [];
+      const failed: Array<{ title: string; error: string }> = [];
+      for (const raw of batch) {
+        const item = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+        const title = String(item.title ?? "").trim();
+        if (!title) { failed.push({ title: "(untitled)", error: "missing title" }); continue; }
+        const { pathway, non_beyonder_skills, ...rest } = item;
+        const names = [
+          ...asStringArray(rest.linked_skill_names),
+          ...(pathway ? [String(pathway)] : []),
+          ...asStringArray(non_beyonder_skills),
+        ];
+        try {
+          const r: any = await executeAction(sb, userId, { type: "create_quest", params: { ...rest, linked_skill_names: names } } as MavisAction);
+          if (r?.deduped) deduped.push(title);
+          else created.push({ title, quest_id: r?.quest_id ?? null, linked: (r?.linked_skills ?? []).map((s: { name: string }) => s.name) });
+        } catch (err) {
+          failed.push({ title, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      // Coverage: which Beyonder pathways still have no open quest touching them.
+      let uncovered: string[] | undefined;
+      try {
+        const { data: rootRows } = await sb.from("skills").select("id, name").eq("user_id", userId).eq("category", "Beyonder").is("parent_skill_id", null).limit(1000);
+        const roots = (rootRows ?? []) as Array<{ id: string; name: string }>;
+        const { data: seqRows } = await sb.from("skills").select("id, parent_skill_id").eq("user_id", userId).in("parent_skill_id", roots.map((r) => r.id)).limit(1000);
+        const all = (seqRows ?? []) as Array<{ id: string; parent_skill_id: string }>;
+        const { data: open } = await sb.from("quests").select("linked_skill_ids").eq("user_id", userId).in("status", ["active", "locked"]).limit(1000);
+        const touched = new Set<string>(((open ?? []) as Array<{ linked_skill_ids: string[] | null }>).flatMap((q) => q.linked_skill_ids ?? []));
+        uncovered = roots.filter((r) => !touched.has(r.id) && !all.some((s) => s.parent_skill_id === r.id && touched.has(s.id))).map((r) => r.name);
+      } catch (err) {
+        console.warn("[create_quests_bulk] coverage check failed:", err instanceof Error ? err.message : err);
+      }
+      return {
+        created: created.length, deduped: deduped.length, failed: failed.length,
+        quests: created, deduped_titles: deduped.length ? deduped : undefined, failures: failed.length ? failed : undefined,
+        not_attempted: items.length > MAX ? items.length - MAX : undefined,
+        pathways_still_without_open_quest: uncovered,
+        note: items.length > MAX ? `Only the first ${MAX} were processed; send the remaining ${items.length - MAX} in another create_quests_bulk.` : undefined,
+      };
+    }
+
     // Returns suggested skill links for a quest that doesn't exist yet —
     // backs the quest form's "Suggest skills" button. Writes nothing.
     case "suggest_skill_links": {
