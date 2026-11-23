@@ -51,6 +51,7 @@ export type RefreshTarget = Section[] | typeof ALL;
 export const SECTION_FOR: Readonly<Record<string, readonly Section[]>> = {
   // ── Quests ────────────────────────────────────────────────────────────
   create_quest: ["quests"],
+  create_quests_bulk: ["quests"],
   update_quest: ["quests"],
   complete_quest: ["quests"],
   delete_quest: ["quests"],
@@ -172,6 +173,7 @@ export const SECTION_FOR: Readonly<Record<string, readonly Section[]>> = {
  */
 export const ROUTE_FOR: Readonly<Record<string, string>> = {
   create_quest: "/quests",
+  create_quests_bulk: "/quests",
   complete_quest: "/quests",
   create_skill: "/skills",
   create_subskill: "/skills",

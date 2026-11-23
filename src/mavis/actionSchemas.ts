@@ -236,6 +236,26 @@ export const CreateBeyonderPathwaySchema = z.object({
     abilities: z.array(z.object({ name: z.string().optional(), description: z.string().min(1) })).length(3),
   })).length(10),
 });
+// Many quests in one call (a single agent turn is capped at ~10 actions). Each item is a create_quest body; `pathway`
+// (a Beyonder pathway name) and `non_beyonder_skills` (exact skill names) are folded into its linked skills server-side.
+export const CreateQuestsBulkSchema = z.object({
+  type: z.literal("create_quests_bulk"),
+  quests: z.array(z.object({
+    title: z.string().min(1),
+    description: z.string().optional(),
+    quest_type: z.enum(["daily", "side", "main", "epic"]).optional(),
+    difficulty: z.enum(["Easy", "Normal", "Hard", "Extreme", "Impossible"]).optional(),
+    xp_reward: z.number().int().nonnegative().optional(),
+    codex_points_reward: z.number().int().nonnegative().optional(),
+    progress_target: z.number().int().positive().optional(),
+    category: z.string().optional(),
+    real_world_mapping: z.string().optional(),
+    completion_criteria: z.array(z.string()).optional(),
+    pathway: z.string().optional(),
+    non_beyonder_skills: z.array(z.string()).optional(),
+    linked_skill_names: z.array(z.string()).optional(),
+  }).passthrough()).min(1).max(40),
+});
 export const UpdateSkillSchema = z.object({
   type: z.literal("update_skill"),
   skill_id: z.string().min(1).optional(),
@@ -1245,7 +1265,7 @@ export const ActionSchema = z.discriminatedUnion("type", [
   CreateQuestSchema, UpdateQuestSchema, DeleteQuestSchema, CompleteQuestSchema,
   SuggestSkillLinksSchema, AutoLinkQuestSkillsSchema,
   CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema,
-  CreateSkillSchema, CreateBeyonderPathwaySchema, UpdateSkillSchema, DeleteSkillSchema,
+  CreateSkillSchema, CreateBeyonderPathwaySchema, CreateQuestsBulkSchema, UpdateSkillSchema, DeleteSkillSchema,
   CreateJournalSchema, UpdateJournalSchema, DeleteJournalSchema,
   CreateVaultSchema, UpdateVaultSchema, DeleteVaultSchema,
   CreateCouncilMemberSchema, UpdateCouncilMemberSchema, DeleteCouncilMemberSchema,

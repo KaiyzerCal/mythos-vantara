@@ -468,6 +468,7 @@ const MAVIS_TOOLS = [
           type: "object",
           description:
             "Action parameters. Examples — " +
+            "create_quests_bulk: { quests: [ {title, description, quest_type, difficulty, xp_reward, completion_criteria, pathway (a Beyonder pathway name), non_beyonder_skills (exact names)} … up to 40 ] } — use this instead of many create_quest calls; " +
             "create_quest: { title, description, type ('daily'|'side'|'main'|'epic'), difficulty ('Easy'|'Normal'|'Hard'|'Extreme'|'Impossible'), xp_reward, category, " +
             "linked_skill_ids (string[] — ids of skills/Beyonder pathways or sequences this quest trains; completing it raises proficiency on each), " +
             "real_world_mapping ('stat:STR'|'stat:AGI'|'stat:VIT'|'stat:INT'|'stat:WIS'|'stat:CHA'|'stat:LCK', or 'energy:<energy_system_id>' — the ONE stat/energy this quest's real-world domain most directly builds), " +
@@ -673,7 +674,7 @@ async function handleTool(
         // This prevents schema errors (e.g. due_date on the tasks table) even
         // if the LLM picks the wrong tool.
         const VANTARA_REDIRECT_TYPES = new Set([
-          "create_quest", "update_quest", "complete_quest", "delete_quest",
+          "create_quest", "create_quests_bulk", "update_quest", "complete_quest", "delete_quest",
           "create_task", "update_task", "complete_task", "delete_task",
           "create_journal", "update_journal", "delete_journal",
           "create_skill", "create_subskill", "update_skill", "delete_skill", "create_beyonder_pathway",
