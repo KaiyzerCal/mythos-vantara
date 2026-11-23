@@ -841,7 +841,7 @@ ${telosData
               fetch(`${supabaseUrl}/functions/v1/mavis-vision-agent`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-                body: JSON.stringify({ action: "analyze_youtube", url: target, userId: user.id, prompt: YT_BRIEF_PROMPT }), // service-role calls must name the user, or the vision agent answers 400 and the analysis is silently dropped
+                body: JSON.stringify({ action: "analyze_youtube", url: target, userId: user.id, quick: true, prompt: YT_BRIEF_PROMPT }), // service-role calls must name the user, or the vision agent answers 400 and the analysis is silently dropped
                 // Was 90s — this already runs in Promise.allSettled alongside the
                 // 25s caption fetch, so 90s only ever mattered as a worst-case cap
                 // on a single blocking turn. 30s still gives Gemini a real window.
