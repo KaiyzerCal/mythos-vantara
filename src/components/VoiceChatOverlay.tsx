@@ -4,7 +4,7 @@ import { X, Mic, Pause, Play, Square } from "lucide-react";
 import { toast } from "sonner";
 import { streamChatMessage } from "@/mavis/chatService";
 import { supabase } from "@/integrations/supabase/client";
-import { toSpeakable, mapSpokenIndex } from "@/lib/speakable";
+import { toSpeakable, mapSpokenIndex, asksForIds } from "@/lib/speakable";
 import { edgeErrorMessage } from "@/lib/edgeFunctionError";
 import { buildVoiceContext } from "@/mavis/voiceContext";
 import { VOICE_READ_TOOLS, runVoiceReadTool } from "@/mavis/voiceReadTools";
@@ -59,6 +59,8 @@ export function VoiceChatOverlay({
   const [phase, setPhase] = useState<Phase>("idle");
   const [isPaused, setIsPaused] = useState(false);
   const [transcript, setTranscript] = useState("");
+  // Ids are spoken only when the operator asked to hear them in their last request.
+  const lastAskRef = useRef("");
   const [interimTranscript, setInterimTranscript] = useState("");
 
   // Karaoke: track how many chars have been spoken
@@ -198,7 +200,7 @@ export function VoiceChatOverlay({
     setPhase("speaking");
 
     // What is spoken is the cleaned text (no "dash"/"asterisk" read out); what is shown stays as written.
-    const spoken = toSpeakable(text) || text;
+    const spoken = toSpeakable(text, { speakIds: asksForIds(lastAskRef.current) }) || text;
     await nativeTtsRangeListenerRef.current?.remove().catch(() => {});
     nativeTtsRangeListenerRef.current = await NativeTextToSpeech.addListener("onRangeStart", (info) => {
       setSpokenUpTo(mapSpokenIndex(info.end, spoken.length, text.length));
@@ -240,7 +242,7 @@ export function VoiceChatOverlay({
 
     const doSpeak = () => {
       if (closingRef.current) return;
-      const spoken = toSpeakable(text) || text; // browsers read symbols literally ("dash", "asterisk"); display keeps the original
+      const spoken = toSpeakable(text, { speakIds: asksForIds(lastAskRef.current) }) || text; // browsers read symbols literally ("dash", "asterisk"); display keeps the original
       const utterance = new SpeechSynthesisUtterance(spoken);
       utterance.rate = 0.95;
       utterance.pitch = 1;
@@ -658,6 +660,7 @@ export function VoiceChatOverlay({
   const replyAtSendRef = useRef("");
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   const dispatchTurn = useCallback((captured: string) => {
+    lastAskRef.current = captured;
     const replyAtSend = effectiveReplyRef.current;
     replyAtSendRef.current = replyAtSend;
     const dispatch = personaRef.current ? sendPersonaMessage : sendMessageRef.current;
