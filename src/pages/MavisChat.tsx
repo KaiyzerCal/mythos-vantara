@@ -203,7 +203,9 @@ export default function MavisChat() {
   } | null>(null);
 
   // ── Agent Mode (Action Queue integration) ──
-  const [agentModeOn, setAgentModeOn] = useState(true);
+  // Normal chat is the default; a message that clearly needs tools is routed to the agent for that turn only (see routeToAgent).
+  // The toggle still pins agent mode on until it is switched off.
+  const [agentModeOn, setAgentModeOn] = useState(false);
   const [lastAgentMeta, setLastAgentMeta] = useState<{ toolsUsed: string[]; actionsQueued: number } | null>(null);
 
   // ── Crew coordinator state ──
@@ -1081,27 +1083,11 @@ export default function MavisChat() {
       ];
 
       const requiresAgent = AGENT_INTENT.some(p => p.test(content));
-      const isConversational = !requiresAgent && CHAT_ONLY_INTENT.some(p => p.test(content));
 
-      // Capture ref value before any mutation so routing stays consistent this tick
-      const wasAutoActivated = agentAutoActivated.current;
-
-      // Auto-activate: message needs tools and toggle is currently off
+      // Per-turn routing: a tool-needing message goes to the agent for this message only, then the next message is
+      // evaluated fresh. Nothing sticks, so ordinary conversation stays in normal chat (same voice, lower latency).
       const autoAgent = requiresAgent && !agentModeOn && Boolean(userId);
-      if (autoAgent) {
-        setAgentModeOn(true);
-        agentAutoActivated.current = true;
-      }
-
-      // Auto-deactivate: clearly conversational + toggle was set by us, not the user
-      const autoDeactivate = isConversational && agentModeOn && wasAutoActivated;
-      if (autoDeactivate) {
-        setAgentModeOn(false);
-        agentAutoActivated.current = false;
-      }
-
-      // Effective routing for THIS message (state update is async; ref/local vars are not)
-      const routeToAgent = (agentModeOn && !autoDeactivate) || autoAgent;
+      const routeToAgent = agentModeOn || autoAgent;
 
       // ── Agent Mode: route to mavis-agent with full specialist context ─────────
       // chatMode === "FLOW" always routes to Flowise below, even when agentModeOn is on.

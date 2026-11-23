@@ -10,7 +10,6 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppDataProvider } from "@/contexts/AppDataContext";
 import { VoiceProvider, useVoice } from "@/contexts/VoiceContext";
 import AppSidebar from "@/components/AppSidebar";
-import { MavisPageControl } from "@/components/MavisPageControl";
 import { Loader2 } from "lucide-react";
 import { useMavisNotifications } from "@/hooks/useMavisNotifications";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -33,6 +32,10 @@ function ThemeColorSync(): null {
   }, [resolvedTheme]);
   return null;
 }
+
+// The floating control pulls in the chat service, action schemas (zod) and the system prompt (~300 KB). It is not needed to
+// paint the first screen, so it loads after it.
+const MavisPageControl = lazy(() => import("@/components/MavisPageControl").then(m => ({ default: m.MavisPageControl })));
 
 // Pages — lazy-loaded for code splitting
 const AuthPage = lazy(() => import("@/pages/UtilityPages").then(m => ({ default: m.AuthPage })));
@@ -287,7 +290,7 @@ function AppContent() {
           </Suspense>
           </ErrorBoundary>
         </main>
-        <MavisPageControl />
+        <Suspense fallback={null}><MavisPageControl /></Suspense>
       </div>
     </AppDataProvider>
   );

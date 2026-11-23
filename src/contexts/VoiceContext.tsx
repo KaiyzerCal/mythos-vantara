@@ -3,8 +3,10 @@
 // overlay so the WebRTC connection isn't torn down when routes change.
 // Ctrl+Shift+V (or the floating mic button) toggles it from anywhere in the app.
 
-import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
-import { MavisRealtimeVoice } from "@/components/MavisRealtimeVoice";
+import { createContext, useContext, useState, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+
+// Loaded only when the voice overlay opens: it drags in the prompt builder and action schemas (~300 KB).
+const MavisRealtimeVoice = lazy(() => import("@/components/MavisRealtimeVoice").then(m => ({ default: m.MavisRealtimeVoice })));
 
 interface VoiceContextValue {
   isOpen:      boolean;
@@ -65,7 +67,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       {children}
       {isOpen && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <MavisRealtimeVoice onClose={closeVoice} context={context} />
+          <Suspense fallback={null}><MavisRealtimeVoice onClose={closeVoice} context={context} /></Suspense>
         </div>
       )}
     </VoiceContext.Provider>

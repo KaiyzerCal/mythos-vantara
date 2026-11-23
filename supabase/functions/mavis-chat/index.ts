@@ -45,6 +45,9 @@ const DEV_MODE = Object.keys(BOUND_OPERATORS).length === 0;
 // ============================================================
 // MAIN HANDLER
 // ============================================================
+// Shorter than the vision agent's default five-part analysis, so long videos finish inside the time window.
+const YT_BRIEF_PROMPT = "You are watching a YouTube video. Give a concise analysis: what it is and who is in it, the 5-8 key ideas with specifics (names, numbers, frameworks), concrete takeaways someone could act on, and 3-5 key moments with approximate timestamps. Mention important on-screen visuals only if they add meaning.";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -838,11 +841,11 @@ ${telosData
               fetch(`${supabaseUrl}/functions/v1/mavis-vision-agent`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
-                body: JSON.stringify({ action: "analyze_youtube", url: target }),
+                body: JSON.stringify({ action: "analyze_youtube", url: target, userId: user.id, prompt: YT_BRIEF_PROMPT }), // service-role calls must name the user, or the vision agent answers 400 and the analysis is silently dropped
                 // Was 90s — this already runs in Promise.allSettled alongside the
                 // 25s caption fetch, so 90s only ever mattered as a worst-case cap
                 // on a single blocking turn. 30s still gives Gemini a real window.
-                signal: AbortSignal.timeout(30000),
+                signal: AbortSignal.timeout(70000), // 30s cut off long podcasts mid-analysis (live 2026-11-23: a ~1h interview took 40-70s), so MAVIS said it could not watch the video
               }),
             ]);
 
