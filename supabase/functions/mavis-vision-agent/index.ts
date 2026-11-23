@@ -825,7 +825,12 @@ Reply ONLY with JSON: {"action": "click|type|navigate|scroll|done|error", "selec
                 { text: ytPrompt },
               ],
             }],
-            generationConfig: { maxOutputTokens: 8192 },
+            // quick: for chat and agent turns, where the operator is waiting. Low media resolution (about a quarter of the
+            // video tokens) and no thinking pass cut a long talk from ~60s to well inside a turn; a podcast or lecture
+            // loses almost nothing, since the content is in the speech. The default stays full quality.
+            generationConfig: body.quick === true
+              ? { maxOutputTokens: 4096, mediaResolution: "MEDIA_RESOLUTION_LOW", thinkingConfig: { thinkingBudget: 0 } }
+              : { maxOutputTokens: 8192 },
           }),
           signal: AbortSignal.timeout(120_000),
         });

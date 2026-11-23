@@ -3103,7 +3103,7 @@ Deno.serve(async (req) => {
           const r = await fetch(`${SUPABASE_URL}/functions/v1/mavis-vision-agent`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
-            body: JSON.stringify({ userId, action: "analyze_youtube", url: ytUrl, prompt: "You are watching a YouTube video. Give a concise analysis: what it is and who is in it, the 5-8 key ideas with specifics, concrete takeaways, and 3-5 key moments with approximate timestamps." }),
+            body: JSON.stringify({ userId, action: "analyze_youtube", url: ytUrl, quick: true, prompt: "You are watching a YouTube video. Give a concise analysis: what it is and who is in it, the 5-8 key ideas with specifics, concrete takeaways, and 3-5 key moments with approximate timestamps." }),
             signal: AbortSignal.timeout(60000),
           });
           if (r.ok) {
