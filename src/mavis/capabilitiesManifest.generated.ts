@@ -4005,6 +4005,7 @@ export const CAPABILITIES_MANIFEST: CapabilityEntry[] = [
       "src/mavis/skills/vision-agent/index.ts"
     ],
     "calledFromBackend": [
+      "mavis-agent",
       "mavis-chat",
       "mavis-telegram-bot"
     ],

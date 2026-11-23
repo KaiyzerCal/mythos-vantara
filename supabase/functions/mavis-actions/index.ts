@@ -1,3 +1,4 @@
+import { weightedXp, DIGESTION_GATE_ENABLED, ascensionRitualQuest } from "../_shared/progression.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { callWithFallback } from "../_shared/providers.ts";
@@ -131,6 +132,18 @@ async function bumpLinkedSkillProficiency(
   const trunkRoots = new Set<string>();
   let trunkReached: SefSkill | null = null;
   const gated: string[] = [];
+  const readyToDigest: SefSkill[] = [];
+  // An Ascension Ritual opens the next sequence of every linked sequence already at 100%, whatever its own gain this time.
+  if (ritual) {
+    for (const skill of skills || []) {
+      if (Number(skill.proficiency || 0) < 100) continue;
+      const { data: next } = await sb.from("skills").select("id, name").eq("user_id", userId).eq("unlocked", false).contains("prerequisites", [skill.id]);
+      for (const u of next || []) {
+        await sb.from("skills").update({ unlocked: true, updated_at: new Date().toISOString() }).eq("id", u.id).eq("user_id", userId);
+        await logActivity(sb, userId, "skill_created", `${u.name} unlocked (digested ${skill.name} through the Ascension Ritual)`, 0);
+      }
+    }
+  }
   await Promise.all((skills || []).map(async (skill: any) => {
     const before = Number(skill.proficiency || 0);
     const after = Math.max(before, capForLocked(Math.min(100, before + gain), skill.unlocked, skill.category === "Beyonder"));
@@ -159,6 +172,12 @@ async function bumpLinkedSkillProficiency(
           return;
         }
       }
+      // Digestion: a Black Sun sequence at full proficiency is practised, not yet digested. The next sequence opens
+      // with an Ascension Ritual, which is offered as a quest the moment this one is ready.
+      if (DIGESTION_GATE_ENABLED && plan && inTree && inTree.parent_skill_id === plan.trunk!.id && !ritual) {
+        readyToDigest.push(inTree);
+        return;
+      }
       if (plan && inTree && inTree.parent_skill_id === plan.trunk!.id) trunkReached = inTree;
       const { data: unlockable } = await sb.from("skills").select("id, name")
         .eq("user_id", userId).eq("unlocked", false).contains("prerequisites", [skill.id]);
@@ -172,6 +191,19 @@ async function bumpLinkedSkillProficiency(
   }));
   // Sovereign convergence: 33% of each auxiliary gain also flows into the Black Sun's active sequence.
   const conv = await payConvergence(sb, userId, plan, auxGains, log);
+  if (conv.reachedHundred && DIGESTION_GATE_ENABLED && !ritual) {
+    // Convergence filled the trunk sequence: same rule, it waits for the ritual.
+    readyToDigest.push(conv.reachedHundred);
+    conv.reachedHundred = null as any;
+  }
+  for (const seq of readyToDigest) {
+    try {
+      await logActivity(sb, userId, "skill_up", `${seq.name} is ready to digest - complete its Ascension Ritual to open the next sequence`, 0);
+      await executeAction(sb, userId, { type: "create_quest", params: ascensionRitualQuest(seq.id, seq.name) } as MavisAction);
+    } catch (err) {
+      console.warn("[digestion] ritual quest creation failed:", err instanceof Error ? err.message : err);
+    }
+  }
   if (conv.reachedHundred) {
     trunkReached = conv.reachedHundred;
     const { data: unlockable } = await sb.from("skills").select("id, name")
@@ -182,8 +214,9 @@ async function bumpLinkedSkillProficiency(
     }
   }
   const released = trunkReached ? await releaseSaturatedLimbs(sb, userId, plan, trunkReached, log) : [];
-  if (!plan || (auxGains.size === 0 && !plan.fragmented && gated.length === 0)) return null;
+  if (!plan || (auxGains.size === 0 && !plan.fragmented && gated.length === 0 && readyToDigest.length === 0)) return null;
   return {
+    ready_to_digest: readyToDigest.length ? readyToDigest.map((r) => r.name) : undefined,
     convergence_into: conv.into, convergence_points: conv.dividend,
     fragmented_focus: plan.fragmented, limb_saturated: gated, limbs_released: released,
   };
@@ -826,7 +859,7 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
 
     case "complete_quest": {
       const questId = await resolveId(sb, userId, "quests", (p.quest_id || p.id) as string, (p.quest_name || p.title) as string, "title");
-      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title, category, linked_skill_ids, difficulty, real_world_mapping, codex_points_reward, buff_effects, debuff_effects, loot_rewards").eq("id", questId).eq("user_id", userId).maybeSingle();
+      const { data: quest, error: findErr } = await sb.from("quests").select("xp_reward, title, category, linked_skill_ids, difficulty, real_world_mapping, codex_points_reward, buff_effects, debuff_effects, loot_rewards, progress_current, progress_target").eq("id", questId).eq("user_id", userId).maybeSingle();
       if (findErr) throw findErr;
       if (!quest) throw new Error(`quests: no quest found for id "${questId}"`);
       const { data: updated, error: updErr } = await sb.from("quests").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", questId).eq("user_id", userId).select("id");
@@ -834,10 +867,12 @@ async function executeAction(sb: any, userId: string, action: MavisAction) {
       if (!updated || updated.length === 0) throw new Error(`quests: complete matched no row for id "${questId}"`);
       // These four touch different rows/columns (profile xp, activity log, skills, rewards), so they run together;
       // they used to run one after another, which made completing a quest the slowest action (~8s average).
+      // Weighted payout: the stated xp_reward held to the difficulty ceiling and scaled for partial multi-step progress.
+      const effXp = weightedXp(Number(quest.xp_reward || 0), String(quest.difficulty || "Normal"), (quest as any).progress_current, (quest as any).progress_target);
       const [, , sefirot] = await Promise.all([
-        awardXP(sb, userId, Number(quest.xp_reward || 0)),
-        logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}`, Number(quest.xp_reward || 0)),
-        bumpLinkedSkillProficiency(sb, userId, asStringArray(quest.linked_skill_ids), Number(quest.xp_reward || 0), String(quest.difficulty || "Normal"), { category: (quest as any).category, title: quest.title }),
+        awardXP(sb, userId, effXp),
+        logActivity(sb, userId, "quest_completed", `Quest completed: ${quest.title}${effXp !== Number(quest.xp_reward || 0) ? ` (xp weighted ${quest.xp_reward} -> ${effXp})` : ""}`, effXp),
+        bumpLinkedSkillProficiency(sb, userId, asStringArray(quest.linked_skill_ids), effXp, String(quest.difficulty || "Normal"), { category: (quest as any).category, title: quest.title }),
         applyQuestCompletionRewards(sb, userId, quest),
       ]);
       return sefirot ? { sefirot } : undefined;
