@@ -4,8 +4,21 @@
 //
 // KEEP IN SYNC with supabase/functions/_shared/speakable.ts (the same function for the edge side; they can't share a file).
 
-export function toSpeakable(input: string): string {
+export interface SpeakableOptions { /** Read database ids aloud (when the operator asked for them, or in an analytical mode). */ speakIds?: boolean }
+
+// Database ids: full UUIDs, and the shortened "ce609c7d..." form models use. They mean nothing when spoken.
+const UUID_RE = /\(?`?\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`?\)?/gi;
+const SHORT_ID_RE = /\(?`?\b[0-9a-f]{8}(?:…|\.{2,3})`?\)?/gi;
+const ID_LABEL_RE = /\b(?:quest|skill|task|entry|note|vault|record)?\s*\bid\s*[:#]?\s*$/gim;
+
+/** Does the operator's request ask to hear ids / numbers? Then ids are spoken instead of dropped. */
+export function asksForIds(userText: string): boolean {
+  return /\b(read|say|tell|give|list|spell|what(?:'s| is| are)?)\b[^.?!]{0,40}\b(ids?|uuids?|identifiers?|id numbers?)\b/i.test(String(userText ?? ""));
+}
+
+export function toSpeakable(input: string, opts: SpeakableOptions = {}): string {
   let t = String(input ?? "");
+  if (!opts.speakIds) t = t.replace(UUID_RE, " ").replace(SHORT_ID_RE, " ").replace(/\(\s*\)/g, " ");
 
   t = t
     // Things that are never spoken
@@ -68,4 +81,4 @@ export function mapSpokenIndex(spokenIndex: number, spokenLength: number, shownL
 // Appended to realtime voice instructions. The model produces the audio itself, so symbols in its output are spoken.
 export const SPOKEN_STYLE_BLOCK = `
 
-SPEAKING STYLE: You are talking out loud. Never say punctuation or formatting symbols aloud: no "dash", "hyphen", "asterisk", "hash", "bullet", "slash", "underscore", "arrow", "pipe" or "bracket". Do not use markdown, bullet characters, numbering symbols or tables. Give lists as natural speech ("first... then... and finally..."), keep sentences short, and say numbers and units the way a person would.`;
+SPEAKING STYLE: You are talking out loud. Never read database ids, UUIDs or id fragments aloud (for example "ce609c7d" or a long string of letters and digits); refer to things by name instead. Only say an id if the operator explicitly asks for it or you are working in an analysis or architecture mode. Never say punctuation or formatting symbols aloud: no "dash", "hyphen", "asterisk", "hash", "bullet", "slash", "underscore", "arrow", "pipe" or "bracket". Do not use markdown, bullet characters, numbering symbols or tables. Give lists as natural speech ("first... then... and finally..."), keep sentences short, and say numbers and units the way a person would.`;

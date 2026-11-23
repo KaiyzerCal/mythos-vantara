@@ -31,6 +31,7 @@ function database(rows: Record<string, any[]>, allowed?: Record<string, string[]
       in(key: string, values: unknown[]) { data = data.filter(row => values.includes(row[key])); return q; },
       contains() { data = []; return q; },
       order() { return q; }, limit() { return q; },
+      range(from: number, to: number) { data = data.slice(from, to + 1); return q; },
       update(value: any) { update = value; return q; },
       insert(value: any) { logs.push(value.description); return q; },
       maybeSingle() { return Promise.resolve({ data: error ? null : data[0], error }); },

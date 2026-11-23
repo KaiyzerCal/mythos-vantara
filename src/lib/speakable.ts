@@ -4,8 +4,21 @@
 //
 // KEEP IN SYNC with supabase/functions/_shared/speakable.ts (the same function for the edge side; they can't share a file).
 
-export function toSpeakable(input: string): string {
+export interface SpeakableOptions { /** Read database ids aloud (when the operator asked for them, or in an analytical mode). */ speakIds?: boolean }
+
+// Database ids: full UUIDs, and the shortened "ce609c7d..." form models use. They mean nothing when spoken.
+const UUID_RE = /\(?`?\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`?\)?/gi;
+const SHORT_ID_RE = /\(?`?\b[0-9a-f]{8}(?:…|\.{2,3})`?\)?/gi;
+const ID_LABEL_RE = /\b(?:quest|skill|task|entry|note|vault|record)?\s*\bid\s*[:#]?\s*$/gim;
+
+/** Does the operator's request ask to hear ids / numbers? Then ids are spoken instead of dropped. */
+export function asksForIds(userText: string): boolean {
+  return /\b(read|say|tell|give|list|spell|what(?:'s| is| are)?)\b[^.?!]{0,40}\b(ids?|uuids?|identifiers?|id numbers?)\b/i.test(String(userText ?? ""));
+}
+
+export function toSpeakable(input: string, opts: SpeakableOptions = {}): string {
   let t = String(input ?? "");
+  if (!opts.speakIds) t = t.replace(UUID_RE, " ").replace(SHORT_ID_RE, " ").replace(/\(\s*\)/g, " ");
 
   t = t
     // Things that are never spoken

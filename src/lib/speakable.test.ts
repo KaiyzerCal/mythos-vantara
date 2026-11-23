@@ -43,3 +43,21 @@ describe("mapSpokenIndex", () => {
     expect(mapSpokenIndex(5, 0, 200)).toBe(200);
   });
 });
+
+import { asksForIds } from "./speakable";
+describe("database ids", () => {
+  it("are not read aloud by default", () => {
+    expect(toSpeakable("Paragon: Equipment Synthesis (`ce609c7d...`) linked to Tramp")).toBe("Paragon: Equipment Synthesis linked to Tramp");
+    expect(toSpeakable("Quest 18e83ba2-0d62-4470-b7c4-6a9d515f6421 is live")).toBe("Quest is live");
+    expect(toSpeakable("Created ID `505af429…` for you")).toBe("Created ID for you");
+  });
+  it("are kept when the operator asks to hear them", () => {
+    expect(toSpeakable("Quest 18e83ba2-0d62-4470-b7c4-6a9d515f6421 is live", { speakIds: true })).toContain("18e83ba2");
+    expect(asksForIds("read me the quest id")).toBe(true);
+    expect(asksForIds("what's the ID number")).toBe(true);
+    expect(asksForIds("how is my day going")).toBe(false);
+  });
+  it("leaves ordinary words and numbers alone", () => {
+    expect(toSpeakable("Seq 9 Torchbearer at 12% since 2026")).toBe("Seq 9 Torchbearer at 12% since 2026");
+  });
+});

@@ -99,8 +99,15 @@ export async function planSefirot(sb: any, userId: string, skillIds: string[]): 
     // Most quests link no Beyonder skill at all; a one-row-per-link check avoids reading the whole ~1,100-row tree for them.
     const { data: linked } = await sb.from("skills").select("category").eq("user_id", userId).in("id", skillIds);
     if (!(linked ?? []).some((r: any) => r.category === "Beyonder")) return null;
-    const { data } = await sb.from("skills").select(COLS).eq("user_id", userId).eq("category", "Beyonder").limit(2000);
-    const all = (data ?? []) as SefSkill[];
+    // The gateway caps every response at 1,000 rows and the Beyonder tree is ~1,350, so read it in pages. A single read dropped
+    // a third of the tree: roots could not be swapped for their current sequence, and convergence and gating missed pathways.
+    const all: SefSkill[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from("skills").select(COLS).eq("user_id", userId).eq("category", "Beyonder").order("id").range(from, from + 999);
+      if (error) throw error;
+      all.push(...((data ?? []) as SefSkill[]));
+      if (!data || data.length < 1000) break;
+    }
     const trunk = all.find((s) => s.is_sovereign_trunk && !s.parent_skill_id) ?? null;
     if (!trunk) return null;
     const byId = new Map(all.map((s) => [s.id, s]));
