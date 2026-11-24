@@ -34,7 +34,7 @@ const ACTOR_CATALOG = [
   { id: "apify/comments-analyzer-agent",               label: "Comments Analyzer",category: "social" },
   { id: "nextapi/reddit-user-analyzer",                label: "Reddit Analyzer",  category: "social" },
   // Leads & Outreach
-  { id: "louisdeconinck/ai-job-search-agent",          label: "Job Search",       category: "leads" },
+  { id: "johnvc/linkedin-jobs-api",                    label: "Job Search",       category: "leads" },
   { id: "code_crafter/leads-finder",                   label: "Leads Finder",     category: "leads" },
   { id: "daniil.poletaev/backlink-building-agent",     label: "Backlink Builder", category: "leads" },
   // Data & Documents
@@ -91,7 +91,8 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const actorId: string = body.actorId ?? "";
+    // The API path takes owner~name; owner/name (the form the skills use) returns 404.
+    const actorId: string = String(body.actorId ?? "").replace("/", "~");
     const input: Record<string, unknown> = body.input ?? {};
     const timeoutSec = Math.min(Number(body.timeout ?? 60), 180);
 
