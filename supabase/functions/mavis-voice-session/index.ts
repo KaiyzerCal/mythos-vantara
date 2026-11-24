@@ -12,6 +12,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// The realtime model is a setting, not a code change: when OpenAI retires a model (gpt-4o-realtime is announced for
+// retirement), set OPENAI_REALTIME_MODEL to the replacement and no deploy is needed. The default is unchanged.
+const REALTIME_MODEL = Deno.env.get("OPENAI_REALTIME_MODEL") || "gpt-4o-realtime-preview-2024-12-17";
 const OPENAI_KEY  = (Deno.env.get("OPENAI_API") ?? Deno.env.get("OPENAI_API_KEY")) ?? "";
 const SB_URL      = Deno.env.get("SUPABASE_URL") ?? "";
 const SB_KEY      = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -98,7 +101,7 @@ serve(async (req) => {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-realtime-preview-2024-12-17",
+      model: REALTIME_MODEL,
       voice: "alloy",
       instructions,
       input_audio_transcription: { model: "whisper-1" },
@@ -117,7 +120,7 @@ serve(async (req) => {
     const errText = await sessionRes.text();
     console.error("[mavis-voice-session] OpenAI error:", errText);
     return new Response(
-      JSON.stringify({ error: `Failed to create voice session: ${sessionRes.status}` }),
+      JSON.stringify({ error: `Failed to create voice session: ${sessionRes.status}`, detail: errText.slice(0, 200) }),
       { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }

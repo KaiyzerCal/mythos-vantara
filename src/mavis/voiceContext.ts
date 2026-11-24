@@ -12,7 +12,27 @@
 // (reusing the exact same formatter as text chat) since picking the right
 // subskill is the whole point.
 import { loadFullAppContext } from "./appContextLoader";
-import { formatBeyonderTree } from "./buildSystemPrompt";
+import { frontierSequence } from "../../supabase/functions/_shared/sefirot";
+
+/**
+ * One compact line per pathway: where the operator is now (the end of the unbroken run of unlocked sequences) and the
+ * highest sequence with any banked progress. The full tree is ~250k characters on a real account, far over the 60k
+ * budget, so it used to be cut off after the first few pathways and the model then reported progression as zero.
+ */
+export function beyonderProgression(beyonderSkills: any[]): string {
+  const roots = beyonderSkills.filter((s) => !s.parent_skill_id)
+    .sort((a, b) => Number(!!b.is_sovereign_trunk) - Number(!!a.is_sovereign_trunk) || a.name.localeCompare(b.name));
+  return roots.map((root) => {
+    const seqs = beyonderSkills.filter((s) => s.parent_skill_id === root.id);
+    const now = frontierSequence(seqs);
+    const banked = seqs.filter((s) => Number(s.proficiency ?? 0) > 0 && (!now || (s.tier ?? 0) > (now.tier ?? 0)))
+      .sort((a, b) => (b.tier ?? 0) - (a.tier ?? 0))[0];
+    const label = (s: any) => `Seq.${10 - (s.tier ?? 0)} ${s.name}`;
+    const here = now ? `now ${label(now)} [${now.id}] ${Number(now.proficiency ?? 0)}%` : "no sequence unlocked";
+    const ahead = banked ? ` | banked ahead: ${label(banked)} ${Number(banked.proficiency ?? 0)}%` : "";
+    return `  [${root.id}] ${root.name}${root.is_sovereign_trunk ? " (trunk)" : ""} | ${here}${ahead}`;
+  }).join("\n");
+}
 
 export async function buildVoiceContext(userId: string): Promise<string> {
   const ctx = await loadFullAppContext(userId);
@@ -24,9 +44,7 @@ export async function buildVoiceContext(userId: string): Promise<string> {
     .map((s) => `  • [${s.id}] ${s.name} | cat:${s.category} | energy:${s.energy_type} | prof:${s.proficiency}%${s.parent_skill_id ? ` | parent:${s.parent_skill_id}` : ""}`)
     .join("\n");
 
-  const beyonderBlock = beyonderSkills.length
-    ? `  BEYONDER PATHWAYS (${beyonderSkills.filter((s) => !s.parent_skill_id).length} pathways, Sequence 9 = least developed down to Sequence 0 = mastery, each sequence has 3 abilities):\n${formatBeyonderTree(beyonderSkills).split("\n").map((l) => `  ${l}`).join("\n")}`
-    : "";
+  const beyonderBlock = beyonderSkills.length ? `  BEYONDER PATHWAYS:\n${beyonderProgression(beyonderSkills)}` : "";
 
   const skillNameById = new Map<string, string>(allSkills.map((s) => [s.id as string, s.name as string]));
   const activeQuests = ((ctx.quests || []) as any[])
