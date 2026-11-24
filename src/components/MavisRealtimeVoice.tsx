@@ -242,7 +242,7 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
       );
 
       if (fnErr || !sessionData?.client_secret?.value) {
-        throw new Error(fnErr?.message ?? sessionData?.error ?? "Failed to get voice session token");
+        throw new Error(fnErr?.message ?? [sessionData?.error, sessionData?.detail].filter(Boolean).join(" — ") ?? "Failed to get voice session token");
       }
 
       const ephemeralKey = sessionData.client_secret.value;
@@ -285,7 +285,7 @@ export function MavisRealtimeVoice({ onClose, context }: MavisRealtimeVoiceProps
 
       // 7. Exchange SDP with OpenAI Realtime API
       const sdpRes = await fetch(
-        "https://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17",
+        `https://api.openai.com/v1/realtime?model=${encodeURIComponent(sessionData.model || "gpt-4o-realtime-preview-2024-12-17")}`,
         {
           method: "POST",
           headers: {

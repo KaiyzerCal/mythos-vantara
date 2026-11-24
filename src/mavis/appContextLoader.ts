@@ -43,6 +43,7 @@ async function safeQuery(table: string, userId: string, cols = "*"): Promise<unk
         .from(table as any)
         .select(cols)
         .eq("user_id", userId)
+        .order("id") // a stable order, or pages can repeat or skip rows
         .range(offset, offset + GATEWAY_PAGE_SIZE - 1);
       if (error) {
         console.warn(`[AppContext] ${table}:`, error.message);
